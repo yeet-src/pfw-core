@@ -1,0 +1,7 @@
+// HPACK-Huffman decode (P2): match a bot in the decoded header stream.
+decode huffman 8080;
+pattern bot = "GPTBot";
+filter {
+  if (scan(payload, 2048) & bot) return rst("huff_bot", 0);
+  return pass;
+}

@@ -61,15 +61,22 @@ Built on top of the base matching ISA (see `docs/primitives.md`):
 
 ```sh
 make bpf              # compile the eBPF backend to bin/app.bpf.o
-npm test              # yeet test — the behavioral conformance suite
-npm run check         # the above + the isa.js <-> pfw.h static guard
+npm test              # the full host suite: test:node then test:unit
+npm run test:unit     # yeet test test/unit — behavioral conformance
+npm run test:node     # node file-reading guards (isa<->header sync, examples)
+npm run test:kernel   # yeet run scripts/verify-load.mjs — the verifier accepts it
 npm run gen:huff      # regenerate bpf/include/huff_table.h from src/huffman.js
 ```
 
-The conformance suite (`test/*.test.mjs`) runs under `yeet test`: it runs real
-programs through the reference interpreter and asserts on the verdict. The
-`isa.js <-> pfw.h` sync is a separate node guard (`test/check-isa.mjs`) because it
-reads the C header, which the test sandbox cannot.
+- **`test/unit/*.test.mjs`** run under `yeet test`: real programs through the
+  reference interpreter, asserting on the verdict. `ops.test.mjs` pins every
+  opcode (with a coverage gate); the others pin each primitive end to end.
+  `test/unit/helpers.mjs` is the shared `fromAsm`/`fromC` harness.
+- **`test/node/*.mjs`** are node scripts for the two checks the yeet sandbox
+  can't do (it has no file I/O): `check-isa.mjs` (the `isa.js` ↔ `pfw.h` enums
+  agree) and `examples.mjs` (every `examples/*.pfc` compiles).
+- **`scripts/verify-load.mjs`** loads the object through `yeetd` so this kernel's
+  verifier judges every program — the root-free counterpart to `make veristat`.
 
 ## Internal imports
 

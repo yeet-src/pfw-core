@@ -1,0 +1,7 @@
+// Source-address targeting (P5): allow an internal range, drop a blocklist.
+filter {
+  if (proto != 6) return pass;
+  if (src in "10.0.0.0/8") return pass;
+  if (src in "203.0.113.0/24") return drop("blocklist");
+  return pass;
+}

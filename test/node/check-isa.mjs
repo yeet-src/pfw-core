@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { OP, REG } from "#/isa.js";
 
-const h = readFileSync(new URL("../bpf/include/pfw.h", import.meta.url), "utf8");
+const h = readFileSync(new URL("../../bpf/include/pfw.h", import.meta.url), "utf8");
 const parseEnum = (nm) => {
   const body = h.match(new RegExp("enum " + nm + "\\s*\\{([\\s\\S]*?)\\}", "m"))[1];
   let val = 0;

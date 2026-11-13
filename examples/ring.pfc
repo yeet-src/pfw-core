@@ -1,0 +1,8 @@
+// Per-flow ring (P3): reset a connection once it sends too many data segments.
+reassemble 8080;
+filter {
+  if (len == 0) return pass;
+  ring.push(len);
+  if (ring.len >= 8) return rst("too_many_segments", 0);
+  return pass;
+}

@@ -2,12 +2,8 @@
  * length-prefixed records. The point is structure-awareness, so the key case is
  * that the same "GPTBot" bytes trigger only inside a record of the targeted type
  * and never bleed across a record edge. */
-import { compile } from "#/clang.js";
-import { assemble } from "#/asm.js";
-import { build } from "#/ac.js";
-import { machine, V } from "#/interp.js";
+import { fromC, V, enc } from "./helpers.mjs";
 
-const enc = new TextEncoder();
 /* h2-style frame: 9-byte header (len be24 @0, type u8 @3), then the payload. */
 function frameBytes(type, payload) {
   const p = enc.encode(payload);
@@ -20,7 +16,7 @@ const cat = (...a) => { const o = new Uint8Array(a.reduce((s, x) => s + x.length
 const SET = (s) => frameBytes(4, s);  // SETTINGS
 const HDR = (s) => frameBytes(1, s);  // HEADERS
 
-const c = compile(`
+const { run } = fromC(`
 pattern bot = "GPTBot";
 filter {
   if (proto != 6) return pass;
@@ -31,11 +27,7 @@ filter {
   }
   return pass;
 }`);
-if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
-const asm = assemble(c.asm);
-if (!asm.ok) throw new Error("assemble: " + JSON.stringify(asm.errors));
-const run = machine({ asm, tables: build(asm.patterns, asm.nocase) });
-const verdict = (buf) => run(buf, 0, { ac: 0, mask: 0n }, { proto: 6 }).verdict === V.RST ? "rst" : "pass";
+const verdict = (buf) => run(buf, {}, { proto: 6 }).verdict === V.RST ? "rst" : "pass";
 const want = (name, buf, exp) => { const got = verdict(buf); if (got !== exp) throw new Error(`${name}: ${got} (want ${exp})`); };
 
 yeet.test("GPTBot in a HEADERS frame resets", () => want("headers", cat(SET("hello"), HDR("ua=GPTBot/1")), "rst"));

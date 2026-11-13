@@ -11,9 +11,10 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "test": "yeet test test",
-    "check:isa": "node test/check-isa.mjs",
-    "check": "node test/check-isa.mjs && yeet test test",
+    "test": "npm run test:node && npm run test:unit",
+    "test:unit": "yeet test test/unit",
+    "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs",
+    "test:kernel": "yeet run scripts/verify-load.mjs",
     "gen:huff": "node src/huffman.js",
     "bpf": "make bpf"
   },
@@ -21,6 +22,7 @@
     "src",
     "bpf",
     "build",
+    "examples",
     "Makefile",
     "docs"
   ]

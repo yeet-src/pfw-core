@@ -1,0 +1,7 @@
+// General loadable transform (P2): decode a byte-shifted stream, then match.
+decode unshift1 8080;
+pattern bot = "GPTBot";
+filter {
+  if (scan(payload, 2048) & bot) return rst("obfuscated_bot", 0);
+  return pass;
+}

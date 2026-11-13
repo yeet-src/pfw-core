@@ -1,20 +1,16 @@
 /* CIDR op (P5): assemble a `cidr` rule and run it through the reference
  * interpreter over a spread of source addresses, including the mask boundaries. */
-import { assemble } from "#/asm.js";
-import { build } from "#/ac.js";
-import { machine, V } from "#/interp.js";
+import { fromAsm, V } from "./helpers.mjs";
 
 const ip = (s) => s.split(".").reduce((a, o) => ((a << 8) | Number(o)) >>> 0, 0) >>> 0;
 
 const inCidr = (cidr, addr) => {
-  const asm = assemble(`        mov     %saddr, %cur
+  const { run } = fromAsm(`        mov     %saddr, %cur
         cidr    ${cidr}
         je      hit
         pass
 hit:    rst     $1, $0`);
-  if (!asm.ok) throw new Error(cidr + ": " + JSON.stringify(asm.errors));
-  const run = machine({ asm, tables: build(asm.patterns, asm.nocase) });
-  return run(new Uint8Array(40), 0, { ac: 0, mask: 0n }, { saddr: ip(addr), proto: 6, dport: 8080 }).verdict === V.RST;
+  return run(new Uint8Array(40), {}, { saddr: ip(addr), proto: 6, dport: 8080 }).verdict === V.RST;
 };
 
 const groups = {

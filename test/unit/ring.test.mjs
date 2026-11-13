@@ -1,18 +1,12 @@
 /* Per-flow ring (P3): push / newest-wins get / len / eviction at RING_CAP /
  * out-of-range. Each program ends in rst("ok") only if every assertion held,
  * else drop(reason) — so a break names the invariant that failed. */
-import { compile } from "#/clang.js";
-import { assemble } from "#/asm.js";
-import { build } from "#/ac.js";
-import { machine, V } from "#/interp.js";
+import { fromC, V } from "./helpers.mjs";
 
 const ok = (src) => {
-  const c = compile(src);
-  if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
-  const asm = assemble(c.asm);
-  if (!asm.ok) throw new Error("assemble: " + JSON.stringify(asm.errors));
-  const res = machine({ asm, tables: build(asm.patterns, asm.nocase) })(new Uint8Array(8), 0, { ac: 0, mask: 0n }, { proto: 6, dport: 8080 });
-  if (res.verdict !== V.RST) throw new Error("broke invariant: " + (asm.rules[res.rule]?.name ?? res.rule));
+  const { run, rules } = fromC(src);
+  const res = run(new Uint8Array(8), {}, { proto: 6, dport: 8080 });
+  if (res.verdict !== V.RST) throw new Error("broke invariant: " + (rules[res.rule]?.name ?? res.rule));
 };
 
 yeet.test("order & length", () => ok(`filter {
