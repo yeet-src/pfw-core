@@ -7,24 +7,35 @@
 
 #include "pfw_common.h"
 
+/* Modular link mode. One unit defines the maps and globals (it does
+ * `#define PFW_MAPS_DEFINE` before including this); every other unit gets
+ * `extern` declarations and the BPF static linker (bpftool gen object) resolves
+ * them to the single definition. Define-everywhere would make the linker reject
+ * the duplicate map symbols. */
+#ifdef PFW_MAPS_DEFINE
+#  define PFW_LINK
+#else
+#  define PFW_LINK extern
+#endif
+
 /* ---- control and counters, read and patched from the host ---------------- */
 
-volatile __u32 active;          /* the generation packets run */
-volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full;
+PFW_LINK volatile __u32 active;          /* the generation packets run */
+PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full;
 /* Reassembly accounting (reasm-mode programs): segments skipped as
  * retransmits, forward-gap resyncs, flows joined mid-stream (fail closed),
  * and segments that overran the reassembly buffer (fail closed). */
-volatile __u64 reasm_retrans, reasm_gaps, reasm_midjoin, reasm_over;
+PFW_LINK volatile __u64 reasm_retrans, reasm_gaps, reasm_midjoin, reasm_over;
 
 /* Per-packet decision time: total nanoseconds spent evaluating the
  * program (summed over `ran` packets) and a histogram of it. The bucket
  * bounds, in ns, are mirrored on the host. */
-volatile __u64 decide_ns;
+PFW_LINK volatile __u64 decide_ns;
 /* decide_hist: the decision-time histogram, one slot per bucket (bounds
  * are DECIDE_BOUNDS in pfw.h, the last bucket is +inf). A per-CPU array
  * rather than a global: every CPU counts in its own slot with no shared
  * cache line, and the host sums the slots when it scrapes. */
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, DECIDE_BUCKETS);
     __type(key, __u32);
@@ -34,54 +45,54 @@ struct {
 #define DECIDE_COUNT_ONE(n) +1
 _Static_assert((0 DECIDE_BOUNDS(DECIDE_COUNT_ONE)) == DECIDE_BUCKETS - 1, "DECIDE_BOUNDS must list DECIDE_BUCKETS - 1 bounds");
 _Static_assert((DECIDE_BUCKETS & (DECIDE_BUCKETS - 1)) == 0, "DECIDE_BUCKETS must be a power of two: the index is masked");
-volatile __u64 scanned_bytes;  /* bytes the automaton walked (L7 inspection volume) */
-volatile __u64 flows_created;  /* flow-table entries opened (connection tracking rate) */
+PFW_LINK volatile __u64 scanned_bytes;  /* bytes the automaton walked (L7 inspection volume) */
+PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection tracking rate) */
 
 /* ---- maps ---------------------------------------------------------------- */
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, PFW_GENS);
     __type(key, __u32);
     __type(value, struct pfw_prog);
 } programs SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, PFW_GENS * AC_STATES * 256);
     __type(key, __u32);
     __type(value, __u16);
 } ac_goto SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, PFW_GENS * AC_STATES);
     __type(key, __u32);
     __type(value, __u16);
 } ac_fail SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, PFW_GENS * AC_STATES);
     __type(key, __u32);
     __type(value, __u64);
 } ac_accept SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __uint(max_entries, MAX_FLOWS);
     __type(key, struct flow_key);
     __type(value, struct flow);
 } flows SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, PFW_NRULES);
     __type(key, __u32);
     __type(value, __u64);
 } counters SEC(".maps");
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
     __uint(max_entries, 1 << 20);
 } events SEC(".maps");
@@ -121,7 +132,7 @@ struct pfw_state {
     __u32 tf_table; /* DECODE_TRANSFORM: active tt_cells table id, set by the entry */
 };
 
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __uint(max_entries, 1);
     __type(key, __u32);
@@ -132,7 +143,7 @@ struct {
  * table_id * TT_CELLS + (state * 16 + nibble). A per-cell array map (not one
  * big value indexed by a variable offset) is what lets pfw_transform's decode
  * loop verify over a full window — the same reason the automaton lives here. */
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, TT_NTABLES * TT_CELLS);
     __type(key, __u32);
@@ -141,7 +152,7 @@ struct {
 
 /* A zeroed flow lives in rodata, not on the 512-byte BPF stack: the flow
  * struct now carries a REASM_CAP buffer and will not fit as a local. */
-static const struct flow zero_flow;
+PFW_LINK const struct flow zero_flow;
 
 /* Tail-call targets: the entry (pfw_xdp) reassembles, then tail-calls the
  * decoder (which decodes and tail-calls the matcher) or the matcher directly.
@@ -153,7 +164,7 @@ static const struct flow zero_flow;
 #define SLOT_RESOLVE   2
 #define SLOT_HUFF      3
 #define SLOT_TRANSFORM 4
-struct {
+PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
     __uint(max_entries, 5);
     __type(key, __u32);
