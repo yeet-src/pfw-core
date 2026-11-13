@@ -19,12 +19,11 @@ export function fromAsm(src) {
   return { run: (frame = new Uint8Array(64), flow = {}, opts = {}) => m(frame, 0, { ac: 0, mask: 0n, ...flow }, opts), rules: asm.rules, program: asm.program };
 }
 
-/* Compile pfw-C `src` (then assemble) and return the same shape. */
+/* Compile pfw-C `src` and return the same shape (compile builds the program
+ * directly via the Builder — no assembly-text round-trip). */
 export function fromC(src) {
   const c = compile(src);
   if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
-  const a = assemble(c.asm);
-  if (!a.ok) throw new Error("assemble: " + JSON.stringify(a.errors));
-  const m = machine({ asm: a, tables: build(a.patterns, a.nocase) });
-  return { run: (frame = new Uint8Array(64), flow = {}, opts = {}) => m(frame, 0, { ac: 0, mask: 0n, ...flow }, opts), rules: a.rules, program: c.program };
+  const m = machine({ asm: { program: c.program }, tables: build(c.patterns, c.nocase) });
+  return { run: (frame = new Uint8Array(64), flow = {}, opts = {}) => m(frame, 0, { ac: 0, mask: 0n, ...flow }, opts), rules: c.rules, program: c.program };
 }

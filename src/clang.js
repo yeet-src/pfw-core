@@ -31,7 +31,8 @@
  * live at once. Jumps are forward-only, so a local's live range is simply
  * the span from its first write to its last read in emission order.
  */
-import { assemble } from "#/asm.js";
+import { Builder, opText } from "#/builder.js";
+import { DECODE, REG } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 
 const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src"]);
@@ -510,162 +511,130 @@ function parse(toks) {
   return { patterns, macros, nocase, reasm, reasmDport, decode, body };
 }
 
-/* ---- codegen: AST → assembly text ---------------------------------------- */
+/* ---- codegen: AST → ops, via the shared Builder ------------------------- */
+
+const ESC = { "\\n": 10, "\\r": 13, "\\t": 9, "\\0": 0, "\\\\": 92, "\\'": 39, '\\"': 34 };
+
+/* Decode a pfw-C string literal's inner text to bytes (for a pattern). */
+function unescapeStr(body) {
+  const out = [];
+  for (let i = 0; i < body.length; i++) {
+    if (body[i] !== "\\") { out.push(body.charCodeAt(i) & 0xff); continue; }
+    const two = body.slice(i, i + 2);
+    if (body[i + 1] === "x") { out.push(parseInt(body.slice(i + 2, i + 4), 16)); i += 3; }
+    else if (two in ESC) { out.push(ESC[two]); i += 1; }
+    else { out.push(body.charCodeAt(i + 1) & 0xff); i += 1; }
+  }
+  return out;
+}
 
 function codegen(ast) {
-  const out = [];
-  const emit = (s) => out.push("        " + s);
-  const label = (l) => out.push(l + ":");
-  let nLabel = 0;
+  const bld = new Builder();
+  let nLabel = 0, nStr = 0, nTmp = 0;
   const fresh = () => `L${nLabel++}`;
-
   const declared = new Set(ast.patterns.map((p) => p.name));
-  const extraPats = [];
-  let nStr = 0;
-  let nTmp = 0;
-  const scratch = new Map(); // local name → virtual register vN
-  const vregs = []; // vN → { name, line }, for the allocator's diagnostics
-  const masks = new Set(); // mask var names
+  const scratch = new Map(); // local name → virtual-register token from bld.vreg()
+  const masks = new Set();
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
-  const expanding = new Set(); // macros mid-expansion, to catch recursion
-  const frameScope = []; // stack of { len, type, data } scratch regs, for frame.X
+  const expanding = new Set();
+  const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
 
-  const die = (msg, line) => {
-    throw new CError(msg, line);
-  };
-
-  /* A character literal → its byte number as an asm immediate. */
+  const die = (msg, line) => { throw new CError(msg, line); };
   const charImm = (text) => {
-    const map = { "\\n": 10, "\\r": 13, "\\t": 9, "\\0": 0, "\\\\": 92, "\\'": 39, "\\\"": 34 };
+    const map = { "\\n": 10, "\\r": 13, "\\t": 9, "\\0": 0, "\\\\": 92, "\\'": 39, '\\"': 34 };
     if (text in map) return map[text];
     if (text.startsWith("\\x")) return parseInt(text.slice(2), 16);
     return text.charCodeAt(0);
   };
-
-  const patArg = (e) => {
-    if (e.kind === "ref") {
-      if (!declared.has(e.name)) die(`no pattern \`${e.name}\``, e.line);
-      return e.name;
-    }
-    if (e.kind === "string") {
-      const name = `__s${nStr++}`;
-      extraPats.push(`.pat  ${name}, "${e.text}"`);
-      declared.add(name);
-      return name;
-    }
-    die("expected a pattern name or a \"string\"", e.line);
+  const immVal = (e) => {
+    if (e.kind === "num") return BigInt(e.text);
+    if (e.kind === "char") return BigInt(charImm(e.text));
+    die("expected a number", e.line);
   };
 
-  /* Pattern-mask term `a | b` → `$a|$b` for `test`. */
-  const maskTerm = (e) => {
-    if (e.kind === "por") return `${maskTerm(e.a)}|${maskTerm(e.b)}`;
-    if (e.kind === "ref" && declared.has(e.name)) return `$${e.name}`;
+  /* Register every declared pattern with the Builder up front, so patId works
+   * wherever the body references one. */
+  for (const p of ast.patterns) {
+    const bytes = p.def.kind === "string"
+      ? unescapeStr(p.def.text)
+      : p.def.bytes.map((b) => (b.kind === "num" ? Number(b.text.startsWith("0x") ? parseInt(b.text, 16) : b.text) : charImm(b.text.replace(/^'|'$/g, ""))));
+    bld.pat(p.name, bytes);
+  }
+
+  /* A string-literal pattern used inline: declare it on the fly, return its name. */
+  const patArg = (e) => {
+    if (e.kind === "ref") { if (!declared.has(e.name)) die(`no pattern \`${e.name}\``, e.line); return e.name; }
+    if (e.kind === "string") { const name = `__s${nStr++}`; bld.pat(name, unescapeStr(e.text)); declared.add(name); return name; }
+    die('expected a pattern name or a "string"', e.line);
+  };
+  const patBit = (name) => 1n << BigInt(bld.patId(name));
+  const maskBits = (e) => {
+    if (e.kind === "por") return maskBits(e.a) | maskBits(e.b);
+    if (e.kind === "ref" && declared.has(e.name)) return patBit(e.name);
     die("expected a pattern name", e.line);
   };
 
-  /* any(...) / all(...) / seq(...): the first argument is scan(...) or a
-   * mask variable (so %m holds a scan result); the rest are patterns.
-   * Returns the validated pattern names. */
   const matchGroup = (e, min) => {
     const args = e.args;
     if (!args.length) die(`${e.name}(...) needs a scan or mask, then patterns`, e.line);
     const first = args[0];
     if (first.kind === "call" && first.name === "scan") doScan(first);
-    else if (!(first.kind === "ref" && masks.has(first.name)))
-      die(`first argument of ${e.name}(...) must be scan(...) or a mask variable`, e.line);
+    else if (!(first.kind === "ref" && masks.has(first.name))) die(`first argument of ${e.name}(...) must be scan(...) or a mask variable`, e.line);
     const pats = args.slice(1).map((a) => patArg(a));
-    if (pats.length < min)
-      die(`${e.name}(...) needs at least ${min} pattern${min > 1 ? "s" : ""}`, e.line);
+    if (pats.length < min) die(`${e.name}(...) needs at least ${min} pattern${min > 1 ? "s" : ""}`, e.line);
     return pats;
   };
 
-  const imm = (e) => {
-    if (e.kind === "num") return e.text;
-    if (e.kind === "char") return String(charImm(e.text));
-    die("expected a number", e.line);
-  };
-
-  /* The scratch register for frame.len/type/data at the current nesting, or a
-   * compile error if used outside a frame body or for an undeclared field. */
   const frameReg = (field, line) => {
     const fr = frameScope[frameScope.length - 1];
     if (!fr) die(`frame.${field} is only valid inside a \`frame\` body`, line);
     if (!fr[field]) die(`this frame has no \`${field}\` field`, line);
     return fr[field];
   };
+  const allocScratch = (name, line) => { const t = bld.vreg(name, line); scratch.set(name, t); return t; };
+  /* A register name or local → its index / vreg token for a Builder call. */
+  const regOf = (name) => (REGISTERS.has(name) ? REG[name] : scratch.get(name));
 
-  /* Leave a pointer/offset value in %cur. */
+  /* Leave a pointer/offset in %cur. */
   const loadPtr = (e) => {
-    if (e.kind === "framefield") return emit(`mov     %${frameReg(e.field, e.line)}, %cur`);
+    if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
     if (e.kind === "ref") {
-      if (REGISTERS.has(e.name)) return emit(`mov     %${e.name}, %cur`);
-      if (scratch.has(e.name)) return emit(`mov     %${scratch.get(e.name)}, %cur`);
+      if (REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
+      if (scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
       die(`\`${e.name}\` is not a pointer`, e.line);
     }
-    if (e.kind === "call" && e.name === "after") {
-      if (e.args.length !== 1) die("after(pattern)", e.line);
-      return emit(`mpos    $${patArg(e.args[0])}, %cur`);
-    }
-    if (e.kind === "call" && e.name === "find") {
-      if (e.args.length !== 3) die("find(ptr, 'c', len)", e.line);
-      loadPtr(e.args[0]);
-      return emit(`findb   $${imm(e.args[1])}, $${imm(e.args[2])}`);
-    }
+    if (e.kind === "call" && e.name === "after") { if (e.args.length !== 1) die("after(pattern)", e.line); return bld.mpos(bld.patId(patArg(e.args[0]))); }
+    if (e.kind === "call" && e.name === "find") { if (e.args.length !== 3) die("find(ptr, 'c', len)", e.line); loadPtr(e.args[0]); return bld.findb(Number(immVal(e.args[1])), immVal(e.args[2])); }
     die("expected a pointer (payload, a ptr variable, after(...), find(...))", e.line);
   };
+  const doScan = (e) => { if (e.args.length !== 2) die("scan(ptr, len)", e.line); loadPtr(e.args[0]); bld.scan(immVal(e.args[1])); };
 
-  /* Emit a scan and leave the mask in %m. */
-  const doScan = (e) => {
-    if (e.args.length !== 2) die("scan(ptr, len)", e.line);
-    loadPtr(e.args[0]);
-    emit(`scan    $${imm(e.args[1])}, (%cur)`);
-  };
-
-  /* A fresh virtual register for a local. The real register is picked
-   * after codegen (see allocRegs), once every live range is known. */
-  const allocScratch = (name, line) => {
-    const reg = `v${vregs.length}`;
-    vregs.push({ name, line });
-    scratch.set(name, reg);
-    return reg;
-  };
-
-  /* A frame header field → the ops that leave its value in %cur (cursor at the
-   * record start). Big-endian on-the-wire sizes, plus little-endian u16/u32. */
+  /* Frame header field → the Builder ops that leave its value in %cur. */
   const FIELD_LOAD = {
-    u8: (o) => [`movb    ${o}(%cur), %cur`],
-    u16: (o) => [`movw    ${o}(%cur), %cur`],
-    u32: (o) => [`movl    ${o}(%cur), %cur`],
-    be16: (o) => [`movbew  ${o}(%cur), %cur`],
-    be24: (o) => [`movbel  ${o}(%cur), %cur`, `shr     $8, %cur`], // top 3 of 4 bytes
-    be32: (o) => [`movbel  ${o}(%cur), %cur`],
+    u8: (o) => bld.load(1, false, BigInt(o)),
+    u16: (o) => bld.load(2, false, BigInt(o)),
+    u32: (o) => bld.load(4, false, BigInt(o)),
+    be16: (o) => bld.load(2, true, BigInt(o)),
+    be24: (o) => { bld.load(4, true, BigInt(o)); bld.shrImm(8n); }, // top 3 of 4 bytes
+    be32: (o) => bld.load(4, true, BigInt(o)),
   };
 
-  /* Lower a `frame` by unrolling the body up to MAX times — forward-only, so the
-   * ISA's termination guarantee holds by construction and no backward jump or
-   * kernel loop is needed. Each copy: stop if the header runs past %end, read
-   * the fields into scratch (frame.len / .type / .data), run the body, then
-   * advance the cursor head+len to the next record. */
+  /* `frame` unrolled up to MAX times (forward-only ⇒ termination by construction),
+   * narrowing %end to each record so a body scan/load stays inside it. */
   const frameLower = (s) => {
     const f = s.fields;
     if (!f.len) die("frame needs a `len` field, e.g. `len = be16 @ 0`", s.line);
     if (f.head === undefined) die("frame needs `head = N` (the header byte count)", s.line);
     if (!FIELD_LOAD[f.len.ftype]) die(`frame len type \`${f.len.ftype}\` (u8|u16|u32|be16|be24|be32)`, s.line);
-    if (f.type && !FIELD_LOAD[f.type.ftype]) die(`frame type field \`${f.type.ftype}\` (u8|u16|u32|be16|be24|be32)`, s.line);
+    if (f.type && !FIELD_LOAD[f.type.ftype]) die(`frame type field \`${f.type.ftype}\``, s.line);
     if (!Number.isInteger(f.head) || f.head < 1 || f.head > 255) die("frame `head` is 1..255", s.line);
     const max = Number(s.max);
     if (!Number.isInteger(max) || max < 1 || max > 64) die("frame `up to N` is 1..64", s.line);
 
-    /* Save the real end first (this clobbers the cursor), then position the
-     * cursor at the first record. Each record narrows %end to its own extent so
-     * the body's scans/loads stay inside the record, then restores it. The
-     * cursor holds the record start at the top of every iteration — from the
-     * start expression on the first, from the previous advance after. */
     const realend = allocScratch(`__fe${nTmp++}`, s.line);
-    emit(`mov     %end, %cur`);
-    emit(`mov     %cur, %${realend}`);
-    if (s.start) loadPtr(s.start);
-    else emit(`mov     %payload, %cur`);
+    bld.movToCur(REG.end);
+    bld.movFromCur(realend);
+    if (s.start) loadPtr(s.start); else bld.movToCur(REG.payload);
 
     const done = fresh();
     for (let i = 0; i < max; i++) {
@@ -673,329 +642,185 @@ function codegen(ast) {
       const flen = allocScratch(`__fl${nTmp}`, s.line);
       const ftype = f.type ? allocScratch(`__ft${nTmp}`, s.line) : null;
       const fdata = allocScratch(`__fd${nTmp++}`, s.line);
-      emit(`mov     %cur, %${rec}`);           // record start
-      emit(`add     $${f.head}, %cur`);
-      emit(`cmp     %${realend}, %cur`);
-      emit(`ja      ${done}`);                 // header runs past the data: stop
-      emit(`mov     %cur, %${fdata}`);         // frame.data = rec + head
-      emit(`mov     %${rec}, %cur`);
-      FIELD_LOAD[f.len.ftype](f.len.off).forEach(emit);
-      emit(`mov     %cur, %${flen}`);          // frame.len
-      if (f.type) {
-        emit(`mov     %${rec}, %cur`);
-        FIELD_LOAD[f.type.ftype](f.type.off).forEach(emit);
-        emit(`mov     %cur, %${ftype}`);       // frame.type
-      }
-      // narrow %end to this record's end = min(rec+head+len, realend)
-      emit(`mov     %${fdata}, %cur`);
-      emit(`add     %${flen}, %cur`);
+      bld.movFromCur(rec);                 // record start
+      bld.addImm(BigInt(f.head));
+      bld.cmpReg(realend);
+      bld.ja(done);                        // header runs past the data: stop
+      bld.movFromCur(fdata);               // frame.data = rec + head
+      bld.movToCur(rec);
+      FIELD_LOAD[f.len.ftype](f.len.off);
+      bld.movFromCur(flen);                // frame.len
+      if (f.type) { bld.movToCur(rec); FIELD_LOAD[f.type.ftype](f.type.off); bld.movFromCur(ftype); }
+      // narrow %end to min(rec + head + len, realend)
+      bld.movToCur(fdata);
+      bld.addReg(flen);
       const okEnd = fresh();
-      emit(`cmp     %${realend}, %cur`);
-      emit(`jbe     ${okEnd}`);
-      emit(`mov     %${realend}, %cur`);
-      label(okEnd);
-      emit(`mov     %cur, %end`);
+      bld.cmpReg(realend);
+      bld.jbe(okEnd);
+      bld.movToCur(realend);
+      bld.label(okEnd);
+      bld.movFromCur(REG.end);
       frameScope.push({ len: flen, type: ftype, data: fdata });
       stmt(s.body);
       frameScope.pop();
-      emit(`mov     %${realend}, %cur`);       // restore the real end
-      emit(`mov     %cur, %end`);
-      emit(`mov     %${rec}, %cur`);           // advance to the next record
-      emit(`add     $${f.head}, %cur`);
-      emit(`add     %${flen}, %cur`);
+      bld.movToCur(realend);               // restore the real end
+      bld.movFromCur(REG.end);
+      bld.movToCur(rec);                   // advance to the next record
+      bld.addImm(BigInt(f.head));
+      bld.addReg(flen);
     }
-    label(done);
+    bld.label(done);
   };
 
-  /* condition → forward jumps. One of jumpIfFalse / jumpIfTrue. */
   const INV = { "==": "jne", "!=": "je", "<": "jae", ">": "jbe", "<=": "ja", ">=": "jb" };
   const DIR = { "==": "je", "!=": "jne", "<": "jb", ">": "ja", "<=": "jbe", ">=": "jae" };
+  const ARITH_I = { "+": "addImm", "-": "subImm", "&": "andImm", "|": "orImm", "<<": "shlImm", ">>": "shrImm" };
+  const ARITH_R = { "+": "addReg", "-": "subReg" };
+
+  const cidrParts = (text, line) => {
+    const m = String(text).replace(/^\$/, "").match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+    if (!m) die(`bad CIDR \`${text}\``, line);
+    const oct = m.slice(1, 5).map(Number), prefix = Number(m[5]);
+    if (oct.some((x) => x > 255) || prefix > 32) die(`bad CIDR \`${text}\``, line);
+    return { net: ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0, prefix };
+  };
 
   const value = (e) => {
-    /* a comparable integer value into %cur */
-    if (e.kind === "flowstate") return emit(`sload   %cur`);
-    if (e.kind === "flowcount") return emit(`bump    %cur`);
-    if (e.kind === "ringlen") return emit(`rlen    %cur`);
-    if (e.kind === "ringget") { value(e.idx); return emit(`rget    %cur`); }
-    if (e.kind === "framefield") return emit(`mov     %${frameReg(e.field, e.line)}, %cur`);
-    if (e.kind === "num" || e.kind === "char") return loadConst(imm(e));
-    if (e.kind === "ref" && REGISTERS.has(e.name)) return emit(`mov     %${e.name}, %cur`);
-    if (e.kind === "ref" && scratch.has(e.name)) return emit(`mov     %${scratch.get(e.name)}, %cur`);
+    if (e.kind === "flowstate") return bld.sload();
+    if (e.kind === "flowcount") return bld.bump();
+    if (e.kind === "ringlen") return bld.rlen();
+    if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
+    if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
+    if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
+    if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
+    if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     die(`\`${e.kind === "ref" ? e.name : e.kind}\` is not a readable value`, e.line);
   };
+  const loadConst = (n) => { bld.andImm(0n); if (n !== 0n) bld.addImm(n); };
 
-  /* Put an integer constant into %cur: zero it, then add. */
-  const loadConst = (n) => {
-    emit(`and     $0, %cur`);
-    if (String(n) !== "0") emit(`add     $${n}, %cur`);
-  };
-
-  /* The immediate form of each value operator. */
-  const ARITH_I = { "+": "add", "-": "sub", "&": "and", "|": "or", "<<": "shl", ">>": "shr" };
-  /* The register form — only + and - have one. */
-  const ARITH_R = { "+": "add", "-": "sub" };
-
-  /* Materialize any value (register, state, counter, constant, a pointer
-   * expression, or an arithmetic expression) into %cur — used by `let`
-   * and assignment. Arithmetic folds left to right: no precedence, so
-   * parenthesize if you mean otherwise. */
-  const materialize = (e) => {
-    if (e.kind === "arith") {
-      materialize(e.a);
-      const op = e.op;
-      if (e.b.kind === "num" || e.b.kind === "char") {
-        return emit(`${ARITH_I[op]}     $${imm(e.b)}, %cur`);
-      }
-      const rb = stableReg(e.b);
-      if (rb) {
-        if (!ARITH_R[op])
-          die(`\`${op}\` needs a constant on the right (only + and - take a register)`, e.line);
-        return emit(`${ARITH_R[op]}     %${rb}, %cur`);
-      }
-      /* RHS needs %cur (e.g. flow.count or a nested expression). Only +
-       * is commutative enough to combine without a reversed op. */
-      if (op !== "+")
-        die(`\`${op}\` needs a constant or a plain register on the right`, e.line);
-      const tmp = allocScratch(`__a${nTmp++}`, e.line);
-      emit(`mov     %cur, %${tmp}`);
-      materialize(e.b);
-      return emit(`add     %${tmp}, %cur`);
-    }
-    if (e.kind === "flowstate" || e.kind === "flowcount" || e.kind === "ringlen" || e.kind === "ringget" || e.kind === "num" || e.kind === "char")
-      return value(e);
-    if (e.kind === "ref" && REGISTERS.has(e.name)) return emit(`mov     %${e.name}, %cur`);
-    if (e.kind === "ref" && scratch.has(e.name)) return emit(`mov     %${scratch.get(e.name)}, %cur`);
-    /* otherwise treat as a pointer/offset expression */
-    return loadPtr(e);
-  };
-
-  /* Name of a register holding a stable value, or null if it needs %cur. */
   const stableReg = (e) => {
-    if (e.kind === "ref" && REGISTERS.has(e.name)) return e.name;
+    if (e.kind === "ref" && REGISTERS.has(e.name)) return REG[e.name];
     if (e.kind === "ref" && scratch.has(e.name)) return scratch.get(e.name);
     return null;
   };
 
+  const materialize = (e) => {
+    if (e.kind === "arith") {
+      materialize(e.a);
+      const op = e.op;
+      if (e.b.kind === "num" || e.b.kind === "char") return bld[ARITH_I[op]](immVal(e.b));
+      const rb = stableReg(e.b);
+      if (rb !== null) { if (!ARITH_R[op]) die(`\`${op}\` needs a constant on the right (only + and - take a register)`, e.line); return bld[ARITH_R[op]](rb); }
+      if (op !== "+") die(`\`${op}\` needs a constant or a plain register on the right`, e.line);
+      const tmp = allocScratch(`__a${nTmp++}`, e.line);
+      bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
+    }
+    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char"].includes(e.kind)) return value(e);
+    if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
+    if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
+    return loadPtr(e);
+  };
+
   const cmpToFlags = (e) => {
-    /* integer comparison: LHS into %cur, then cmp against the RHS. */
-    if (e.b.kind === "num" || e.b.kind === "char") {
-      value(e.a);
-      return emit(`cmp     $${imm(e.b)}, %cur`);
-    }
+    if (e.b.kind === "num" || e.b.kind === "char") { value(e.a); return bld.cmpImm(immVal(e.b)); }
     const rb = stableReg(e.b);
-    if (rb) {
-      value(e.a);
-      return emit(`cmp     %${rb}, %cur`);
-    }
-    /* RHS needs %cur (flow.count/flow.state or an expression): compute it
-     * into a temp local first, then the LHS, then compare. */
+    if (rb !== null) { value(e.a); return bld.cmpReg(rb); }
     const tmp = allocScratch(`__cmp${nTmp++}`, e.line);
-    materialize(e.b);
-    emit(`mov     %cur, %${tmp}`);
-    value(e.a);
-    emit(`cmp     %${tmp}, %cur`);
+    materialize(e.b); bld.movFromCur(tmp); value(e.a); bld.cmpReg(tmp);
+  };
+
+  const bandTest = (e) => {
+    if (e.a.kind === "call" && e.a.name === "scan") doScan(e.a);
+    else if (!(e.a.kind === "ref" && masks.has(e.a.name))) die("left of & must be scan(...) or a mask variable", e.line);
+    bld.test(maskBits(e.b));
   };
 
   const jumpIfFalse = (e, L) => {
     switch (e.kind) {
-      case "not":
-        return jumpIfTrue(e.e, L);
-      case "and":
-        jumpIfFalse(e.a, L);
-        jumpIfFalse(e.b, L);
-        return;
-      case "or": {
-        const cont = fresh();
-        jumpIfTrue(e.a, cont);
-        jumpIfFalse(e.b, L);
-        label(cont);
-        return;
-      }
-      case "cmp":
-        cmpToFlags(e);
-        return emit(`${INV[e.op]}     ${L}`);
-      case "incidr":
-        value(e.a);
-        emit(`cidr    ${e.cidr}`);
-        return emit(`jne     ${L}`); // not in the network → ZF clear
-      case "band":
-        if (e.a.kind === "call" && e.a.name === "scan") doScan(e.a);
-        else if (!(e.a.kind === "ref" && masks.has(e.a.name))) die("left of & must be scan(...) or a mask variable", e.line);
-        emit(`test    ${maskTerm(e.b)}, %m`);
-        return emit(`je      ${L}`);
+      case "not": return jumpIfTrue(e.e, L);
+      case "and": jumpIfFalse(e.a, L); jumpIfFalse(e.b, L); return;
+      case "or": { const cont = fresh(); jumpIfTrue(e.a, cont); jumpIfFalse(e.b, L); bld.label(cont); return; }
+      case "cmp": cmpToFlags(e); return bld[INV[e.op]](L);
+      case "incidr": { value(e.a); const { net, prefix } = cidrParts(e.cidr, e.line); bld.cidr(net, prefix); return bld.jne(L); }
+      case "band": bandTest(e); return bld.je(L);
       case "call":
-        if (e.name === "any") {
-          const pats = matchGroup(e, 1);
-          emit(`test    ${pats.map((p) => "$" + p).join("|")}, %m`);
-          return emit(`je      ${L}`);
-        }
-        if (e.name === "all") {
-          const pats = matchGroup(e, 1);
-          for (const p of pats) {
-            emit(`test    $${p}, %m`);
-            emit(`je      ${L}`);
-          }
-          return;
-        }
+        if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
+        if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
         if (e.name === "seq") {
           const pats = matchGroup(e, 2);
-          for (const p of pats) {            // every pattern must be present
-            emit(`test    $${p}, %m`);
-            emit(`je      ${L}`);
-          }
+          for (const p of pats) { bld.test(patBit(p)); bld.je(L); }
           let prev = allocScratch(`__seq${nTmp++}`, e.line);
-          emit(`mpos    $${pats[0]}, %cur`); // end-offset of the first match
-          emit(`mov     %cur, %${prev}`);
+          bld.mpos(bld.patId(pats[0])); bld.movFromCur(prev);
           for (let i = 1; i < pats.length; i++) {
             const curReg = allocScratch(`__seq${nTmp++}`, e.line);
-            emit(`mpos    $${pats[i]}, %cur`);
-            emit(`mov     %cur, %${curReg}`);
-            emit(`mov     %${prev}, %cur`);
-            emit(`cmp     %${curReg}, %cur`); // CF = prev < this
-            emit(`jae     ${L}`);             // not strictly increasing → fail
+            bld.mpos(bld.patId(pats[i])); bld.movFromCur(curReg);
+            bld.movToCur(prev); bld.cmpReg(curReg); bld.jae(L); // not strictly increasing → fail
             prev = curReg;
           }
           return;
         }
-        if (e.name === "starts") {
-          if (e.args.length !== 2) die("starts(ptr, pattern|\"lit\")", e.line);
-          loadPtr(e.args[0]);
-          emit(`cmpstr  $${patArg(e.args[1])}, (%cur)`);
-          return emit(`jne     ${L}`);
-        }
+        if (e.name === "starts") { if (e.args.length !== 2) die('starts(ptr, pattern|"lit")', e.line); loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.jne(L); }
         die(`\`${e.name}(...)\` is not a condition`, e.line);
         return;
-      default:
-        die("not a condition", e.line);
+      default: die("not a condition", e.line);
     }
   };
 
   const jumpIfTrue = (e, L) => {
     switch (e.kind) {
-      case "not":
-        return jumpIfFalse(e.e, L);
-      case "or":
-        jumpIfTrue(e.a, L);
-        jumpIfTrue(e.b, L);
-        return;
-      case "and": {
-        const cont = fresh();
-        jumpIfFalse(e.a, cont);
-        jumpIfTrue(e.b, L);
-        label(cont);
-        return;
-      }
-      case "cmp":
-        cmpToFlags(e);
-        return emit(`${DIR[e.op]}      ${L}`);
-      case "incidr":
-        value(e.a);
-        emit(`cidr    ${e.cidr}`);
-        return emit(`je      ${L}`); // in the network → ZF set
-      case "band":
-        if (e.a.kind === "call" && e.a.name === "scan") doScan(e.a);
-        else if (!(e.a.kind === "ref" && masks.has(e.a.name))) die("left of & must be scan(...) or a mask variable", e.line);
-        emit(`test    ${maskTerm(e.b)}, %m`);
-        return emit(`jne     ${L}`);
+      case "not": return jumpIfFalse(e.e, L);
+      case "or": jumpIfTrue(e.a, L); jumpIfTrue(e.b, L); return;
+      case "and": { const cont = fresh(); jumpIfFalse(e.a, cont); jumpIfTrue(e.b, L); bld.label(cont); return; }
+      case "cmp": cmpToFlags(e); return bld[DIR[e.op]](L);
+      case "incidr": { value(e.a); const { net, prefix } = cidrParts(e.cidr, e.line); bld.cidr(net, prefix); return bld.je(L); }
+      case "band": bandTest(e); return bld.jne(L);
       case "call":
-        if (e.name === "any") {
-          const pats = matchGroup(e, 1);
-          emit(`test    ${pats.map((p) => "$" + p).join("|")}, %m`);
-          return emit(`jne     ${L}`);
-        }
-        if (e.name === "all" || e.name === "seq") {
-          const cont = fresh();          // jump to L only if the whole thing holds
-          jumpIfFalse(e, cont);
-          emit(`jmp     ${L}`);
-          label(cont);
-          return;
-        }
-        if (e.name === "starts") {
-          loadPtr(e.args[0]);
-          emit(`cmpstr  $${patArg(e.args[1])}, (%cur)`);
-          return emit(`je      ${L}`);
-        }
+        if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
+        if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
+        if (e.name === "starts") { loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.je(L); }
         die(`\`${e.name}(...)\` is not a condition`, e.line);
         return;
-      default:
-        die("not a condition", e.line);
+      default: die("not a condition", e.line);
     }
   };
 
   const verdict = (s) => {
-    const r = (i) => {
-      const a = s.args[i];
-      if (!a) die(`${s.verdict} needs a rule name`, s.line);
-      if (a.kind === "string") return a.text;
-      if (a.kind === "ref") return a.name;
-      die("rule is a name or \"string\"", s.line);
-    };
+    const r = (i) => { const a = s.args[i]; if (!a) die(`${s.verdict} needs a rule name`, s.line); if (a.kind === "string") return a.text; if (a.kind === "ref") return a.name; die('rule is a name or "string"', s.line); };
     switch (s.verdict) {
-      case "pass":
-        return emit("pass");
-      case "drop":
-        return emit(`drop    $${r(0)}`);
-      case "count":
-        return emit(`count   $${r(0)}`);
-      case "ban":
-        return emit(`ban     $${r(0)}, $${imm(s.args[1])}`);
-      case "rst":
-        return emit(`rst     $${r(0)}, $${imm(s.args[1])}`);
+      case "pass": return bld.pass();
+      case "drop": return bld.drop(bld.ruleId(r(0)));
+      case "count": return bld.count(bld.ruleId(r(0)));
+      case "ban": return bld.ban(bld.ruleId(r(0)), immVal(s.args[1]));
+      case "rst": return bld.rst(bld.ruleId(r(0)), immVal(s.args[1]));
     }
   };
 
   const stmt = (s) => {
     switch (s.kind) {
-      case "block":
-        return s.stmts.forEach(stmt);
+      case "block": return s.stmts.forEach(stmt);
       case "if": {
-        if (s.els) {
-          const lElse = fresh();
-          const lEnd = fresh();
-          jumpIfFalse(s.cond, lElse);
-          stmt(s.then);
-          emit(`jmp     ${lEnd}`);
-          label(lElse);
-          stmt(s.els);
-          label(lEnd);
-        } else {
-          const lEnd = fresh();
-          jumpIfFalse(s.cond, lEnd);
-          stmt(s.then);
-          label(lEnd);
-        }
+        if (s.els) { const lElse = fresh(), lEnd = fresh(); jumpIfFalse(s.cond, lElse); stmt(s.then); bld.jmp(lEnd); bld.label(lElse); stmt(s.els); bld.label(lEnd); }
+        else { const lEnd = fresh(); jumpIfFalse(s.cond, lEnd); stmt(s.then); bld.label(lEnd); }
         return;
       }
-      case "return":
-        return verdict(s);
+      case "return": return verdict(s);
       case "macrocall": {
         const m = macroMap.get(s.name);
         if (!m) die(`\`${s.name}\` is not a macro or a statement`, s.line);
         if (expanding.has(s.name)) die(`macro \`${s.name}\` is recursive`, s.line);
-        expanding.add(s.name);
-        m.stmts.forEach(stmt);
-        expanding.delete(s.name);
+        expanding.add(s.name); m.stmts.forEach(stmt); expanding.delete(s.name);
         return;
       }
-      case "setstate":
-        return emit(s.ttl ? `sstore  $${imm(s.value)}, $${imm(s.ttl)}` : `sstore  $${imm(s.value)}`);
-      case "ringpush":
-        materialize(s.value);
-        return emit(`rpush   %cur`);
+      case "setstate": return bld.sstore(immVal(s.value), s.ttl ? immVal(s.ttl) : 0n);
+      case "ringpush": materialize(s.value); return bld.rpush();
       case "let": {
-        if (REGISTERS.has(s.name) || declared.has(s.name) || masks.has(s.name))
-          die(`\`${s.name}\` is already a register, pattern, or mask`, s.line);
-        /* A second `let` of the same name (say, in both arms of an if, or
-         * inside repeat) rebinds the same local rather than minting a new one. */
+        if (REGISTERS.has(s.name) || declared.has(s.name) || masks.has(s.name)) die(`\`${s.name}\` is already a register, pattern, or mask`, s.line);
         const reg = scratch.get(s.name) ?? allocScratch(s.name, s.line);
-        materialize(s.init);
-        return emit(`mov     %cur, %${reg}`);
+        materialize(s.init); return bld.movFromCur(reg);
       }
       case "assign": {
-        if (!scratch.has(s.name))
-          die(`\`${s.name}\` is not a local (declare it with \`let\`)`, s.line);
-        materialize(s.init);
-        return emit(`mov     %cur, %${scratch.get(s.name)}`);
+        if (!scratch.has(s.name)) die(`\`${s.name}\` is not a local (declare it with \`let\`)`, s.line);
+        materialize(s.init); return bld.movFromCur(scratch.get(s.name));
       }
       case "repeat": {
         const n = Number(s.count);
@@ -1003,143 +828,58 @@ function codegen(ast) {
         for (let k = 0; k < n; k++) stmt(s.body);
         return;
       }
-      case "frame":
-        return frameLower(s);
+      case "frame": return frameLower(s);
       case "decl": {
-        if (s.type === "mask") {
-          if (!(s.init.kind === "call" && s.init.name === "scan")) die("a mask is assigned from scan(...)", s.line);
-          doScan(s.init);
-          masks.add(s.name);
-        } else {
-          allocScratch(s.name, s.line);
-          loadPtr(s.init);
-          emit(`mov     %cur, %${scratch.get(s.name)}`);
-        }
+        if (s.type === "mask") { if (!(s.init.kind === "call" && s.init.name === "scan")) die("a mask is assigned from scan(...)", s.line); doScan(s.init); masks.add(s.name); }
+        else { const reg = allocScratch(s.name, s.line); loadPtr(s.init); bld.movFromCur(reg); }
         return;
       }
       case "exprstmt": {
         const c = s.call;
-        if (c.name === "log") return emit(`log     $${imm(c.args[0])}`);
-        if (c.name === "count") return emit(`count   $${c.args[0].kind === "string" ? c.args[0].text : c.args[0].name}`);
+        if (c.name === "log") return bld.log(immVal(c.args[0]));
+        if (c.name === "count") return bld.count(bld.ruleId(c.args[0].kind === "string" ? c.args[0].text : c.args[0].name));
         if (c.name === "skip") {
           const p = c.args[0];
           if (!(p.kind === "ref" && scratch.has(p.name))) die("skip(ptrVariable, 'c')", s.line);
-          emit(`mov     %${scratch.get(p.name)}, %cur`);
-          emit(`skipb   $${imm(c.args[1])}`);
-          return emit(`mov     %cur, %${scratch.get(p.name)}`);
+          bld.movToCur(scratch.get(p.name)); bld.skipb(Number(immVal(c.args[1])), 0n); return bld.movFromCur(scratch.get(p.name));
         }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }
-      default:
-        die("bad statement", s.line);
+      default: die("bad statement", s.line);
     }
   };
 
-  const pats = ast.patterns.map((p) => {
-    if (p.def.kind === "string") return `.pat  ${p.name}, "${p.def.text}"`;
-    const bytes = p.def.bytes
-      .map((b) => (b.kind === "num" ? b.text : `'${b.text.replace(/^'|'$/g, "")}'`))
-      .join(" ");
-    return `.pat  ${p.name}, ${bytes}`;
-  });
+  // Program flags (order-independent of the ops).
+  if (ast.nocase) bld.setNocase();
+  if (ast.decode === "h2" || ast.decode === "huffman") bld.setDecode(DECODE[ast.decode], ast.reasmDport || 0);
+  else if (ast.decode) bld.setTransform(TRANSFORM_TABLES[ast.decode].id, ast.reasmDport || 0);
+  else if (ast.reasm) bld.setReasm(ast.reasmDport || 0);
 
   ast.body.forEach(stmt);
-  emit("pass"); // the fall-through verdict
-
-  const header = [];
-  if (ast.nocase) header.push(".nocase");
-  if (ast.decode === "h2" || ast.decode === "huffman")
-    header.push(ast.reasmDport ? `.decode ${ast.decode}, ${ast.reasmDport}` : `.decode ${ast.decode}`);
-  else if (ast.decode) { // a loaded transform table, by name
-    const id = TRANSFORM_TABLES[ast.decode].id;
-    header.push(ast.reasmDport ? `.transform ${id}, ${ast.reasmDport}` : `.transform ${id}`);
-  }
-  else if (ast.reasm) header.push(ast.reasmDport ? `.reasm ${ast.reasmDport}` : ".reasm");
-  header.push(...pats, ...extraPats);
-  return [...header, "", ...allocRegs(out, vregs)].join("\n");
-}
-
-/* ---- register allocation ------------------------------------------------- */
-
-const NSCRATCH = 8; // %s0..%s7
-
-/* Map the virtual registers in the emitted body onto the scratch file.
- *
- * Linear scan over live intervals. Every jump in the ISA is forward, so
- * there are no loops and a virtual register is live exactly from its
- * first mention to its last in emission order: nothing before the first
- * write can read it, and nothing after the last read can. Two locals
- * whose intervals do not overlap share a register. Only when more than
- * NSCRATCH are live at the same instruction does the program not fit,
- * and that is reported at the local that failed to get a register. */
-function allocRegs(lines, vregs) {
-  const VREG = /%v(\d+)\b/g;
-  const first = new Map();
-  const last = new Map();
-  lines.forEach((l, i) => {
-    for (const m of l.matchAll(VREG)) {
-      const v = Number(m[1]);
-      if (!first.has(v)) first.set(v, i);
-      last.set(v, i);
-    }
-  });
-  const intervals = [...first.keys()]
-    .map((v) => ({ v, start: first.get(v), end: last.get(v) }))
-    .sort((a, b) => a.start - b.start || a.end - b.end);
-
-  const free = Array.from({ length: NSCRATCH }, (_, i) => `s${i}`);
-  const active = []; // intervals holding a register, any order
-  const phys = new Map(); // vN → sN
-  for (const iv of intervals) {
-    for (let i = active.length - 1; i >= 0; i--) {
-      if (active[i].end < iv.start) {
-        free.push(phys.get(active[i].v));
-        active.splice(i, 1);
-      }
-    }
-    if (!free.length) {
-      const held = active.map((a) => vregs[a.v].name).filter((n) => !n.startsWith("__"));
-      const who = vregs[iv.v];
-      const what = who.name.startsWith("__") ? "a compiler temporary" : `\`${who.name}\``;
-      throw new CError(
-        `too many locals live at once: ${what} needs a register but all ${NSCRATCH} are held` +
-          (held.length ? ` (by ${held.map((n) => `\`${n}\``).join(", ")})` : "") +
-          `; narrow a live range or drop a local`,
-        who.line,
-      );
-    }
-    /* Lowest-numbered free register first, for stable, readable output. */
-    free.sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)));
-    phys.set(iv.v, free.shift());
-    active.push(iv);
-  }
-  return lines.map((l) => l.replace(VREG, (_, n) => `%${phys.get(Number(n))}`));
+  bld.pass(); // the fall-through verdict
+  return bld;
 }
 
 /* ---- the pipeline -------------------------------------------------------- */
 
-/** Compile pfw-C to assembly text. { ok, errors:[{line,text}], asm } */
-export function compileToAsm(source) {
+/** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */
+export function compile(source) {
+  let bld;
   try {
-    const ast = parse(lex(source));
-    const asm = codegen(ast);
-    return { ok: true, errors: [], asm };
+    bld = codegen(parse(lex(source)));
   } catch (e) {
     if (e instanceof CError) return { ok: false, errors: [{ line: e.line, text: e.message }], asm: "" };
     throw e;
   }
+  const r = bld.finalize();
+  const asm = r.listing.map((l) => "        " + l.text).join("\n");
+  if (!r.ok) return { ok: false, errors: r.errors.map((e) => ({ line: 0, text: `internal: ${e.text}` })), asm };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase };
 }
 
-/** Compile pfw-C all the way to ops, via assembly. Returns the asm too. */
-export function compile(source) {
-  const c = compileToAsm(source);
-  if (!c.ok) return { ok: false, errors: c.errors, asm: "" };
-  const a = assemble(c.asm);
-  if (!a.ok) {
-    /* The assembler rejected generated code: a compiler bug, surfaced
-     * rather than hidden. */
-    return { ok: false, errors: a.errors.map((e) => ({ line: 0, text: `internal: ${e.text}` })), asm: c.asm };
-  }
-  return { ok: true, errors: [], asm: c.asm, program: a.program, patterns: a.patterns, rules: a.rules, listing: a.listing, nocase: a.nocase };
+/** Compile pfw-C to a disassembly listing (for display). { ok, errors, asm } */
+export function compileToAsm(source) {
+  const c = compile(source);
+  return c.ok ? { ok: true, errors: [], asm: c.asm } : { ok: false, errors: c.errors, asm: c.asm };
 }
