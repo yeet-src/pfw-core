@@ -1,0 +1,176 @@
+/* A reference interpreter for the pfw ISA: pfw_step, window, ac_step, findb_step
+ * and cmpstr_step from bpf/pfw.bpf.c, modelled line for line over the ops and
+ * automaton the real assembler (src/asm.js) produces. The conformance tests in
+ * this directory run programs through it and assert on the verdict, so a change
+ * to the kernel interpreter that is not mirrored here (or vice versa) shows up as
+ * a failing test. Pure host code — no kernel, no root.
+ *
+ *   machine({ asm, tables }) -> run(frame, payload, flow, opts) -> { verdict, rule, flow }
+ *
+ * `flow` carries what the kernel keeps per TCP flow — { ac, mask } plus the P3
+ * ring { ring, ringHead, ringCount } — so a multi-packet test threads the
+ * returned flow back in. Only the ops the tests exercise are modelled; an
+ * unmodelled op throws rather than silently passing. */
+import { OP, REG } from "#/src/isa.js";
+
+const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
+export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
+
+export function machine({ asm, tables }) {
+  const ops = asm.program.ops, pats = asm.program.pats;
+  const goto_ = new Map(tables.edges), fail = new Map(tables.fails), accept = new Map(tables.accepts);
+
+  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0 } = {}) {
+    const end = frame.length;
+    const r = new Array(32).fill(0n);
+    r[REG.payload] = BigInt(payload); r[REG.end] = BigInt(end); r[REG.proto] = BigInt(proto);
+    r[REG.dport] = BigInt(dport); r[REG.cur] = BigInt(payload); r[REG.len] = BigInt(end > payload ? end - payload : 0);
+    r[REG.saddr] = BigInt(saddr) & 0xffffffffn; /* IPv4 source, host order */
+    r[REG.m] = flow.mask;
+    const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
+    let ringHead = flow.ringHead ?? 0, ringCount = flow.ringCount ?? 0;
+    /* Per-flow scalars the program reads (mark, user_state, hits). Writes are
+     * deferred like the kernel: sstore/mark take effect for the next packet, so
+     * sload/flow read the entry values within this run. */
+    const mark = flow.mark ?? 0;
+    const userState = flow.userState ?? 0;
+    let hits = flow.hits ?? 0, newState = userState, setMark = mark;
+    let ac = flow.ac, pc = 0, zf = false, cf = false, ff = false, verdict = V.NONE, rule = 0;
+    const mpos = new Array(64).fill(0);
+    /* Reads clamp to R_END (the program may narrow it, e.g. `frame`), and never
+     * past the actual buffer — as the kernel's window() bounds by st->r[R_END]. */
+    const wend = () => Math.min(Number(r[REG.end]), end);
+    const window = (off, want) => {
+      const e = wend();
+      if (off >= BigInt(e) || off > 0xffffn) return null;
+      const o = Number(off);
+      return frame.subarray(o, o + Math.min(want, e - o, SCAN_CAP));
+    };
+    const acStep = (b) => {
+      let s = ac, k = 0;
+      for (; k < AC_MAX_FAIL; k++) {
+        const next = goto_.get(s * 256 + b);
+        if (next) { s = next; break; }
+        if (s === 0) break;
+        s = fail.get(s) ?? 0;
+      }
+      if (k === AC_MAX_FAIL) s = 0;
+      ac = s;
+      return accept.get(s) ?? 0n;
+    };
+    for (let i = 0; i < MAX_OPS && !verdict && pc < ops.length; i++) {
+      const { code, reg, imm } = ops[pc];
+      let cur = r[REG.cur], next = pc + 1;
+      const jump = (take) => {
+        if (!take) return;
+        if (imm <= BigInt(pc) || imm > BigInt(MAX_OPS)) verdict = V.PASS;
+        else next = Number(imm);
+      };
+      switch (code) {
+        case OP.MOV_RC: cur = r[reg]; break;
+        case OP.MOV_CR: if (reg !== REG.cur) r[reg] = cur; break;
+        case OP.ADD_I: cur = (cur + imm) & U64; break;
+        case OP.SUB_I: cur = (cur - imm) & U64; break;
+        case OP.ADD_R: cur = (cur + r[reg]) & U64; break;
+        case OP.SUB_R: cur = (cur - r[reg]) & U64; break;
+        case OP.AND_I: cur &= imm; break;
+        case OP.OR_I: cur |= imm; break;
+        case OP.SHL_I: cur = (cur << (imm & 63n)) & U64; break;
+        case OP.SHR_I: cur = cur >> (imm & 63n); break;
+        case OP.CMP_I: zf = cur === imm; cf = cur < imm; break;
+        case OP.CIDR: {
+          const net = imm & 0xffffffffn, prefix = Number((imm >> 32n) & 0xffn);
+          const mask = prefix === 0 ? 0n : (prefix >= 32 ? 0xffffffffn : (0xffffffffn << BigInt(32 - prefix)) & 0xffffffffn);
+          zf = ((cur & mask) === (net & mask)); cf = false;
+          break;
+        }
+        case OP.CMP_R: zf = cur === r[reg]; cf = cur < r[reg]; break;
+        case OP.TEST: zf = (r[REG.m] & imm) === 0n; cf = false; break;
+        case OP.JMP: jump(true); break;
+        case OP.JE: jump(zf); break;
+        case OP.JNE: jump(!zf); break;
+        case OP.JA: jump(!cf && !zf); break;
+        case OP.JB: jump(cf); break;
+        case OP.JAE: jump(!cf); break;
+        case OP.JBE: jump(cf || zf); break;
+        case OP.JF: if (ff) { ff = false; jump(true); } break;
+        case OP.SCAN: {
+          const w = window(cur, Number(imm > 2048n ? 2048n : imm));
+          if (w) for (let k = 0; k < w.length; k++) {
+            const acc = acStep(w[k]);
+            const fresh = acc & ~r[REG.m];
+            r[REG.m] |= acc;
+            for (let b = 0; b < 64; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
+          }
+          break;
+        }
+        case OP.MPOS: if (mpos[reg & 63]) cur = BigInt(mpos[reg & 63]); else ff = true; break;
+        case OP.CMPSTR: {
+          const p = pats[reg & 63];
+          const w = window(cur, p.len);
+          zf = !!w && w.length === p.len && p.bytes.every((b, k) => w[k] === b);
+          cf = false;
+          break;
+        }
+        case OP.FINDB: {
+          const w = window(cur, Number(imm > 2048n ? 2048n : imm));
+          ff = true;
+          const k = w ? w.indexOf(reg & 0xff) : -1;
+          if (k >= 0) { cur = cur + BigInt(k); ff = false; }
+          break;
+        }
+        case OP.LOAD: {
+          const size = reg & 15, be = (reg & 16) !== 0;
+          const off = cur + imm;
+          if (off > 0xffffn || off + BigInt(size) > BigInt(wend())) { ff = true; break; }
+          const o = Number(off);
+          let v = 0n;
+          for (let k = 0; k < size; k++) v |= BigInt(frame[o + k]) << BigInt(8 * k); // little-endian
+          if (be && size > 1) { let s = 0n; for (let k = 0; k < size; k++) s = (s << 8n) | ((v >> BigInt(8 * k)) & 0xffn); v = s; }
+          cur = v;
+          break;
+        }
+        case OP.SKIPB: {
+          const cap = (imm === 0n || imm > 64n) ? 64 : Number(imm);
+          const w = window(cur, cap);
+          let count = 0;
+          if (w) for (let k = 0; k < w.length; k++) { if (w[k] !== (reg & 0xff)) break; count = k + 1; }
+          cur = cur + BigInt(count);
+          break;
+        }
+        case OP.RPUSH: {
+          ring[ringHead & (RING_CAP - 1)] = Number(cur & 0xffffffffn);
+          ringHead = (ringHead + 1) & (RING_CAP - 1);
+          if (ringCount < RING_CAP) ringCount++;
+          break;
+        }
+        case OP.RGET: {
+          const idx = Number(cur & 0xffffffffn);
+          if (idx < ringCount) cur = BigInt(ring[(ringHead - 1 - idx) & (RING_CAP - 1)]);
+          else { cur = 0n; ff = true; }
+          break;
+        }
+        case OP.RLEN: cur = BigInt(ringCount); break;
+        case OP.SLOAD: cur = BigInt(userState); break;
+        case OP.SSTORE: newState = Number(imm & 0xffffffffn); break;
+        case OP.BUMP: hits = (hits + 1) >>> 0; cur = BigInt(hits); break;
+        case OP.FLOW: cur = BigInt(mark); break;
+        case OP.MARK: setMark = reg; break;
+        case OP.COUNT: rule = reg; break; // counter side effect; execution continues
+        case OP.LOG: break;
+        case OP.PASS: verdict = V.PASS; break;
+        case OP.END: verdict = V.PASS; break;
+        case OP.DROP: verdict = V.DROP; rule = reg; break;
+        case OP.BAN: verdict = V.BAN; rule = reg; break;
+        case OP.RST: verdict = V.RST; rule = reg; break;
+        default: throw new Error("op not modelled: " + code);
+      }
+      r[REG.cur] = cur;
+      pc = next;
+    }
+    return {
+      verdict: verdict || V.PASS, rule,
+      flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
+    };
+  };
+}

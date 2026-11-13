@@ -1,0 +1,28 @@
+{
+  "name": "pfw-core",
+  "version": "0.1.0",
+  "description": "The programmable-firewall VM: ISA, pfw-C compiler, bytecode, and a reference interpreter, with an eBPF/XDP backend.",
+  "type": "module",
+  "imports": {
+    "#/*": "./*"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./*": "./src/*"
+  },
+  "scripts": {
+    "test": "yeet test test",
+    "check:isa": "node test/check-isa.mjs",
+    "check": "node test/check-isa.mjs && yeet test test",
+    "gen:huff": "node src/huffman.js",
+    "bpf": "make bpf"
+  },
+  "files": [
+    "src",
+    "bpf",
+    "build",
+    "examples",
+    "Makefile",
+    "docs"
+  ]
+}
