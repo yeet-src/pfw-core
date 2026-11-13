@@ -1,0 +1,28 @@
+// Parse the HTTP request line with the forward cursor (P1):
+//
+//     GET /index.html HTTP/1.1
+//     ^method        ^path
+//
+// No buffering or copying — `find` walks the cursor to the first space, `skip`
+// eats the run of spaces after it, and `starts` anchors a compare at whatever
+// the cursor now points to. This is the whole point of the cursor machine:
+// locate a field by walking forward, then act on it in place.
+pattern trace = "TRACE ", options = "OPTIONS ", admin = "/admin";
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  // Methods that leak server internals: refuse them outright.
+  if (starts(payload, trace)) return drop("trace_method");
+  if (starts(payload, options)) return drop("options_method");
+
+  // Advance to the path: cursor to the first space (within 16 bytes), then
+  // skip the space(s) so it rests on the first byte of the path.
+  ptr path = find(payload, ' ', 16);
+  skip(path, ' ');
+
+  // Reset anyone probing /admin; tally every other request for metrics.
+  if (starts(path, admin)) return rst("admin_probe", 0);
+  count("http_request");
+  return pass;
+}

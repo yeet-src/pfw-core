@@ -1,0 +1,17 @@
+// Per-connection rate limit (P3 flow state): count data segments on each
+// connection and ban the source once it floods.
+//
+// `flow.count` reads-then-increments a counter living in the per-flow map — the
+// only state the XDP verifier lets evolve across packets, because it is
+// laundered through a map lookup each time rather than kept on the stack. `ban`
+// adds the source IP to a blocklist map for a TTL, so later packets are dropped
+// before this program even runs.
+reassemble 8080;
+filter {
+  if (len == 0) return pass;            // pure ACKs don't count
+  if (flow.count >= 100) {
+    log(1);                             // emit an event for userspace
+    return ban("flood", 600);          // ban the source for 600 seconds
+  }
+  return pass;
+}

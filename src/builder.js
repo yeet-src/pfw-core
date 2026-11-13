@@ -99,7 +99,7 @@ export class Builder {
   flow() { return this.op(OP.FLOW); }
   mark(v, ttl) { return this.op(OP.MARK, v, ttl); }
   sload() { return this.op(OP.SLOAD); }
-  sstore(state, ttl) { return this.op(OP.SSTORE, ttl, state); } // reg = ttl, imm = state
+  sstore(state, ttl) { return this.op(OP.SSTORE, Number(ttl), state); } // reg = ttl, imm = state
   bump() { return this.op(OP.BUMP); }
   rpush() { return this.op(OP.RPUSH); }
   rget() { return this.op(OP.RGET); }

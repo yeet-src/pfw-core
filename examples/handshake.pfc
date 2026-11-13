@@ -1,0 +1,18 @@
+// A tiny protocol gate as a per-flow state machine (P3):
+//
+//     state 0 (new)  --"HELLO"-->  state 1 (greeted)
+//
+// The first segment of a connection must open with "HELLO"; anything that
+// speaks before greeting is dropped. Once greeted, the rest of the connection
+// is allowed. `flow.state` is read and assigned per connection and persists
+// across packets (with an optional `for` TTL, after which it decays to 0).
+reassemble 8080;
+pattern hello = "HELLO";
+filter {
+  if (flow.state == 1) return pass;     // already greeted — let it through
+  if (starts(payload, hello)) {
+    flow.state = 1 for 300;             // remember "greeted" for 300s
+    return pass;
+  }
+  return drop("no_greeting");           // spoke out of turn
+}

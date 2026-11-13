@@ -1,0 +1,17 @@
+// Length arithmetic with scratch locals (P1): flag segments whose size falls
+// outside an allowed window.
+//
+// `let` parks a value in one of the eight scratch registers; arithmetic runs in
+// the %cur accumulator (`+`, `-`, `<<`, `>>`, `&`, `|`). The allocator frees a
+// scratch register once its local is dead, so programs can name more locals
+// than there are registers as long as their live ranges don't overlap.
+filter {
+  if (proto != 6) return pass;
+
+  let floor = 16;                       // smallest sensible request
+  let ceiling = 1 << 12;                // 4096 — the cap we enforce
+
+  if (len < floor) return drop("runt");
+  if (len > ceiling) return drop("oversized");
+  return pass;
+}

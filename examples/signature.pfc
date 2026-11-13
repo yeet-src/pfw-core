@@ -1,0 +1,23 @@
+// Multi-token signatures over a single scan (P1 Aho-Corasick): scan the payload
+// once into a reusable match mask, then interrogate that mask several ways.
+//
+//   any(m, a, b)  — at least one of the patterns matched
+//   all(m, a, b)  — every pattern matched (anywhere)
+//   seq(m, a, b)  — the patterns matched in this left-to-right order
+//
+// A `mask` variable names the result of one scan so you don't re-walk the bytes
+// per test — one O(n) pass, many O(1) questions.
+nocase;
+pattern kw_union = "union", kw_select = "select", kw_comment = "--";
+pattern passwd = "/etc/passwd", winshell = "cmd.exe";
+filter {
+  if (dport != 80) return pass;
+  mask m = scan(payload, 1460);         // one pass, reused below
+
+  // Classic SQL injection: UNION ... SELECT in order, with a comment tail too.
+  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) return drop("sqli");
+
+  // Path-traversal / RCE probes: any single hit is enough to reset.
+  if (any(m, passwd, winshell)) return rst("rce_probe", 0);
+  return pass;
+}

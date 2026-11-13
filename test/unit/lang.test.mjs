@@ -74,6 +74,23 @@ yeet.test("flow.state and flow.count", () => {
   eq(cnt.exec(enc(""), { flow: { hits: 0 } }).verdict, "pass", "1st hit passes");
 });
 
+/* ---- per-flow state: writing flow.state (setState), incl. the `for TTL` form ---- */
+yeet.test("flow.state write persists across packets (and the ttl form)", () => {
+  // A greet gate: first packet must start "HELLO" -> set state 1; then it passes.
+  const mk = (ttl) => C.program(C.pattern("hi", "HELLO"), C.filter(
+    C.iff(C.eq(C.flowState, 1), C.pass()),
+    C.iff(C.starts(C.payload, "hi"), C.block(ttl == null ? C.setState(1) : C.setState(1, ttl), C.pass())),
+    C.drop("no_greeting")));
+  for (const ttl of [null, 300]) {
+    const p = mk(ttl);
+    const g = p.exec(enc("HELLO x"), {});
+    eq(g.verdict, "pass", `greet passes (ttl=${ttl})`);
+    eq(g.flow.userState, 1, `greet set state 1 (ttl=${ttl})`);
+    eq(p.exec(enc("data"), { flow: g.flow }).verdict, "pass", `greeted flow passes (ttl=${ttl})`);
+    eq(p.exec(enc("data"), {}).verdict, "drop", `ungreeted drops (ttl=${ttl})`);
+  }
+});
+
 /* ---- ring: push / len / get ---- */
 yeet.test("ring push/len/get", () => {
   const p = C.program(C.filter(
