@@ -14,7 +14,8 @@
     "test": "npm run test:node && npm run test:unit",
     "test:unit": "yeet test test/unit",
     "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs",
-    "test:kernel": "yeet run scripts/verify-load.mjs",
+    "test:verify": "yeet run scripts/verify-load.mjs",
+    "test:kernel": "node test/kernel/diff.mjs",
     "gen:huff": "node src/huffman.js",
     "bpf": "make bpf"
   },

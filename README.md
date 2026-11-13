@@ -75,8 +75,14 @@ npm run gen:huff      # regenerate bpf/include/huff_table.h from src/huffman.js
 - **`test/node/*.mjs`** are node scripts for the two checks the yeet sandbox
   can't do (it has no file I/O): `check-isa.mjs` (the `isa.js` ↔ `pfw.h` enums
   agree) and `examples.mjs` (every `examples/*.pfc` compiles).
-- **`scripts/verify-load.mjs`** loads the object through `yeetd` so this kernel's
-  verifier judges every program — the root-free counterpart to `make veristat`.
+- **`scripts/verify-load.mjs`** (`npm run test:verify`) loads the object through
+  `yeetd` so this kernel's verifier judges every program — the root-free
+  counterpart to `make veristat`.
+- **`test/kernel/diff.mjs`** (`npm run test:kernel`) is the kernel *differential*:
+  for a set of (program, payload) cases it runs each through both the reference
+  interpreter and the real kernel (load, apply, send loopback traffic, read the
+  verdict from the event stream) and asserts they agree. yeet exposes no
+  `BPF_PROG_TEST_RUN`, so it uses live traffic; needs `yeetd` + loopback.
 
 ## Internal imports
 
