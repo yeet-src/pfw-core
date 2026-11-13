@@ -197,22 +197,84 @@ for loading a program and reading its verdicts back from the event ring.
 
 ## Examples
 
-Runnable, commented pfw-C programs in [`examples/`](examples) (all compiled by
-`npm run test:node`):
+A few complete pfw-C programs, as you'd actually write them. The full set lives
+in [`examples/`](examples) and every one is compiled by `npm run test:node`.
+
+**Reset AI crawlers by user-agent** ([`crawlers.pfc`](examples/crawlers.pfc)):
+
+```c
+// Reset AI crawlers on :80 by user-agent, case-insensitively.
+nocase;
+pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
+filter {
+  if (dport != 80) return pass;
+  if (scan(payload, 1460) & (gptbot | claudebot | bytespider)) return rst("crawler", 60);
+  return pass;
+}
+```
+
+**Multi-token signatures over one scan** ([`signature.pfc`](examples/signature.pfc)) —
+scan once into a mask, then ask it many questions (`any` / `all` / ordered `seq`):
+
+```c
+nocase;
+pattern kw_union = "union", kw_select = "select", kw_comment = "--";
+pattern passwd = "/etc/passwd", winshell = "cmd.exe";
+filter {
+  if (dport != 80) return pass;
+  mask m = scan(payload, 1460);         // one pass, reused below
+  // UNION ... SELECT in order, with a comment tail too:
+  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) return drop("sqli");
+  // path-traversal / RCE probes — any single hit is enough:
+  if (any(m, passwd, winshell)) return rst("rce_probe", 0);
+  return pass;
+}
+```
+
+**A per-flow protocol gate** ([`handshake.pfc`](examples/handshake.pfc)) — state
+that persists across packets: the first segment must greet, or the connection is
+dropped:
+
+```c
+reassemble 8080;                        // see the coalesced TCP stream
+pattern hello = "HELLO";
+filter {
+  if (flow.state == 1) return pass;     // already greeted — let it through
+  if (starts(payload, hello)) {
+    flow.state = 1 for 300;             // remember "greeted" for 300s
+    return pass;
+  }
+  return drop("no_greeting");           // spoke out of turn
+}
+```
+
+**Walk a framed protocol** ([`frames.pfc`](examples/frames.pfc)) — a bounded
+unroll over length-prefixed records (HTTP/2 frames), scanning only HEADERS:
+
+```c
+pattern bot = "GPTBot";
+filter {
+  if (proto != 6) return pass;
+  frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
+    if (frame.type == 1) {              // HEADERS frame
+      if (scan(frame.data, 1024) & bot) return rst("h2_bot", 0);
+    }
+  }
+  return pass;
+}
+```
+
+The rest, each a single-feature demonstration:
 
 | file | shows |
 |---|---|
-| `crawlers.pfc` | reset AI crawlers by user-agent, case-insensitive |
 | `request_line.pfc` | parse the HTTP request line with the cursor (`find`/`skip`/`starts`) |
 | `host_filter.pfc` | anchor a scan past `Host:` with `after`, then `ban` |
-| `signature.pfc` | one scan, interrogated by `any`/`all`/`seq` |
 | `cidr.pfc` | source-address allow / block |
-| `frames.pfc` | walk HTTP/2 frames (`frame ... up to N`) |
 | `huffman.pfc` | HPACK-Huffman decode, then match |
 | `transform.pfc` | loadable byte-transform decode, then match |
 | `ring.pfc` | per-flow ring — reset on too many segments |
 | `rate_limit.pfc` | per-flow counter + `ban` |
-| `handshake.pfc` | per-flow state machine (`flow.state`, TTL) |
 | `size_guard.pfc` | `let` locals and arithmetic |
 | `observe.pfc` | passive tap — `count` / `log`, no blocking |
 | `macro.pfc` | reusable rule block |
