@@ -1259,61 +1259,73 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     }
 }
 
-/* Decoder stage: decode the reassembled h2 stream into st->dec, point the
- * registers at it, then tail-call the matcher. */
+/* ---- stage framework (P1) -------------------------------------------------
+ * A tail-call decode stage is always: parse the packet, get the per-cpu state
+ * and the flow, run a decode over the reassembled buffer, then tail-call the
+ * next stage (or fail closed). That prologue and the reset were hand-written in
+ * every stage; here they are a helper and a macro, so a new decoder is just its
+ * body. Continuations live in the maps the stages already share (the per-cpu
+ * `state` and the per-flow buffer) — the only state a tail call may carry. The
+ * host fills decode_jmp and attaches only the entry (pfw_xdp) as the XDP hook. */
+
+/* Build the flow key from the packet and look the flow up. Fills *key (a caller
+ * may reuse it, e.g. to create the flow) and returns the flow or NULL. */
+static __always_inline struct flow *flow_lookup(struct pkt *p, struct flow_key *key)
+{
+    __builtin_memcpy(key->saddr, p->saddr, 16);
+    __builtin_memcpy(key->daddr, p->daddr, 16);
+    __u32 sp = p->sport, dp = p->dport;
+    barrier_var(sp); barrier_var(dp);
+    key->sport = sp; key->dport = dp; key->proto = p->proto; key->family = p->family;
+    return bpf_map_lookup_elem(&flows, key);
+}
+
+/* Fail closed: mark the flow for reset and answer with a RST (else drop). A
+ * stage that cannot safely decode does `return stage_reset(ctx, &p, f)`. */
+static __always_inline int stage_reset(struct xdp_md *ctx, struct pkt *p, struct flow *f)
+{
+    f->mark = MARK_RST; f->rule = 0; f->expires = 0;
+    bans++; count_rule(0);
+    if (p->family == AF_INET) {
+        int v = send_rst(ctx, p->l2);
+        if (v == XDP_TX) { rsts++; return v; }
+    }
+    dropped++; return XDP_DROP;
+}
+
+/* Stage prologue: declare `p`, `st`, `key` and `f`, and bail to XDP_PASS if the
+ * packet does not parse or the state map is missing. A stage body follows, then
+ * `bpf_tail_call(ctx, &decode_jmp, SLOT_NEXT); return XDP_PASS;`. */
+#define PFW_STAGE_ENTER(ctx)                                        \
+    void *data = (void *) (long) (ctx)->data;                       \
+    void *data_end = (void *) (long) (ctx)->data_end;               \
+    struct pkt p = {};                                              \
+    if (!parse(data, data_end, &p)) return XDP_PASS;                \
+    __u32 zero = 0;                                                 \
+    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);      \
+    if (!st) { passed++; return XDP_PASS; }                         \
+    struct flow_key key = {};                                       \
+    struct flow *f = flow_lookup(&p, &key);                         \
+    (void) st; (void) f; (void) key
+
+/* Decoder stage: HPACK-decode the reassembled h2 stream into st->dec (the
+ * resolve stage expands it), then tail-call resolve. */
 SEC("xdp")
 int pfw_decode(struct xdp_md *ctx)
 {
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
-    struct pkt p = {};
-    if (!parse(data, data_end, &p)) return XDP_PASS;
-    __u32 zero = 0;
-    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
-    if (!st) { passed++; return XDP_PASS; }
-    struct flow_key key = {};
-    __builtin_memcpy(key.saddr, p.saddr, 16);
-    __builtin_memcpy(key.daddr, p.daddr, 16);
-    __u32 sp = p.sport, dp = p.dport;
-    barrier_var(sp); barrier_var(dp);
-    key.sport = sp; key.dport = dp; key.proto = p.proto; key.family = p.family;
-    struct flow *f = bpf_map_lookup_elem(&flows, &key);
-    if (f) {
-        if (h2_decode(f, st, f->reasm_len)) {
-            f->mark = MARK_RST; f->rule = 0; f->expires = 0;
-            bans++; count_rule(0);
-            if (p.family == AF_INET) {
-                int v = send_rst(ctx, p.l2);
-                if (v == XDP_TX) { rsts++; return v; }
-            }
-            dropped++; return XDP_DROP;
-        }
-        /* The HPACK intermediate is in st->dec; the resolve stage expands it
-         * into the flow buffer, which the matcher then reads via reasm. */
-    }
+    PFW_STAGE_ENTER(ctx);
+    if (f && h2_decode(f, st, f->reasm_len))
+        return stage_reset(ctx, &p, f);
     bpf_tail_call(ctx, &decode_jmp, SLOT_RESOLVE);
     return XDP_PASS;   /* slot empty: pass (host populates it before attaching) */
 }
 
-/* Resolve stage (tail-call target): expand the HPACK intermediate in st->dec
- * into "name: value" lines in the flow buffer, then tail-call the matcher. */
+/* Resolve stage: expand the HPACK intermediate in st->dec into "name: value"
+ * lines in the flow buffer, then tail-call the matcher. */
 SEC("xdp")
 int pfw_resolve(struct xdp_md *ctx)
 {
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
-    struct pkt p = {};
-    if (!parse(data, data_end, &p)) return XDP_PASS;
-    __u32 zero = 0;
-    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
-    if (!st) { passed++; return XDP_PASS; }
-    struct flow_key key = {};
-    __builtin_memcpy(key.saddr, p.saddr, 16);
-    __builtin_memcpy(key.daddr, p.daddr, 16);
-    __u32 sp = p.sport, dp = p.dport;
-    barrier_var(sp); barrier_var(dp);
-    key.sport = sp; key.dport = dp; key.proto = p.proto; key.family = p.family;
-    struct flow *f = bpf_map_lookup_elem(&flows, &key);
+    PFW_STAGE_ENTER(ctx);
     if (f) {
         __u32 il = st->dec_len > REASM_CAP ? REASM_CAP : st->dec_len;
         struct h2_rs rs = { .f = f, .st = st, .len = il, .phase = 0 };
@@ -1327,42 +1339,20 @@ int pfw_resolve(struct xdp_md *ctx)
 }
 
 /* Huffman decode stage (DECODE_HUFFMAN): HPACK-Huffman-decode the reassembled
- * stream in place through the host-loaded table, then tail-call the matcher.
- * This is P2 of docs/primitives.md as a front-end: the decoding is loaded data
- * (app/lib/pfw/huffman.js builds the table from RFC 7541), not kernel states.
- * Invalid input fails closed (reset), like the h2 decoder. */
+ * stream through the baked table (built from RFC 7541 by src/huffman.js), then
+ * tail-call the matcher. Invalid input fails closed, like the h2 decoder. */
 SEC("xdp")
 int pfw_huff(struct xdp_md *ctx)
 {
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
-    struct pkt p = {};
-    if (!parse(data, data_end, &p)) return XDP_PASS;
-    __u32 zero = 0;
-    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
-    if (!st) { passed++; return XDP_PASS; }
-    struct flow_key key = {};
-    __builtin_memcpy(key.saddr, p.saddr, 16);
-    __builtin_memcpy(key.daddr, p.daddr, 16);
-    __u32 sp = p.sport, dp = p.dport;
-    barrier_var(sp); barrier_var(dp);
-    key.sport = sp; key.dport = dp; key.proto = p.proto; key.family = p.family;
-    struct flow *f = bpf_map_lookup_elem(&flows, &key);
+    PFW_STAGE_ENTER(ctx);
     if (f) {
         __u32 inlen = f->reasm_len > REASM_CAP ? REASM_CAP : f->reasm_len;
-        /* Decode the reassembled input (f->reasm) into st->dec... */
+        /* Decode f->reasm into st->dec... */
         st->huff_state = 0; st->huff_outpos = 0; st->huff_fail = 0;
         struct tf_ctx tc = { .f = f, .st = st, .n = inlen };
         if (inlen) bpf_loop(inlen, tf_step, &tc, 0);
-        if (st->huff_fail) {
-            f->mark = MARK_RST; f->rule = 0; f->expires = 0;
-            bans++; count_rule(0);
-            if (p.family == AF_INET) {
-                int v = send_rst(ctx, p.l2);
-                if (v == XDP_TX) { rsts++; return v; }
-            }
-            dropped++; return XDP_DROP;
-        }
+        if (st->huff_fail)
+            return stage_reset(ctx, &p, f);
         /* ...then copy the decoded bytes back into the flow buffer the matcher
          * reads. (Separate buffers: output runs ahead of input.) */
         __u32 ol = st->huff_outpos > REASM_CAP ? REASM_CAP : st->huff_outpos;

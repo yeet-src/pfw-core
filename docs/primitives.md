@@ -62,7 +62,28 @@ primitives too.
 
 In leverage order. (1) is the one nothing else scales without.
 
-### P1 — Compiler-managed staging *(the meta-primitive)*
+### P1 — Compiler-managed staging *(the meta-primitive)* — **stage framework landed**
+
+Reframed by what P2–P4 taught: pfw-C programs are *interpreted* (bytecode the one
+fixed, already-verified `pfw_step` runs), so they never hit the verifier — the
+"auto-split a heavy program" half below is a problem pfw-C programs don't have.
+The verifier pain is entirely in the hand-written C **decode stages**, where we
+wrote the same prologue four times. So the landed piece is the **stage
+framework**: `flow_lookup()`, `stage_reset()`, and the `PFW_STAGE_ENTER(ctx)`
+macro in `bpf/pfw.bpf.c` factor the parse / state / flow prologue and the
+fail-closed reset, so `pfw_decode` / `pfw_resolve` / `pfw_huff` are now just their
+bodies and a new decode stage is `PFW_STAGE_ENTER(ctx); if (f) { ...; }
+bpf_tail_call(ctx, &decode_jmp, SLOT_NEXT); return XDP_PASS;`. Continuations ride
+the maps the stages already share (the per-cpu `state`, the per-flow buffer) —
+the only state a tail call may carry. Verified end to end by
+`scripts/verify-load.mjs`.
+
+The *automatic* half below — liveness analysis, continuation spill, budget-based
+auto-splitting of one straight-line program — stays deferred: it needs a pfw-C →
+native-eBPF backend that does not exist (and is not needed while pfw-C is
+interpreted). The framework is what makes adding real decoders cheap today.
+
+
 
 The verifier judges **per program**: ~1M instructions, a 512-byte stack shared
 down the call chain, and a state-exploration ceiling that a branchy loop body
