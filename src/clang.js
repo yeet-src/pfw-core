@@ -863,11 +863,11 @@ function codegen(ast) {
 
 /* ---- the pipeline -------------------------------------------------------- */
 
-/** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */
-export function compile(source) {
+/** Lower an AST (from parse(), or the dsl.js program builder) to a program. */
+export function compileAst(ast) {
   let bld;
   try {
-    bld = codegen(parse(lex(source)));
+    bld = codegen(ast);
   } catch (e) {
     if (e instanceof CError) return { ok: false, errors: [{ line: e.line, text: e.message }], asm: "" };
     throw e;
@@ -876,6 +876,18 @@ export function compile(source) {
   const asm = r.listing.map((l) => "        " + l.text).join("\n");
   if (!r.ok) return { ok: false, errors: r.errors.map((e) => ({ line: 0, text: `internal: ${e.text}` })), asm };
   return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase };
+}
+
+/** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */
+export function compile(source) {
+  let ast;
+  try {
+    ast = parse(lex(source));
+  } catch (e) {
+    if (e instanceof CError) return { ok: false, errors: [{ line: e.line, text: e.message }], asm: "" };
+    throw e;
+  }
+  return compileAst(ast);
 }
 
 /** Compile pfw-C to a disassembly listing (for display). { ok, errors, asm } */

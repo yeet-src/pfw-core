@@ -22,8 +22,19 @@ export { assemble } from "#/asm.js";
 // disassembles one op.
 export { Builder, opText } from "#/builder.js";
 
-// pfw-C compiler: source -> assembly -> program (via the assembler).
-export { compile, compileToAsm } from "#/clang.js";
+// pfw-C compiler: source -> Builder -> program.
+export { compile, compileAst, compileToAsm } from "#/clang.js";
+
+// A compiled program as a runnable object (.exec(frame, opts), .bytes(), .tables()).
+export { Program } from "#/program.js";
+import { compile as _compile } from "#/clang.js";
+import { Program as _Program } from "#/program.js";
+/** Compile pfw-C source straight to a runnable Program (throws on error). */
+export function load(source) {
+  const c = _compile(source);
+  if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
+  return new _Program(c);
+}
 
 // Bytecode: the `programs` map value, and coloured map dumps.
 export { serializeProgram, mapModel, mapDump } from "#/bytes.js";

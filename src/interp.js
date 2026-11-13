@@ -19,6 +19,10 @@ export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
 export function machine({ asm, tables }) {
   const ops = asm.program.ops, pats = asm.program.pats;
   const goto_ = new Map(tables.edges), fail = new Map(tables.fails), accept = new Map(tables.accepts);
+  /* nocase folds ASCII upper→lower; the automaton is built folded (ac.js), so
+   * the input bytes must be folded too, exactly as the kernel's ac_step/cmpstr do. */
+  const nocase = !!asm.program.nocase;
+  const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
   return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0 } = {}) {
     const end = frame.length;
@@ -46,7 +50,8 @@ export function machine({ asm, tables }) {
       const o = Number(off);
       return frame.subarray(o, o + Math.min(want, e - o, SCAN_CAP));
     };
-    const acStep = (b) => {
+    const acStep = (raw) => {
+      const b = fold(raw);
       let s = ac, k = 0;
       for (; k < AC_MAX_FAIL; k++) {
         const next = goto_.get(s * 256 + b);
@@ -108,7 +113,7 @@ export function machine({ asm, tables }) {
         case OP.CMPSTR: {
           const p = pats[reg & 63];
           const w = window(cur, p.len);
-          zf = !!w && w.length === p.len && p.bytes.every((b, k) => w[k] === b);
+          zf = !!w && w.length === p.len && p.bytes.every((b, k) => fold(w[k]) === fold(b)); // nocase folds both, as the kernel does
           cf = false;
           break;
         }

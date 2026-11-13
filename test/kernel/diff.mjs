@@ -83,6 +83,8 @@ const CASES = [
     sends: [["from 127, not 10/8", enc("anything")]] },
   { name: "scan match → drop", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; if (scan(payload, 256) & bot) { log(16); return drop("bot"); } return pass; }`,
     sends: [["matching", enc("x GPTBot x")], ["clean", enc("nothing here")]] },
+  { name: "nocase scan → rst", source: `nocase;\npattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; if (scan(payload, 256) & bot) { log(16); return rst("bot", 0); } return pass; }`,
+    sends: [["lowercase gptbot", enc("x gptbot x")], ["MiXeD GpTbOt", enc("y GpTbOt y")], ["no bot", enc("plain text")]] },
   { name: "dport guard → pass", source: `pattern bot = "GPTBot";\nfilter { if (dport != 1) return pass; if (scan(payload, 256) & bot) { log(16); return rst("bot", 0); } return pass; }`,
     sends: [["wrong-port rule", enc("GPTBot but rule targets :1")]] },
 ];
