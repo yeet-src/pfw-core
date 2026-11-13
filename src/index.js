@@ -52,3 +52,8 @@ export { buildByteMap, TRANSFORM_TABLES, transformCells, TT_CELLS } from "#/tran
 
 // The reference interpreter: run a compiled program over a frame.
 export { machine, V } from "#/interp.js";
+
+// Authoring front-ends are namespace submodules (imported directly, not via this
+// barrel, so their short constructor names don't collide):
+//   import * as C from "pfw-core/dsl.js";   // value builder -> Program
+//   import { when, guard, allOf } from "pfw-core/fp.js";  // combinators over C
