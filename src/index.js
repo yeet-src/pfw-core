@@ -15,8 +15,12 @@
 // The ISA contract (mirrors bpf/include/pfw.h; the test suite checks they agree).
 export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE } from "#/isa.js";
 
-// Assembler: AT&T-syntax text -> program. `opText` disassembles one op.
-export { assemble, opText } from "#/asm.js";
+// Assembler: AT&T-syntax text -> program.
+export { assemble } from "#/asm.js";
+
+// The op Builder: emit ops programmatically (both front-ends target it); opText
+// disassembles one op.
+export { Builder, opText } from "#/builder.js";
 
 // pfw-C compiler: source -> assembly -> program (via the assembler).
 export { compile, compileToAsm } from "#/clang.js";

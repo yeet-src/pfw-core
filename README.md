@@ -33,8 +33,13 @@ const { verdict } = run(packetBytes, /*payloadOffset*/ 0, { ac: 0, mask: 0n }, {
 - **ISA** — `src/isa.js` (host view) mirrored by `bpf/include/pfw.h` (the C
   contract). A forward-only, straight-line machine (termination is guaranteed):
   a cursor, scratch registers, a match mask, flags, and an Aho-Corasick `scan`.
-- **Assembler** — `src/asm.js`, AT&T-style text → program.
-- **pfw-C compiler** — `src/clang.js`, source → assembly → program.
+- **Builder** — `src/builder.js`, an LLVM-IRBuilder-style op constructor
+  (emit methods, label resolution, scratch-register allocation, pattern/rule
+  interning). Both front-ends target it, so there is one definition of how an op
+  is built and no assembly-text round-trip.
+- **Assembler** — `src/asm.js`, AT&T-style text → Builder → program.
+- **pfw-C compiler** — `src/clang.js`, source → Builder → program (directly;
+  `compileToAsm` returns a disassembly listing for display only).
 - **Bytecode** — `src/bytes.js`, the `programs` map value (`serializeProgram`).
 - **Table builders** — `src/ac.js` (Aho-Corasick) and `src/huffman.js` (the
   HPACK Huffman decode table, built from RFC 7541 and baked into
