@@ -10,7 +10,7 @@
  *   fails   [[state, fail]]            non-root links only
  *   accepts [[state, mask]]            BigInt masks, non-zero only
  */
-import { LIMITS } from "#/src/isa.js";
+import { LIMITS } from "#/isa.js";
 
 export function build(patterns, nocase = false) {
   const go = [new Map()];

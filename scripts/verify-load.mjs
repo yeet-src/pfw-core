@@ -22,11 +22,13 @@ try {
     .bind("decide_hist", { kind: "percpu_array" })
     .bind("flows", { kind: "lru_hash" })
     .bind("app.bss", { kind: "data" })
+    .bind("tt_cells", { kind: "array" })
     .bind("decode_jmp", { kind: "prog_array" })
     .attach("pfw_decode", { kind: "prog_array", map: "decode_jmp", index: 0 })
     .attach("pfw_match", { kind: "prog_array", map: "decode_jmp", index: 1 })
     .attach("pfw_resolve", { kind: "prog_array", map: "decode_jmp", index: 2 })
     .attach("pfw_huff", { kind: "prog_array", map: "decode_jmp", index: 3 })
+    .attach("pfw_transform", { kind: "prog_array", map: "decode_jmp", index: 4 })
     .attach("pfw_xdp", { kind: "xdp", ifindex: [iface] })
     .start();
   console.log(`VERIFIER OK: every program loaded and attached (ifindex ${iface})`);

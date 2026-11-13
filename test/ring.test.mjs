@@ -1,10 +1,10 @@
 /* Per-flow ring (P3): push / newest-wins get / len / eviction at RING_CAP /
  * out-of-range. Each program ends in rst("ok") only if every assertion held,
  * else drop(reason) — so a break names the invariant that failed. */
-import { compile } from "#/src/clang.js";
-import { assemble } from "#/src/asm.js";
-import { build } from "#/src/ac.js";
-import { machine, V } from "#/src/interp.js";
+import { compile } from "#/clang.js";
+import { assemble } from "#/asm.js";
+import { build } from "#/ac.js";
+import { machine, V } from "#/interp.js";
 
 const ok = (src) => {
   const c = compile(src);

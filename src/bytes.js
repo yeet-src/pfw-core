@@ -7,9 +7,9 @@
  *   struct pfw_op  ops[64]   { u32 code; u32 reg; u64 imm } @24  1024 bytes
  *   struct pfw_pat pats[64]  { u32 len; u8 bytes[64] }      @1048 4352 bytes
  */
-import { build } from "#/src/ac.js";
-import { compile } from "#/src/clang.js";
-import { LIMITS } from "#/src/isa.js";
+import { build } from "#/ac.js";
+import { compile } from "#/clang.js";
+import { LIMITS } from "#/isa.js";
 
 const OPS = LIMITS.MAX_OPS; // 64
 const PATS = LIMITS.MAX_PATS; // 64
@@ -31,7 +31,7 @@ export function serializeProgram(program, gen = 0) {
   dv.setUint32(16, (program.reasm ?? 0) >>> 0, true);
   dv.setUint32(20, (program.reasm_dport ?? 0) >>> 0, true); // reasm_dport
   dv.setUint32(24, (program.decode ?? 0) >>> 0, true); // decode
-  dv.setUint32(28, 0, true); // _ppad2
+  dv.setUint32(28, (program.transform_table ?? 0) >>> 0, true); // transform_table (DECODE_TRANSFORM)
   for (let i = 0; i < OPS; i++) {
     const op = program.ops[i];
     const b = OPS_AT + i * OP_SIZE;

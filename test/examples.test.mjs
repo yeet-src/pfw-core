@@ -1,7 +1,7 @@
 /* Every shipped example program compiles — guards the compiler/assembler surface
  * and keeps the examples from rotting. */
-import { compile } from "#/src/clang.js";
-import { examples } from "#/examples/index.js";
+import { compile } from "#/clang.js";
+import { examples } from "#/examples.js";
 
 for (const [name, src] of Object.entries(examples)) {
   yeet.test(`example "${name}" compiles`, () => {

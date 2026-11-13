@@ -11,7 +11,7 @@
  * ring { ring, ringHead, ringCount } — so a multi-packet test threads the
  * returned flow back in. Only the ops the tests exercise are modelled; an
  * unmodelled op throws rather than silently passing. */
-import { OP, REG } from "#/src/isa.js";
+import { OP, REG } from "#/isa.js";
 
 const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
 export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };

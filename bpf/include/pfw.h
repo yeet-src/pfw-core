@@ -25,15 +25,19 @@
  * CONTINUATION fail closed (reset) and are later slices. */
 #define DECODE_NONE  0
 #define DECODE_H2    1
-#define DECODE_HUFFMAN 2  /* HPACK-Huffman-decode the reassembled stream before matching */
+#define DECODE_HUFFMAN 2  /* HPACK-Huffman-decode via the baked const table (huff_table.h) */
+#define DECODE_TRANSFORM 3 /* decode via a host-LOADED table (tt_cells), chosen by
+                            * pfw_prog.transform_table — the general P2 transform */
 
-/* Transform tables (DECODE_HUFFMAN): state × nibble -> decoded output. The host
- * builds the table from a spec (app/lib/pfw/huffman.js, from RFC 7541) and bakes
- * it into bpf/include/huff_table.h, read as a const array by the decode stage.
- * A cell is one u32; the layout mirrors huffman.js. This is P2 of
+/* Transform tables: a nibble state machine, state × nibble -> decoded output.
+ * The host builds a table from a spec (src/huffman.js builds the HPACK Huffman
+ * one from RFC 7541) and either bakes it into bpf/include/huff_table.h (read as
+ * a const by pfw_huff) or loads it into the tt_cells map (read by pfw_transform,
+ * so a new decoding is data, no kernel change). A cell is one u32. This is P2 of
  * docs/primitives.md: a decoding is data, not kernel code. */
-#define TT_STATES    256              /* states in the HPACK Huffman machine */
-#define TT_CELLS     (TT_STATES * 16) /* 4096 cells, a power of two */
+#define TT_STATES    256              /* states in a nibble machine */
+#define TT_CELLS     (TT_STATES * 16) /* 4096 cells per table, a power of two */
+#define TT_NTABLES   8                /* loadable tt_cells tables */
 #define TT_NEXT      0x1ffu           /* cell bits 0..8: next state */
 #define TT_EMIT      (1u << 9)        /* this transition completes a symbol */
 #define TT_ACCEPT    (1u << 10)       /* next state is a valid end-of-input boundary */
@@ -146,8 +150,8 @@ struct pfw_prog {
                         * keeps the server->client direction and other ports off the
                         * reassembler, whose fail-closed logic would reset them. */
     __u32 decode;      /* L7 decode over the reassembled stream before matching:
-                        * DECODE_NONE or DECODE_H2 (HTTP/2 HEADERS/HPACK). */
-    __u32 _ppad2;
+                        * DECODE_NONE, DECODE_H2, DECODE_HUFFMAN or DECODE_TRANSFORM. */
+    __u32 transform_table; /* DECODE_TRANSFORM: which loaded tt_cells table (0..TT_NTABLES-1) */
     struct pfw_op ops[PFW_MAX_OPS];
     struct pfw_pat pats[PFW_MAX_PATS];
 };

@@ -5,7 +5,7 @@
  * under node (it reads the C header, which the yeet sandbox cannot); the rest of
  * the suite is `yeet test`. */
 import { readFileSync } from "node:fs";
-import { OP, REG } from "#/src/isa.js";
+import { OP, REG } from "#/isa.js";
 
 const h = readFileSync(new URL("../bpf/include/pfw.h", import.meta.url), "utf8");
 const parseEnum = (nm) => {

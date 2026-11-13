@@ -2,10 +2,10 @@
  * length-prefixed records. The point is structure-awareness, so the key case is
  * that the same "GPTBot" bytes trigger only inside a record of the targeted type
  * and never bleed across a record edge. */
-import { compile } from "#/src/clang.js";
-import { assemble } from "#/src/asm.js";
-import { build } from "#/src/ac.js";
-import { machine, V } from "#/src/interp.js";
+import { compile } from "#/clang.js";
+import { assemble } from "#/asm.js";
+import { build } from "#/ac.js";
+import { machine, V } from "#/interp.js";
 
 const enc = new TextEncoder();
 /* h2-style frame: 9-byte header (len be24 @0, type u8 @3), then the payload. */

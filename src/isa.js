@@ -11,7 +11,7 @@ export const OP = {
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each
  * normalizes the reassembled stream to a plaintext view the matcher scans.
  * huffman decodes an HPACK-Huffman stream through a table huffman.js builds. */
-export const DECODE = { none: 0, h2: 1, huffman: 2 };
+export const DECODE = { none: 0, h2: 1, huffman: 2, transform: 3 };
 
 export const OP_NAME = Object.fromEntries(Object.entries(OP).map(([k, v]) => [v, k.toLowerCase()]));
 

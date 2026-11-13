@@ -9,7 +9,7 @@
  *
  * Immediates are BigInt in `ops[].imm`; the probe converts for the map.
  */
-import { DECODE, LIMITS, LOAD_BE, OP, OP_NAME, REG, REG_NAME } from "#/src/isa.js";
+import { DECODE, LIMITS, LOAD_BE, OP, OP_NAME, REG, REG_NAME } from "#/isa.js";
 
 const SIZE_SUFFIX = { b: 1, w: 2, l: 4, q: 8 };
 const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF };
@@ -186,6 +186,7 @@ export function assemble(source) {
   let reasm = 0;
   let reasmDport = 0;
   let decode = 0;
+  let transformTable = 0;
 
   const ruleId = (text) => {
     const n = parseNumber(text);
@@ -269,6 +270,20 @@ export function assemble(source) {
         if (operands[1] !== undefined) {
           const n = parseNumber(operands[1]);
           if (n === null || n < 0n || n > 65535n) fail(".decode port 0–65535");
+          reasmDport = Number(n);
+        }
+        continue;
+      }
+      if (m === ".transform") {
+        /* .transform TABLE_ID [PORT] — decode through the loaded tt_cells table. */
+        const id = parseNumber(operands[0]);
+        if (id === null || id < 0n || id >= 8n) fail(".transform table 0–7");
+        decode = DECODE.transform;
+        transformTable = Number(id);
+        reasm = 1;
+        if (operands[1] !== undefined) {
+          const n = parseNumber(operands[1]);
+          if (n === null || n < 0n || n > 65535n) fail(".transform port 0–65535");
           reasmDport = Number(n);
         }
         continue;
@@ -476,6 +491,7 @@ export function assemble(source) {
     reasm,
     reasm_dport: reasmDport,
     decode,
+    transform_table: transformTable,
     ops: ops.map(({ code, reg, imm }) => ({ code, reg, imm })),
     pats: patterns.map((p) => ({ len: p.bytes.length, bytes: p.bytes })),
   };

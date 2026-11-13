@@ -13,23 +13,27 @@
  */
 
 // The ISA contract (mirrors bpf/include/pfw.h; the test suite checks they agree).
-export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE } from "#/src/isa.js";
+export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE } from "#/isa.js";
 
 // Assembler: AT&T-syntax text -> program. `opText` disassembles one op.
-export { assemble, opText } from "#/src/asm.js";
+export { assemble, opText } from "#/asm.js";
 
 // pfw-C compiler: source -> assembly -> program (via the assembler).
-export { compile, compileToAsm } from "#/src/clang.js";
+export { compile, compileToAsm } from "#/clang.js";
 
 // Bytecode: the `programs` map value, and coloured map dumps.
-export { serializeProgram, mapModel, mapDump } from "#/src/bytes.js";
+export { serializeProgram, mapModel, mapDump } from "#/bytes.js";
 
 // Aho-Corasick: patterns -> the ac_goto / ac_fail / ac_accept tables.
-export { build } from "#/src/ac.js";
+export { build } from "#/ac.js";
 
 // HPACK Huffman (P2): build the decode table from RFC 7541, decode, emit the
 // kernel's const header.
-export { buildHuffman, huffDecode, codes, headerText, TT_CELL } from "#/src/huffman.js";
+export { buildHuffman, huffDecode, codes, headerText, TT_CELL } from "#/huffman.js";
+
+// Loadable transform tables (general P2): build a table, the name→id registry,
+// and the flat cells the host loads into the tt_cells map.
+export { buildByteMap, TRANSFORM_TABLES, transformCells, TT_CELLS } from "#/transform.js";
 
 // The reference interpreter: run a compiled program over a frame.
-export { machine, V } from "#/src/interp.js";
+export { machine, V } from "#/interp.js";

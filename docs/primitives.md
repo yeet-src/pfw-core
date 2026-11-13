@@ -141,27 +141,35 @@ already uses — the op form wants the P1 staging compiler to apply them for you
 3. output goes to a **separate buffer** (`st->dec`), since decompressed output
    runs ahead of the read cursor and would clobber unread input in place.
 
-The composable op shape, for when P1 can stage a heavy body automatically:
+**The general transform landed too — the table is now loaded data.** Alongside
+the baked Huffman stage there is `pfw_transform` (DECODE_TRANSFORM): it runs
+`tt_cells[prog->transform_table]`, a table the host loads into a map, so a new
+decoding needs **no kernel change**. The cell read is a per-cell map lookup in
+the loop — which on its own trips the verifier's jump budget — and it verifies
+for exactly the reason point 2 above gives: the evolving state lives in the map
+and is reloaded each iteration (the `ac_step` pattern). A transform table is
+`state × nibble → (emit byte, next state, flags)`; `src/transform.js` builds them
+(`buildByteMap(fn)` for any per-byte rewrite, `buildHuffman()` for the HPACK
+code), and `decode <name>` in pfw-C selects one. So:
+
+- **Huffman** = the HPACK table (RFC 7541 Appendix B) — baked or loaded.
+- **A byte rewrite** (undo an obfuscation, normalize) = `buildByteMap(fn)`.
+- **A bespoke on-the-wire obfuscation someone needs to see through** = a table
+  they write, loaded, no kernel change.
+
+Decodings became data. Verified end to end by `scripts/verify-load.mjs` (the
+kernel accepts the loaded-table stage) and `test/transform.test.mjs` (the tables
+decode correctly, through the same model the kernel mirrors).
+
+The remaining tail is the **composable in-program op** — decode a *sub-region*
+mid-program and keep going, rather than a whole-stream front-end:
 
 ```
-transform $TABLE, (%src), %dst, $len   ; run the loaded table over [src,src+len),
-                                        ; writing decoded bytes to %dst, carrying state
+transform $TABLE, (%src), %dst, $len   ; run the table over [src,src+len) mid-program
 ```
 
-A transform table is `state × input-symbol → (output bytes, next state, flags)`,
-with `flags` carrying accept / fail / need-more. Symbols are bits, not just
-bytes, so Huffman is a 4-bit-nibble machine — exactly the 256-state table
-h2-firewall hand-codes, except here it is **loaded data** the host builds from a
-spec, like the AC automaton is built from patterns.
-
-Then:
-
-- **Huffman** = the HPACK table (RFC 7541 Appendix B).
-- **base64 / percent-decode / hex** = tables.
-- A bespoke on-the-wire obfuscation someone needs to see through = a table they
-  write, no kernel change.
-
-Decodings become data. This is the general form of gap #1 (Huffman).
+That one still wants the automatic staging P1 defers, because it would run inside
+the interpreter loop; the front-end `decode <table>` is the shipped form.
 
 ### P3 — per-flow keyed store / ring — **ring landed**
 

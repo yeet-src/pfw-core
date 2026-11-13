@@ -31,7 +31,8 @@
  * live at once. Jumps are forward-only, so a local's live range is simply
  * the span from its first write to its last read in emission order.
  */
-import { assemble } from "#/src/asm.js";
+import { assemble } from "#/asm.js";
+import { TRANSFORM_TABLES } from "#/transform.js";
 
 const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src"]);
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
@@ -476,7 +477,10 @@ function parse(toks) {
     } else if (isKw("decode")) {
       next();
       const kind = peek().type === "ident" ? peek().value : null;
-      if (kind !== "h2" && kind !== "huffman") err("decode h2|huffman [PORT];");
+      // h2 and huffman are built-in front-ends; any other name is a loaded
+      // transform table (TRANSFORM_TABLES), decoded by the general stage.
+      if (kind !== "h2" && kind !== "huffman" && !(kind in TRANSFORM_TABLES))
+        err(`decode h2|huffman|<table> [PORT]; — no table \`${kind}\` (have: ${Object.keys(TRANSFORM_TABLES).join(", ")})`);
       next();
       if (peek().type === "number") reasmDport = Number(next().value);
       eat("punct", ";");
@@ -1045,7 +1049,12 @@ function codegen(ast) {
 
   const header = [];
   if (ast.nocase) header.push(".nocase");
-  if (ast.decode) header.push(ast.reasmDport ? `.decode ${ast.decode}, ${ast.reasmDport}` : `.decode ${ast.decode}`);
+  if (ast.decode === "h2" || ast.decode === "huffman")
+    header.push(ast.reasmDport ? `.decode ${ast.decode}, ${ast.reasmDport}` : `.decode ${ast.decode}`);
+  else if (ast.decode) { // a loaded transform table, by name
+    const id = TRANSFORM_TABLES[ast.decode].id;
+    header.push(ast.reasmDport ? `.transform ${id}, ${ast.reasmDport}` : `.transform ${id}`);
+  }
   else if (ast.reasm) header.push(ast.reasmDport ? `.reasm ${ast.reasmDport}` : ".reasm");
   header.push(...pats, ...extraPats);
   return [...header, "", ...allocRegs(out, vregs)].join("\n");

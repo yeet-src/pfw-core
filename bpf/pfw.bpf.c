@@ -141,6 +141,7 @@ struct pfw_state {
     __u32 huff_state;
     __u32 huff_outpos;
     __u32 huff_fail;
+    __u32 tf_table; /* DECODE_TRANSFORM: active tt_cells table id, set by the entry */
 };
 
 struct {
@@ -149,6 +150,17 @@ struct {
     __type(key, __u32);
     __type(value, struct pfw_state);
 } state SEC(".maps");
+
+/* Host-loaded transform-table cells, flat like ac_goto: key is
+ * table_id * TT_CELLS + (state * 16 + nibble). A per-cell array map (not one
+ * big value indexed by a variable offset) is what lets pfw_transform's decode
+ * loop verify over a full window — the same reason the automaton lives here. */
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, TT_NTABLES * TT_CELLS);
+    __type(key, __u32);
+    __type(value, __u32);
+} tt_cells SEC(".maps");
 
 
 /* ---- the parsed frame --------------------------------------------------- */
@@ -526,6 +538,42 @@ static long tf_step(__u32 i, void *ctx_)
         if (cell & TT_FAIL) { st->huff_fail = 1; return 1; }
         if (cell & TT_EMIT) {
             if (outpos < REASM_CAP) { /* bounded, else the st->dec write is unbounded */
+                st->dec[outpos] = (__u8) (cell >> TT_SYM_SHIFT);
+                outpos++;
+            }
+        }
+        state = cell & TT_NEXT;
+    }
+    st->huff_state = state;
+    st->huff_outpos = outpos;
+    return 0;
+}
+
+/* The general (loadable) decode step: same machine as tf_step, but the table is
+ * read per-cell from the tt_cells map instead of a baked const — so any table
+ * the host loads works with no kernel change. The map lookup in the loop would
+ * trip the verifier's jump budget on its own; it verifies here for exactly the
+ * reason ac_step does — the evolving state lives in the map (st->huff_*) and is
+ * reloaded each iteration, so its precision is laundered. `base` selects the
+ * table: table_id * TT_CELLS. */
+struct tf_map_ctx { struct flow *f; struct pfw_state *st; __u32 base, n; };
+static long tf_map_step(__u32 i, void *ctx_)
+{
+    struct tf_map_ctx *c = ctx_;
+    struct pfw_state *st = c->st;
+    if (!st || i >= c->n || st->huff_fail)
+        return 1;
+    __u8 byte = c->f->reasm[i & (REASM_CAP - 1)];
+    __u32 state = st->huff_state & (TT_STATES - 1);
+    __u32 outpos = st->huff_outpos;
+    for (int half = 0; half < 2; half++) {
+        __u32 nib = (half == 0 ? (byte >> 4) : byte) & 0xf;
+        __u32 key = c->base + ((state * 16 + nib) & (TT_CELLS - 1));
+        __u32 *cp = bpf_map_lookup_elem(&tt_cells, &key);
+        __u32 cell = cp ? *cp : TT_FAIL;
+        if (cell & TT_FAIL) { st->huff_fail = 1; return 1; }
+        if (cell & TT_EMIT) {
+            if (outpos < REASM_CAP) {
                 st->dec[outpos] = (__u8) (cell >> TT_SYM_SHIFT);
                 outpos++;
             }
@@ -1182,13 +1230,14 @@ static long h2_resolve_step(__u32 i, void *x)
  * Splitting decode and match into separate programs keeps each within the
  * verifier's per-program budget. Slots are populated by the host before the
  * entry is attached. */
-#define SLOT_DECODE  0
-#define SLOT_MATCH   1
-#define SLOT_RESOLVE 2
-#define SLOT_HUFF    3
+#define SLOT_DECODE    0
+#define SLOT_MATCH     1
+#define SLOT_RESOLVE   2
+#define SLOT_HUFF      3
+#define SLOT_TRANSFORM 4
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 4);
+    __uint(max_entries, 5);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");
@@ -1355,6 +1404,34 @@ int pfw_huff(struct xdp_md *ctx)
             return stage_reset(ctx, &p, f);
         /* ...then copy the decoded bytes back into the flow buffer the matcher
          * reads. (Separate buffers: output runs ahead of input.) */
+        __u32 ol = st->huff_outpos > REASM_CAP ? REASM_CAP : st->huff_outpos;
+        struct cp_ctx cp = { .f = f, .st = st, .n = ol };
+        if (ol) bpf_loop(ol, cp_step, &cp, 0);
+        f->reasm_len = ol;
+        st->r[R_PAYLOAD] = 0; st->r[R_CUR] = 0; st->r[R_END] = ol; st->r[R_LEN] = ol;
+    }
+    bpf_tail_call(ctx, &decode_jmp, SLOT_MATCH);
+    return XDP_PASS;
+}
+
+/* General transform stage (DECODE_TRANSFORM): decode the reassembled stream
+ * through a HOST-LOADED table (tt_cells[prog->transform_table], set into
+ * st->tf_table by the entry), then tail-call the matcher. Same shape as
+ * pfw_huff, but the table is data — any decoding the host can build (another
+ * prefix code, an obfuscation) is a loaded table, no kernel change. Invalid
+ * input fails closed. The P1 framework is why the stage body is this short. */
+SEC("xdp")
+int pfw_transform(struct xdp_md *ctx)
+{
+    PFW_STAGE_ENTER(ctx);
+    if (f) {
+        __u32 base = (st->tf_table & (TT_NTABLES - 1)) * TT_CELLS;
+        __u32 inlen = f->reasm_len > REASM_CAP ? REASM_CAP : f->reasm_len;
+        st->huff_state = 0; st->huff_outpos = 0; st->huff_fail = 0;
+        struct tf_map_ctx tc = { .f = f, .st = st, .base = base, .n = inlen };
+        if (inlen) bpf_loop(inlen, tf_map_step, &tc, 0);
+        if (st->huff_fail)
+            return stage_reset(ctx, &p, f);
         __u32 ol = st->huff_outpos > REASM_CAP ? REASM_CAP : st->huff_outpos;
         struct cp_ctx cp = { .f = f, .st = st, .n = ol };
         if (ol) bpf_loop(ol, cp_step, &cp, 0);
@@ -1554,6 +1631,10 @@ int pfw_xdp(struct xdp_md *ctx)
         bpf_tail_call(ctx, &decode_jmp, SLOT_DECODE);
     if (use_reasm && prog->decode == DECODE_HUFFMAN && f)
         bpf_tail_call(ctx, &decode_jmp, SLOT_HUFF);
+    if (use_reasm && prog->decode == DECODE_TRANSFORM && f) {
+        st->tf_table = prog->transform_table; /* carry the table id into the stage */
+        bpf_tail_call(ctx, &decode_jmp, SLOT_TRANSFORM);
+    }
     (void) use_reasm;
     return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, use_reasm, 0);
 }

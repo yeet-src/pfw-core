@@ -74,5 +74,5 @@ reads the C header, which the test sandbox cannot.
 ## Internal imports
 
 Modules reference each other through the `#/` subpath map (package.json
-`imports`), the same convention the yeet daemon uses: `#/src/isa.js`,
-`#/examples/index.js`, etc.
+`imports` → `./src/`), the same `#/` convention the yeet daemon uses:
+`#/isa.js`, `#/transform.js`, `#/examples.js`, etc.
