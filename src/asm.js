@@ -1,5 +1,7 @@
 /* The pfw assembler: AT&T syntax (src, dst), `$imm`, `D(%reg)`, labels,
- * `.pat` / `.nocase` directives. docs/isa.md is the reference.
+ * `.pat` / `.nocase` directives. docs/isa.md is the reference. It parses text and
+ * drives the shared Builder (builder.js) — the same op-constructor the pfw-C
+ * compiler uses — so there is one definition of how an op is built.
  *
  * assemble(source) → { ok, errors, program, patterns, rules, listing }
  *   program   the `programs` map value: { nops, npats, nocase, gen, ops, pats }
@@ -9,7 +11,13 @@
  *
  * Immediates are BigInt in `ops[].imm`; the probe converts for the map.
  */
-import { DECODE, LIMITS, LOAD_BE, OP, OP_NAME, REG, REG_NAME } from "#/isa.js";
+import { DECODE, LIMITS, LOAD_BE, OP, REG } from "#/isa.js";
+import { Builder, BuildError, opText } from "#/builder.js";
+
+export { opText };
+
+/* Opcodes whose `reg` field names a register (so the Builder may allocate it). */
+const REG_OPS = new Set([OP.MOV_RC, OP.MOV_CR, OP.ADD_R, OP.SUB_R, OP.CMP_R]);
 
 const SIZE_SUFFIX = { b: 1, w: 2, l: 4, q: 8 };
 const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF };
@@ -175,42 +183,20 @@ const isWritable = (o) => o?.kind === "reg" && /^(s[0-7]|m|end)$/.test(o.name);
 
 export function assemble(source) {
   const errors = [];
-  const patterns = [];
-  const patByName = new Map();
-  const rules = [{ id: 0, name: "-" }];
-  const ruleByName = new Map();
-  const ops = [];
-  const labels = new Map();
-  const listing = [];
-  let nocase = 0;
-  let reasm = 0;
-  let reasmDport = 0;
-  let decode = 0;
-  let transformTable = 0;
+  const bld = new Builder();
 
+  /* A rule reference: a numeric id, or a name the Builder interns. */
   const ruleId = (text) => {
     const n = parseNumber(text);
-    if (n !== null) {
-      if (n < 0n || n >= BigInt(LIMITS.NRULES)) fail(`rule id 0–${LIMITS.NRULES - 1}`);
-      return Number(n);
-    }
+    if (n !== null) { if (n < 0n || n >= BigInt(LIMITS.NRULES)) fail(`rule id 0–${LIMITS.NRULES - 1}`); return Number(n); }
     if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(text)) fail(`bad rule \`${text}\``);
-    if (ruleByName.has(text)) return ruleByName.get(text);
-    const id = rules.length;
-    if (id >= LIMITS.NRULES) fail(`more than ${LIMITS.NRULES - 1} rules`);
-    rules.push({ id, name: text });
-    ruleByName.set(text, id);
-    return id;
+    return bld.ruleId(text);
   };
 
   const patId = (text) => {
     const n = parseNumber(text);
-    if (n !== null) {
-      if (n < 0n || n >= BigInt(LIMITS.MAX_PATS)) fail(`pattern id 0–${LIMITS.MAX_PATS - 1}`);
-      return Number(n);
-    }
-    if (!patByName.has(text)) fail(`no pattern \`${text}\` (declare it with .pat)`);
-    return patByName.get(text);
+    if (n !== null) { if (n < 0n || n >= BigInt(LIMITS.MAX_PATS)) fail(`pattern id 0–${LIMITS.MAX_PATS - 1}`); return Number(n); }
+    return bld.patId(text);
   };
 
   /* `$a|$b|0x4` → a mask; names are pattern bits */
@@ -231,86 +217,73 @@ export function assemble(source) {
     return n;
   };
 
-  const emit = (code, reg = 0, imm = 0n, extra = {}) => {
-    if (ops.length >= LIMITS.MAX_OPS) fail(`more than ${LIMITS.MAX_OPS} instructions`);
-    ops.push({ code, reg, imm: BigInt(imm), ...extra });
-  };
+  /* Every op goes through the Builder; its reg is allocatable for register ops. */
+  const emit = (code, reg = 0, imm = 0n, extra = {}) =>
+    bld.op(code, reg, imm, { label: extra.label ?? null, regSlot: REG_OPS.has(code) });
 
   const lines = source.split(/\r?\n/);
   for (let ln = 0; ln < lines.length; ln++) {
     const lineNo = ln + 1;
+    bld.at(lineNo); // stamp emitted ops with the source line
     try {
       const { labels: ls, mnem, operands } = lexLine(lines[ln]);
-      for (const l of ls) {
-        if (labels.has(l)) fail(`label \`${l}\` defined twice`);
-        labels.set(l, ops.length);
-      }
+      for (const l of ls) bld.label(l);
       if (!mnem) continue;
       const m = mnem.toLowerCase();
-      const startPc = ops.length;
 
-      if (m === ".nocase") {
-        nocase = 1;
-        continue;
-      }
+      if (m === ".nocase") { bld.setNocase(); continue; }
       if (m === ".reasm") {
-        reasm = 1;
+        let port = 0;
         if (operands.length) {
           const n = parseNumber(operands[0]);
           if (n === null || n < 0n || n > 65535n) fail(".reasm port 0–65535");
-          reasmDport = Number(n);
+          port = Number(n);
         }
+        bld.setReasm(port);
         continue;
       }
       if (m === ".decode") {
         const kind = operands[0];
         if (kind !== "h2" && kind !== "huffman") fail(".decode h2|huffman [PORT]");
-        decode = DECODE[kind]; /* DECODE_H2 or DECODE_HUFFMAN */
-        reasm = 1;  /* decode runs over the reassembled stream */
+        let port = 0;
         if (operands[1] !== undefined) {
           const n = parseNumber(operands[1]);
           if (n === null || n < 0n || n > 65535n) fail(".decode port 0–65535");
-          reasmDport = Number(n);
+          port = Number(n);
         }
+        bld.setDecode(DECODE[kind], port);
         continue;
       }
       if (m === ".transform") {
         /* .transform TABLE_ID [PORT] — decode through the loaded tt_cells table. */
         const id = parseNumber(operands[0]);
         if (id === null || id < 0n || id >= 8n) fail(".transform table 0–7");
-        decode = DECODE.transform;
-        transformTable = Number(id);
-        reasm = 1;
+        let port = 0;
         if (operands[1] !== undefined) {
           const n = parseNumber(operands[1]);
           if (n === null || n < 0n || n > 65535n) fail(".transform port 0–65535");
-          reasmDport = Number(n);
+          port = Number(n);
         }
+        bld.setTransform(Number(id), port);
         continue;
       }
       if (m === ".pat") {
         if (operands.length < 2) fail('.pat NAME, "literal" | bytes');
         const name = operands[0];
         if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) fail(`bad pattern name \`${name}\``);
-        if (patByName.has(name)) fail(`pattern \`${name}\` declared twice`);
         const body = operands.slice(1).join(",").trim();
         let bytes;
         if (body.startsWith('"')) {
           if (!body.endsWith('"')) fail("unterminated string");
           bytes = unescape(body.slice(1, -1));
         } else {
-          bytes = body.split(/\s+/).map((b) => {
-            const n = parseNumber(b);
-            if (n === null || n < 0n || n > 255n) fail(`bad byte \`${b}\``);
+          bytes = body.split(/\s+/).map((byte) => {
+            const n = parseNumber(byte);
+            if (n === null || n < 0n || n > 255n) fail(`bad byte \`${byte}\``);
             return Number(n);
           });
         }
-        if (bytes.length === 0) fail("empty pattern");
-        if (bytes.length > LIMITS.PAT_CAP) fail(`pattern longer than ${LIMITS.PAT_CAP} bytes`);
-        if (patterns.length >= LIMITS.MAX_PATS) fail(`more than ${LIMITS.MAX_PATS} patterns`);
-        const id = patterns.length;
-        patterns.push({ id, name, bytes, text: body });
-        patByName.set(name, id);
+        bld.pat(name, bytes, body); // interns + checks empty / length / duplicate
         continue;
       }
       if (m.startsWith(".")) fail(`unknown directive \`${m}\``);
@@ -321,7 +294,6 @@ export function assemble(source) {
       if (m === "cidr") {
         if (operands.length !== 1) fail("cidr is `cidr A.B.C.D/PREFIX`");
         emit(OP.CIDR, 0, parseCidr(operands[0]));
-        for (let pc = startPc; pc < ops.length; pc++) ops[pc].line = lineNo;
         continue;
       }
 
@@ -462,98 +434,22 @@ export function assemble(source) {
         emit(m === "rpush" ? OP.RPUSH : m === "rget" ? OP.RGET : OP.RLEN);
       } else fail(`unknown instruction \`${m}\``);
 
-      for (let pc = startPc; pc < ops.length; pc++) ops[pc].line = lineNo;
     } catch (e) {
-      if (!(e instanceof AsmError)) throw e;
+      if (!(e instanceof AsmError || e instanceof BuildError)) throw e;
       errors.push({ line: lineNo, text: e.message });
     }
   }
 
-  /* resolve labels: forward only */
-  for (let pc = 0; pc < ops.length; pc++) {
-    const op = ops[pc];
-    if (!op.label) continue;
-    const target = labels.get(op.label);
-    if (target === undefined) errors.push({ line: op.line, text: `no label \`${op.label}\`` });
-    else if (target <= pc) errors.push({ line: op.line, text: `\`${op.label}\` is behind the jump; jumps go forward only` });
-    else op.imm = BigInt(target);
-  }
-
-  if (ops.length === 0 && errors.length === 0) errors.push({ line: 0, text: "empty program" });
-
-  for (let pc = 0; pc < ops.length; pc++) listing.push({ pc, text: opText(ops[pc], patterns, rules), line: ops[pc].line });
-
-  const program = {
-    nops: ops.length,
-    npats: patterns.length,
-    nocase,
-    gen: 0,
-    reasm,
-    reasm_dport: reasmDport,
-    decode,
-    transform_table: transformTable,
-    ops: ops.map(({ code, reg, imm }) => ({ code, reg, imm })),
-    pats: patterns.map((p) => ({ len: p.bytes.length, bytes: p.bytes })),
+  /* The Builder resolves labels, allocates registers, and emits the program. */
+  const r = bld.finalize();
+  return {
+    ok: errors.length === 0 && r.ok,
+    errors: [...errors, ...r.errors],
+    program: r.program,
+    patterns: r.patterns,
+    rules: r.rules,
+    listing: r.listing,
+    nocase: r.nocase,
+    reasm: r.reasm,
   };
-  return { ok: errors.length === 0, errors, program, patterns, rules, listing, nocase: !!nocase, reasm: !!reasm };
-}
-
-/** One op as text, for a listing. */
-export function opText(op, patterns = [], rules = []) {
-  const name = OP_NAME[op.code] ?? String(op.code);
-  const pat = (i) => patterns[i]?.name ?? String(i);
-  const rule = (i) => rules[i]?.name ?? String(i);
-  switch (op.code) {
-    case OP.OR_I:
-      return `or ${op.imm}`;
-    case OP.SHL_I:
-      return `shl ${op.imm}`;
-    case OP.SHR_I:
-      return `shr ${op.imm}`;
-    case OP.CIDR: {
-      const prefix = Number(op.imm >> 32n);
-      const net = Number(op.imm & 0xffffffffn);
-      const d = [(net >>> 24) & 255, (net >>> 16) & 255, (net >>> 8) & 255, net & 255].join(".");
-      return `cidr ${d}/${prefix}`;
-    }
-    case OP.MOV_RC:
-    case OP.MOV_CR:
-    case OP.ADD_R:
-    case OP.SUB_R:
-    case OP.CMP_R:
-      return `${name} %${REG_NAME[op.reg]}`;
-    case OP.LOAD:
-      return `load ${op.reg & 15}${op.reg & LOAD_BE ? "be" : ""} +${op.imm}`;
-    case OP.TEST: {
-      const names = patterns.filter((p) => (op.imm >> BigInt(p.id)) & 1n).map((p) => p.name);
-      return `test ${names.length ? names.join("|") : "0x" + op.imm.toString(16)}`;
-    }
-    case OP.MPOS:
-    case OP.CMPSTR:
-      return `${name} ${pat(op.reg)}`;
-    case OP.FINDB:
-    case OP.SKIPB:
-      return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
-    case OP.DROP:
-    case OP.COUNT:
-      return `${name} ${rule(op.reg)}`;
-    case OP.BAN:
-    case OP.RST:
-      return `${name} ${rule(op.reg)} ${op.imm}s`;
-    case OP.MARK:
-      return `mark ${op.reg} ${op.imm}s`;
-    case OP.SSTORE:
-      return op.reg ? `sstore ${op.imm}, ${op.reg}s` : `sstore ${op.imm}`;
-    case OP.PASS:
-    case OP.FLOW:
-    case OP.SLOAD:
-    case OP.BUMP:
-    case OP.RPUSH:
-    case OP.RGET:
-    case OP.RLEN:
-    case OP.END:
-      return name;
-    default:
-      return op.imm ? `${name} ${op.imm}` : name;
-  }
 }
