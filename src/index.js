@@ -23,11 +23,11 @@ export { assemble } from "#/asm.js";
 export { Builder, opText } from "#/builder.js";
 
 // pfw-C compiler: source -> Builder -> program.
-export { compile, compileAst, compileToAsm } from "#/clang.js";
+export { compile, compileAst, compileToAsm } from "#/clang";
 
 // A compiled program as a runnable object (.exec(frame, opts), .bytes(), .tables()).
 export { Program } from "#/program.js";
-import { compile as _compile } from "#/clang.js";
+import { compile as _compile } from "#/clang";
 import { Program as _Program } from "#/program.js";
 /** Compile pfw-C source straight to a runnable Program (throws on error). */
 export function load(source) {

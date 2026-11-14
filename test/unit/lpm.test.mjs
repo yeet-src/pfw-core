@@ -3,7 +3,7 @@
  * strings) and does the membership test; the kernel uses the real trie
  * (test/kernel/lpm.mjs). */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

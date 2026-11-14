@@ -2,7 +2,7 @@
  * v6 CIDRs. The op reads the v6 source from the packet in the kernel; the
  * reference interpreter takes the source + set via opts (src6 / set6). */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

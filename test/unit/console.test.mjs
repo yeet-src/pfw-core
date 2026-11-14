@@ -2,7 +2,7 @@
  * (%d %u %x %c ...) are captured by value; %s captures bytes from a packet
  * pointer. The reference interpreter formats them (same formatter the loader
  * uses) and exec() returns them in `console`, and calls opts.onConsole if given. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 import { formatMsg } from "#/program.js";
 

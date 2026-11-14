@@ -4,7 +4,7 @@
  * and is a pass-through in the reference interpreter. The wire behaviour is in
  * test/kernel/dnat.mjs. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const J = (ops) => JSON.stringify(ops, (_, v) => (typeof v === "bigint" ? "0x" + v.toString(16) : v));

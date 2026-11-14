@@ -4,7 +4,7 @@
  * the lowering: the op carries the ifindex in imm, and all three front-ends
  * (pfw-C, DSL, asm) produce the same bytecode. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { assemble } from "#/asm.js";
 import { OP } from "#/isa.js";
 

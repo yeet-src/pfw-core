@@ -2,7 +2,7 @@
  * block-delimited `case V [, V] { ... }` and optional `default { ... }`. `switch`
  * is C-style: `case V:` statement lists that fall through until `break;`. Both
  * evaluate the scrutinee once; no new opcodes (compare + forward jumps). */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

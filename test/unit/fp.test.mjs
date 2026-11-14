@@ -3,7 +3,7 @@
  * reusable fragments built from closures (including generated from a list). */
 import * as C from "#/dsl.js";
 import { when, unless, guard, allOf, anyOf, none, match, rules, each } from "#/fp.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const J = (x) => JSON.stringify(x, (_, v) => (typeof v === "bigint" ? "0x" + v.toString(16) : v));
 const same = (name, prog, src) => {

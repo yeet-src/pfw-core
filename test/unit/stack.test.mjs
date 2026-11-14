@@ -1,7 +1,7 @@
 /* The VM data stack: push(v) / pop() backed by a per-CPU stack map, with %sp
  * (stack pointer) and %bp (base pointer) registers. push stores %cur and bumps
  * %sp; pop lowers %sp and loads %cur; %bp lets a program save/restore %sp. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

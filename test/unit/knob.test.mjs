@@ -3,7 +3,7 @@
  * and the host rewrites them at any time to drive the running program. The
  * compiler assigns each name a slot (program.knobs[slot] === name); exec takes
  * the current values as { name: value }. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 import * as C from "#/dsl.js";
 

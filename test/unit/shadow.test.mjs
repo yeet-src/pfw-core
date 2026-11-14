@@ -2,7 +2,7 @@
  * into a dry run — the packet is let through (verdict reported as pass) but the
  * would-be verdict is surfaced in `would`, so you can see what a rule WOULD block
  * before enforcing it. Also readable in-program as `%shadow`. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

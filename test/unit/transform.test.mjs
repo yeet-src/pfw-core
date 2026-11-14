@@ -6,7 +6,7 @@
  * separately by scripts/verify-load.mjs (the verifier can't run in this sandbox). */
 import { huffDecode } from "#/huffman.js";
 import { buildByteMap, TRANSFORM_TABLES, transformCells, TT_CELLS } from "#/transform.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { DECODE } from "#/isa.js";
 
 const enc = new TextEncoder();

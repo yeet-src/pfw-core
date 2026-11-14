@@ -3,7 +3,7 @@
  * (the reference interpreter treats it as a no-op), so these tests pin the
  * lowering, the stored format, and the validation. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { assemble } from "#/asm.js";
 import { OP } from "#/isa.js";
 

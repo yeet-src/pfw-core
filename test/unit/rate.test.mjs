@@ -5,7 +5,7 @@
  * caller threads across packets, so these tests pin both the lowering and the
  * bucket algorithm the kernel mirrors. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { assemble } from "#/asm.js";
 import { OP } from "#/isa.js";
 

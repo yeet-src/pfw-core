@@ -2,7 +2,7 @@
  * OP_CALL (return pc pushed on the data stack) and an implicit `ret` at the end.
  * Routines share the register file and the stack with the caller, so they pass
  * values through registers or push/pop. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

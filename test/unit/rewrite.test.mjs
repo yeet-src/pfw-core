@@ -3,7 +3,7 @@
  * same-length string. The reference interpreter rewrites the frame buffer, so
  * these assert on the bytes after exec. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const dec = (u) => String.fromCharCode(...u);

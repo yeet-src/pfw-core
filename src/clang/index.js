@@ -1,4 +1,22 @@
-/* pfw-C pipeline: lex -> parse -> codegen, and the public compile entry points. */
+/* pfw-C: a small C-style language that compiles to pfw assembly — the entry
+ * point. `#/clang` (or the package subpath `pfw-core/clang`) resolves here.
+ *
+ *   nocase;
+ *   pattern gptbot = "GPTBot", claudebot = "ClaudeBot";
+ *   filter {
+ *     if (dport != 8080) decide pass;
+ *     if (scan(payload, 1460) & (gptbot | claudebot)) { log(96); decide rst("crawler", 60); }
+ *     decide pass;
+ *   }
+ *
+ * The compiler is split by concern under this directory:
+ *   errors.js    the CError type
+ *   lang.js      shared constants (register names, verdict keywords)
+ *   lex.js       source text -> tokens
+ *   parse.js     tokens -> AST
+ *   codegen.js   AST -> program ops, via the shared Builder
+ *   index.js     the pipeline below: compile / compileAst / compileToAsm
+ */
 import { compileRegexes } from "#/regex.js";
 import { CError } from "#/clang/errors.js";
 import { lex } from "#/clang/lex.js";

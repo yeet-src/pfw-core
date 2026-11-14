@@ -3,7 +3,7 @@
  * a yeet test, because it reads the example files from disk (the yeet sandbox
  * has no file I/O); run by `npm run test:node`. */
 import { readFileSync, readdirSync } from "node:fs";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const dir = new URL("../../examples/", import.meta.url);
 const files = readdirSync(dir).filter((f) => f.endsWith(".pfc")).sort();

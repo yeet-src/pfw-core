@@ -3,7 +3,7 @@
  * non-terminating statements, and the default fall-through to pass. `return` is
  * reserved for a subroutine's value, not verdicts. */
 import { fromC, V } from "./helpers.mjs";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const res = (src, opts = {}) => fromC(src).run(new Uint8Array(0), {}, opts);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

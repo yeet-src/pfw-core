@@ -8,7 +8,7 @@
  *   yeet run scripts/apply-and-hold.mjs --src <base64 pfw-C> [--iface N] [--hold S]
  */
 import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { build } from "#/ac.js";
 import { LIMITS } from "#/isa.js";
 import { formatMsg } from "#/program.js";

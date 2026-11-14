@@ -2,7 +2,7 @@
  * pfw-C source compiles to — same ops, patterns, rules and flags. Each case pairs
  * a source string with the DSL that should match it; a mismatch means the builder
  * and the language have drifted. Also covers the Program wrapper the DSL returns. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import * as C from "#/dsl.js";
 import { Program } from "#/program.js";
 

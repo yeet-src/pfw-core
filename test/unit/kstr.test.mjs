@@ -5,7 +5,7 @@
  * changed live — e.g. push the current bad host/token and block it without a
  * reload. The compiler assigns each name a slot (program.knobStrs[slot] === name);
  * exec takes the current strings as { name: "needle" }. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

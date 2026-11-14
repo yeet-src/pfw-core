@@ -10,7 +10,7 @@
 import net from "node:net";
 import { spawn } from "node:child_process";
 import { setTimeout as sleep } from "node:timers/promises";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { build } from "#/ac.js";
 import { machine, V } from "#/interp.js";
 

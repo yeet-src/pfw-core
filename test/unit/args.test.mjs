@@ -2,7 +2,7 @@
  * registers %a0..%a3; the caller loads args before the call; the return value
  * comes back in %a0 (so `let r = name(x)` works). Up to 4 args. Routines are
  * caller-saved over a0..a3 — a nested call reuses them. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 
 const enc = (s) => new TextEncoder().encode(s);

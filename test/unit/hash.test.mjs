@@ -3,7 +3,7 @@
  * interpreter takes it via opts.hashset; the kernel uses the real hash map
  * (test/kernel/hash.mjs). */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

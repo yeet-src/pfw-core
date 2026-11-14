@@ -4,7 +4,7 @@
  * interpreter, so this is the host behaviour the kernel mirrors. */
 import * as C from "#/dsl.js";
 import { load } from "#/index.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

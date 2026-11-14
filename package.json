@@ -4,10 +4,12 @@
   "description": "The programmable-firewall VM: ISA, pfw-C compiler, bytecode, and a reference interpreter, with an eBPF/XDP backend.",
   "type": "module",
   "imports": {
+    "#/clang": "./src/clang/index.js",
     "#/*": "./src/*"
   },
   "exports": {
     ".": "./src/index.js",
+    "./clang": "./src/clang/index.js",
     "./*": "./src/*"
   },
   "scripts": {

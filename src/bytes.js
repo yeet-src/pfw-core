@@ -8,7 +8,7 @@
  *   struct pfw_pat pats[64]  { u32 len; u8 bytes[64] }      @1048 4352 bytes
  */
 import { build } from "#/ac.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { LIMITS } from "#/isa.js";
 
 const OPS = LIMITS.MAX_OPS; // 64

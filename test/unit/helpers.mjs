@@ -2,7 +2,7 @@
  * get a `run(frame, flow, opts)` over the reference interpreter, plus a few
  * conveniences. Not a test module itself (no `.test.` suffix), just imported. */
 import { assemble } from "#/asm.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { build } from "#/ac.js";
 import { machine, V } from "#/interp.js";
 

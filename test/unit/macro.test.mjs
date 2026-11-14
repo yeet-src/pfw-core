@@ -1,7 +1,7 @@
 /* macro NAME { ... } — a named block expanded inline at its call site (no calls
  * on the forward-only machine). The emitted bytecode must be identical to
  * writing the statements out by hand, and multiple macros expand independently. */
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { fromC, V } from "./helpers.mjs";
 
 const J = (p) => JSON.stringify(p.ops, (_, x) => (typeof x === "bigint" ? "0x" + x.toString(16) : x));

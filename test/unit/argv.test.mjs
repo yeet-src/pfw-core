@@ -5,7 +5,7 @@
  * than i+1 args. These tests pin the lowering, the default behaviour, and that
  * all three front-ends agree. */
 import * as C from "#/dsl.js";
-import { compile } from "#/clang.js";
+import { compile } from "#/clang";
 import { toProgram } from "#/program.js";
 import { assemble } from "#/asm.js";
 import { OP } from "#/isa.js";
