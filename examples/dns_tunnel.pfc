@@ -1,11 +1,17 @@
-// DNS tunneling / exfiltration detector. Walks the QNAME label structure of a DNS
-// query (each label is a length byte followed by that many bytes) with a `frame`
-// loop starting just past the 12-byte DNS header, and scores the name: an
-// abnormally long single label, too many labels, or an oversized overall name are
-// the signatures of base32/hex data smuggled inside subdomain labels.
+// DNS tunneling / exfiltration detector. Walks the QNAME of a DNS query label by
+// label (each label is a length byte followed by that many bytes) with a `frame`
+// loop starting just past the 12-byte DNS header, and measures the name: one
+// abnormally long label, too many labels, or an oversized name overall are what
+// base32/hex data smuggled into subdomain labels looks like.
 //
-// Combines: UDP, pointer arithmetic to skip the fixed header, `frame` walking the
-// length-prefixed labels, let/arithmetic accumulation across the unrolled loop.
+// The walk stops at the root label (length 0) — or at a length byte >= 64, which
+// is a compression pointer or garbage — so the QTYPE/QCLASS and any EDNS record
+// that follow the name are never mistaken for labels. Only the first question is
+// measured. The thresholds are heuristics: legitimate names with a 51+ byte
+// label or 16+ labels exist (rarely), so run it shadowed before enforcing.
+//
+// Shows: UDP, pointer arithmetic to skip a fixed header, `frame` walking
+// length-prefixed records, a stop flag and accumulators across the unrolled loop.
 filter {
   if (proto != 17) decide pass;
   if (dport != 53) decide pass;
@@ -15,12 +21,17 @@ filter {
   let labels = 0;
   let longest = 0;
   let total = 0;
+  let done = 0;
 
   frame at (q) (len = u8 @ 0, head = 1) up to 24 {
-    if (frame.len > 0 && frame.len < 64) {   // a real label (0 = root/end)
-      labels = labels + 1;
-      total = total + frame.len;
-      if (frame.len > longest) longest = frame.len;
+    if (done == 0) {
+      if (frame.len == 0) done = 1;              // root label: the name ends here
+      else if (frame.len >= 64) done = 1;        // compression pointer / not a label
+      else {
+        labels = labels + 1;
+        total = total + frame.len;
+        if (frame.len > longest) longest = frame.len;
+      }
     }
   }
 

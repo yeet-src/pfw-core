@@ -1,20 +1,28 @@
 // Shadow mode: deploy a rule and watch what it WOULD do before it bites. When
 // the host sets the shadow flag (loader `--shadow 1`, or patch vm.bss.shadow from
 // JS), every enforcement verdict (drop/ban/rst) is still counted and logged —
-// the event carries the would-be verdict — but the packet is let through. Flip
-// the flag off to start enforcing, with no change to the program.
+// the event carries the would-be verdict — but the packet is let through, and a
+// `ban` plants no source ban. Flip the flag off to start enforcing, with no
+// change to the program.
 //
-// The flag is also readable as `%shadow`, so a program can branch on it (e.g.
-// sample more aggressively while observing). This rule bans SQLi scanners; run it
-// shadowed first, read the events/counters to confirm it only catches attackers,
-// then enforce.
+// The flag is also readable as `shadow`, so a program can branch on it (here:
+// log more bytes per event while observing). The rule itself bans scanners that
+// name themselves and resets UNION..SELECT probes; run it shadowed first, read
+// the events/counters to confirm it only catches attackers, then enforce.
+// Plaintext hop only (behind the TLS terminator).
 nocase;
 reassemble 8080;
-pattern union = "union", select = "select", sqlmap = "sqlmap";
+pattern sqlmap = "sqlmap", nikto = "nikto";
+regex union_select = "union([\s+]|%20|/\*\*/)+select";
 filter {
-  if (dport != 80) decide pass;
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
   mask m = scan(payload, 1460);
-  if (any(m, sqlmap)) { log(1); decide ban("scanner", 3600); }
-  if (seq(m, union, select)) { log(1); decide rst("sqli", 0); }
+  if (any(m, sqlmap, nikto, union_select)) {
+    if (shadow == 1) log(64);          // observing: capture more of the request
+    else log(1);
+  }
+  if (any(m, sqlmap, nikto)) decide ban("scanner", 3600);
+  if (any(m, union_select)) decide rst("sqli", 0);
   decide pass;
 }

@@ -1,0 +1,40 @@
+// Open redirect: a redirect parameter (url=, next=, returnTo=, dest=) pointed at an
+// external or protocol-relative target lets an attacker bounce victims off a trusted
+// domain for phishing or OAuth token theft. We parse the request's path/query, then
+// a subroutine looks for a redirect param *carrying* an off-site target — an
+// absolute http(s):// URL, a protocol-relative `//host`, or the `/\/` and `%2f%2f`
+// smuggling tricks. A redirect param alone is fine; param + external target is not.
+//
+// Combines: reassembly, nocase, cursor parsing (query region), a subroutine over a
+// POINTER, any()/arithmetic scoring of param+target, regex for the sneaky forms,
+// src.count escalation, console/log.
+nocase;
+reassemble 8080;
+pattern p_url = "url=", p_next = "next=", p_return = "returnto=", p_dest = "dest=", p_redirect = "redirect=", p_continue = "continue=";
+pattern t_http = "=http://", t_https = "=https://", t_proto_rel = "=//", t_at = "@";
+regex t_backslash = "=/\\\\";                       // =/\  (browsers treat as //)
+regex t_enc = "=%2f%2f";                            // =%2f%2f -> //
+
+fn offsite_redirect(p) {
+  mask m = scan(p, 1024);
+  let s = 0;
+  if (any(m, p_url, p_next, p_return, p_dest, p_redirect, p_continue)) s = s + 1;  // a redirect param
+  if (any(m, t_http, t_https, t_proto_rel, t_at)) s = s + 2;                        // off-site target
+  if (any(scan(p, 1024), t_backslash, t_enc)) s = s + 2;                            // smuggled //
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+
+  ptr path = find(payload, ' ', 16);
+  skip(path, ' ');
+
+  let score = offsite_redirect(path);
+  if (score < 3) decide pass;                 // need a param AND an external target
+  console("open_redirect score=%d sport=%d", score, sport);
+  log(1);
+  if (src.count >= 3) decide ban("open_redirect_repeat", 1800);
+  decide drop("open_redirect");
+}

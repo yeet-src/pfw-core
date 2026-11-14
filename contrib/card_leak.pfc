@@ -1,0 +1,41 @@
+// PCI-DSS egress DLP: stop credit-card numbers leaking in HTTP RESPONSES. On a
+// gateway that sees both directions, the web tier's replies arrive with sport
+// 80/8080; a PAN in a response body almost always means a page or API is spilling
+// card data. This correlates several signals before acting (a bare 16-digit run
+// only counts as a card when card-ish context sits nearby, to kill false
+// positives) and resets the connection carrying the leak.
+//
+// Combines: a regex+literal detector subroutine, multi-signal correlation
+// (any + &&), per-flow counting (flow.count), console() observability, and
+// rst. Detection-only here; see dlp_redact.pfc to scrub in place.
+// Plaintext hop only: this must sit BEHIND the TLS terminator. On :443 the payload
+// is ciphertext and nothing here can match.
+// Response side: `src` here is the SERVER, so this never bans — a source ban would
+// blocklist your own web tier. It cuts the leaking response and counts it.
+nocase;
+regex pan        = "\d{4}-\d{4}-\d{4}-\d{4}";   // 4111-1111-1111-1111
+regex pan_spaced = "\d{4} \d{4} \d{4} \d{4}";   // 4111 1111 1111 1111
+regex pan_bare   = "\d{16}";                     // 4111111111111111
+pattern ctx_card = "card", ctx_cvv = "cvv", ctx_exp = "expir";
+
+// true when the response carries card data; a bare run needs card context nearby
+fn has_card() {
+  mask m = scan(payload, 1460);
+  if (any(m, pan, pan_spaced)) return 1;                       // formatted PAN: certain
+  if (any(m, pan_bare) && any(m, ctx_card, ctx_cvv, ctx_exp)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 8080) decide pass;   // inspect server responses
+  if (len == 0) decide pass;                        // skip pure ACKs
+
+  if (has_card()) {
+    let hits = flow.count;                          // read-then-increment, once
+    log(1);
+    console("card leak sport=%d hit=%d", sport, hits);
+    decide rst("card_leak", 0);                             // cut this response
+  }
+  decide pass;
+}

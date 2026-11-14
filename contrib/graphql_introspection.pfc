@@ -1,0 +1,46 @@
+// Lock down a GraphQL endpoint in production. Introspection (__schema, __type,
+// IntrospectionQuery) hands an attacker your entire API surface and is a standard
+// first step; deeply nested queries are a DoS vector. This guards the /graphql path
+// only, lets internal tooling introspect, blocks external introspection, and
+// rate-caps query volume per connection — with escalation for persistent abuse.
+//
+// Case-sensitive on purpose (GraphQL field names are), so NO `nocase`. Combines:
+// path gating, host/source allowlist, subroutines returning booleans, a nesting-
+// depth heuristic, token-bucket rate(), escalation, and console().
+//   argv[0] = max introspection strikes before ban (default 3)
+reassemble 8080;
+pattern g_path = "/graphql";
+pattern i_schema = "__schema", i_type = "__type", i_query = "IntrospectionQuery", i_typename = "__typename";
+pattern deep = "{{{{{{{{";                 // absurd nesting — a cheap DoS smell
+
+fn to_graphql() { if (starts(payload, g_path)) return 1; return 0; }
+
+fn is_introspection() {
+  if (any(scan(payload, 2048), i_schema, i_type, i_query)) return 1;
+  return 0;
+}
+
+fn internal() { if (src in "10.0.0.0/8") return 1; if (src in set) return 1; return 0; }
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  if (len == 0) decide pass;
+  if (!to_graphql()) decide pass;
+
+  // Deeply nested documents: likely a resource-exhaustion query.
+  if (scan(payload, 2048) & deep) { console("graphql deep-nest sport=%d", sport); decide rst("graphql_depth", 0); }
+
+  if (is_introspection()) {
+    if (internal()) { count("introspect_internal"); decide pass; }   // tooling may introspect
+    let strikes = src.count;                 // one read: every read increments
+    console("graphql introspection external sport=%d strikes=%d", sport, strikes);
+    log(1);
+    if (strikes >= argv[0] ?? 3) decide ban("introspect_repeat", 1800);
+    decide rst("graphql_introspection", 0);
+  }
+
+  // Ordinary queries: cap volume per connection.
+  if (rate(50, 100)) decide drop("graphql_ratelimited");
+  decide pass;
+}

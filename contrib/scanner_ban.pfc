@@ -1,0 +1,42 @@
+// Ban automated web/vuln scanners — and escalate. Tools like sqlmap, nikto,
+// nmap NSE, masscan, acunetix, nuclei and dirbuster give themselves away in the
+// User-Agent; aggressive content probes (/.env, /.git/, phpMyAdmin) are a softer
+// signal. A subroutine triages one scan of the reassembled request into a
+// severity, and the filter escalates: a named tool is banned on sight, a prober
+// is reset and only banned after it keeps knocking.
+//
+// Combines: reassembly, nocase, a subroutine returning a severity, one reused
+// scan mask with any(), per-source strike counting (src.count), console()
+// observability, and rst -> ban escalation.
+nocase;
+reassemble 8080;
+pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap scripting engine";
+pattern masscan = "masscan", acunetix = "acunetix", nuclei = "nuclei";
+pattern dirb = "dirbuster", gobuster = "gobuster", wpscan = "wpscan";
+pattern p_env = "/.env", p_git = "/.git/", p_pma = "/phpmyadmin";
+
+// 2 = named scanner tool, 1 = aggressive probe, 0 = clean
+fn triage() {
+  mask m = scan(payload, 1460);
+  if (any(m, sqlmap, nikto, nmap, masscan)) return 2;
+  if (any(m, acunetix, nuclei, dirb, gobuster)) return 2;
+  if (any(m, wpscan)) return 2;
+  if (any(m, p_env, p_git, p_pma)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+
+  let sev = triage();
+  if (sev == 0) decide pass;
+
+  let strikes = src.count;
+  log(1);
+  console("scanner sev=%d sport=%d strikes=%d", sev, sport, strikes);
+
+  if (sev == 2) decide ban("scanner_tool", 3600);   // confirmed tool: gone for an hour
+  if (strikes >= 3) decide ban("repeat_probe", 1800); // persistent prober
+  decide rst("probe", 0);                             // first probes: just reset
+}

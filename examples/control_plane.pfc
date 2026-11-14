@@ -19,7 +19,7 @@ reassemble 8080;
 knob struct policy { max_rps ?? 50, burst ?? 100, mode ?? 2 };   // 0 off, 1 observe, 2 enforce
 
 filter {
-  if (dport != 80) decide pass;
+  if (dport != 8080) decide pass;
   if (knob("enforce") ?? 1 == 0) decide pass;            // global kill-switch
 
   // Live blocklist needle, re-targetable by the host.

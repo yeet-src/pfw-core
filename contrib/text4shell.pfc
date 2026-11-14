@@ -1,0 +1,32 @@
+// Text4Shell (CVE-2022-42889): RCE in Apache Commons Text. StringSubstitutor
+// interpolated attacker input through pluggable lookups, so `${script:...}` runs
+// arbitrary JEXL/JavaScript and `${url:...}`/`${dns:...}` reach out (SSRF/exfil).
+// The lookup prefixes are the signal — `${script:` is near-certain RCE; the
+// network lookups and the base64 decoder add weight.
+//
+// Non-trivial: scored over one scan of the reassembled request, with
+// per-source escalation from reset to source ban.
+nocase;
+reassemble 8080;
+pattern script = "${script:", dns = "${dns:", url = "${url:";
+pattern purl = "${prefixedurl:", b64 = "${base64decoder:";
+
+fn score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, script)) s = s + 3;          // arbitrary script evaluation
+  if (any(m, dns, url, purl)) s = s + 2;  // SSRF / exfil lookups
+  if (any(m, b64)) s = s + 1;
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let s = score();
+  if (s >= 2) {
+    log(1);
+    if (src.count >= 2) decide ban("text4shell", 3600);
+    decide rst("text4shell", 0);
+  }
+  decide pass;
+}

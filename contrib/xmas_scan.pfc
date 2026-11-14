@@ -1,0 +1,38 @@
+// Stealth port-scan detection from the TCP flag byte. nmap's -sX/-sN/-sF scans
+// send flag combinations no real stack emits: Xmas (FIN+PSH+URG), NULL (no flags),
+// a lone FIN, or the illegal SYN+FIN. We read the flags, classify the scan, trace
+// it, and ban the scanner after a couple of probes.
+//
+// Header read: TCP flags at l4+13. Combines a classifier subroutine, bitfield
+// flag tests, a `match` dispatch on the class, console(), and src.count
+// escalation.
+filter {
+  if (proto != 6) decide pass;
+
+  let fl = 0;
+  frame at (l4) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+
+  match (scan_class(fl)) {
+    case 0 { decide pass; }                        // normal flags
+    default {
+      console("tcp scan class=%d flags=%d sport=%d", scan_class(fl), fl, sport);
+      log(1);
+      if (src.count >= 2) decide ban("port_scan", 1800);
+      decide drop("illegal_tcp_flags");
+    }
+  }
+}
+
+// 1 = NULL scan, 2 = Xmas (FIN|PSH|URG), 3 = FIN scan, 4 = SYN+FIN (illegal).
+fn scan_class(fl) {
+  let low = fl & 63;                               // ignore ECE/CWR
+  if (low == 0) return 1;
+  let xmas = fl & 41;                              // 0x29 = FIN|PSH|URG
+  if (xmas == 41) return 2;
+  let fin = fl & 1;
+  let ack = fl & 16;
+  let syn = fl & 2;
+  if (fin == 1) { if (ack == 0) { if (syn == 0) return 3; } }
+  if (syn == 2) { if (fin == 1) return 4; }
+  return 0;
+}

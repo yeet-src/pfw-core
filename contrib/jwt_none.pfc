@@ -1,0 +1,37 @@
+// JWT "alg:none" downgrade: a forged token sets the header algorithm to none so the
+// signature is never checked — instant auth bypass on servers that honour it. We
+// walk the cursor to the Authorization header and inspect only that value, matching
+// both the decoded header (`"alg":"none"`, with spacing variants) and the base64url
+// prefixes a `{"alg":"none"` header encodes to (eyJhbGciOiJub25lI…) in its common
+// castings. Scanning only the header keeps false positives off the body.
+//
+// Combines: reassembly, nocase, cursor parsing (after the header name), a
+// subroutine taking a POINTER + returning a value, any() across decoded + encoded
+// forms, src.count escalation, console/log.
+nocase;
+reassemble 8080;
+pattern a_none1 = "\"alg\":\"none\"", a_none2 = "\"alg\": \"none\"", a_none3 = "'alg':'none'";
+pattern b64_1 = "eyJhbGciOiJub25l", b64_2 = "eyJhbGciOi Jub25l", b64_3 = "eyJ0eXAiOiJKV1QiLCJhbGciOiJub25l";
+pattern bearer = "bearer ";
+
+fn jwt_alg_none(p) {
+  mask m = scan(p, 512);
+  if (any(m, a_none1, a_none2, a_none3)) return 1;   // decoded header
+  if (any(m, b64_1, b64_2, b64_3)) return 1;          // base64url-encoded header
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+
+  // jump to just past "Authorization:" and judge the token, not the whole request
+  ptr auth = after("authorization:");
+  if (jwt_alg_none(auth) == 0) decide pass;
+
+  let strikes = src.count;                 // one read: every read increments
+  console("jwt alg:none from sport=%d strikes=%d", sport, strikes);
+  log(1);
+  if (strikes >= 2) decide ban("jwt_none_repeat", 3600);  // never legitimate: ban on repeat
+  decide drop("jwt_alg_none");
+}

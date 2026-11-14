@@ -1,0 +1,66 @@
+// TLS ClientHello policy, read from the handshake's real fields. (This file was
+// `tls_ja3.pfc`. It never computed a JA3 — that needs an MD5 over the hello's
+// lists, which this VM cannot do — and it "matched" versions and suites by
+// scanning the whole hello for 2-byte strings, which a modern hello's random
+// bytes and record header hit by accident. It now parses instead.)
+//
+//   TLS record (type 22) -> handshake header (type 1 = ClientHello) -> body:
+//     legacy_version(2) random(32) session_id<u8> cipher_suites<u16> ...
+//
+// Two rules:
+//   - legacy_version below TLS 1.2 (0x0303). That field is the highest version a
+//     pre-1.3 client supports (a 1.3 client sends 0x0303 and negotiates in an
+//     extension), so 0x0300 means SSLv3-only and 0x0301/0x0302 mean TLS 1.0/1.1
+//     at best — all deprecated (RFC 8996). Note the RECORD header of a modern
+//     hello still says 0x0301; that is not the client's version and is ignored.
+//   - any RC4, NULL or EXPORT suite among the first 48 offered, read two bytes
+//     at a time at the suites' real alignment. A current client offers none.
+// Both reset the connection. Reads the first segment of the hello only, which is
+// where these fields are.
+//
+// Shows: `frame ... up to 1` as a fixed-offset field read, stepping a pointer
+// over a length-prefixed field, a bounded `repeat` walking fixed-size entries,
+// and `match` with shared case labels.
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 443) decide pass;
+  if (len == 0) decide pass;
+
+  let rec = 0;
+  frame (type = u8 @ 0, len = be16 @ 3, head = 5) up to 1 { rec = frame.type; }
+  if (rec != 22) decide pass;                    // not a handshake record
+  let p = payload + 5;
+  let hs = 0;
+  frame at (p) (type = u8 @ 0, len = be24 @ 1, head = 4) up to 1 { hs = frame.type; }
+  if (hs != 1) decide pass;                      // not a ClientHello
+  p = p + 4;                                     // the ClientHello body
+
+  let ver = 0x0303;
+  frame at (p) (len = be16 @ 0, head = 2) up to 1 { ver = frame.len; }
+  if (ver <= 0x0300) decide rst("tls_sslv3", 0);
+  if (ver < 0x0303) { log(1); decide rst("tls_legacy_version", 0); }
+
+  p = p + 34;                                    // past legacy_version + random
+  let cs = 0;
+  frame at (p) (len = u8 @ 0, head = 1) up to 1 { cs = frame.data + frame.len; }   // past session_id
+  if (cs == 0) decide pass;
+  let stop = 0;
+  frame at (cs) (len = be16 @ 0, head = 2) up to 1 { cs = frame.data; stop = frame.data + frame.len; }
+  if (stop == 0) decide pass;
+
+  let weak = 0;
+  repeat (48) {
+    if (cs < stop) {
+      frame at (cs) (len = be16 @ 0, head = 2) up to 1 {      // frame.len = this suite
+        match (frame.len) {
+          case 0x0001, 0x0002, 0x003b                 { weak = 1; }   // NULL encryption
+          case 0x0004, 0x0005, 0xc007, 0xc011         { weak = 1; }   // RC4
+          case 0x0003, 0x0006, 0x0008, 0x0014, 0x0017 { weak = 1; }   // EXPORT-grade
+        }
+      }
+      cs = cs + 2;
+    }
+  }
+  if (weak == 1) { log(1); decide rst("tls_weak_suites", 0); }
+  decide pass;
+}

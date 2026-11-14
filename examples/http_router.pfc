@@ -1,16 +1,23 @@
-// HTTP method x path RBAC router. Parses the request line with the cursor, then
-// applies per-route policy: a subroutine classifies the source as internal, admin
-// and internal paths are reachable only from internal CIDRs, and writes to /api
-// require an Authorization header. A real router's access rules, enforced at XDP
-// before the request ever reaches the app.
+// HTTP method x path access rules at the edge. Parses the request line with the
+// cursor, then applies per-route policy: a subroutine classifies the source as
+// internal, /admin and /internal are reachable only from internal CIDRs, TRACE
+// is refused, and a write to /api/ needs an Authorization header.
 //
-// Combines: reassembly, cursor request-line parse (find/skip/starts), a fn that
-// returns a value in %rv, CIDR membership, and seq/any over one scan.
+// What it is and is not. It runs per packet, so it parses every request that
+// BEGINS a segment — the first on a connection and, in practice, each later
+// keep-alive request — but not a request pipelined into the middle of a segment.
+// Paths are compared as raw prefixes: `/admin` also covers `/administrator`, and
+// `//admin` or `/%61dmin` do not match, so the app must still normalise and
+// authorise. The Authorization test asks whether the header has been seen on
+// this CONNECTION (the scan mask accumulates per flow), not on each request.
+// A coarse first gate in front of the app's own checks, not a replacement.
+//
+// Shows: cursor request-line parse (find/skip/starts), a fn that returns a value
+// in %rv, inline CIDR membership, a scan for a header, count() tallies.
 nocase;
-reassemble 80;
-pattern m_get = "GET ", m_post = "POST ", m_put = "PUT ", m_del = "DELETE ", m_trace = "TRACE ";
+pattern m_post = "POST ", m_put = "PUT ", m_patch = "PATCH ", m_del = "DELETE ", m_trace = "TRACE ";
 pattern p_admin = "/admin", p_internal = "/internal", p_api = "/api/";
-pattern h_auth = "authorization:";
+pattern h_auth = "\r\nauthorization:";
 
 fn internal_src() {                         // 1 if the source is on a trusted net
   if (src in "10.0.0.0/8") return 1;
@@ -24,7 +31,7 @@ filter {
   if (dport != 80) decide pass;
   if (len == 0) decide pass;
 
-  if (starts(payload, m_trace)) decide drop("trace_method");   // leaks internals
+  if (starts(payload, m_trace)) decide drop("trace_method");   // echoes headers back
 
   // advance the cursor to the path: first space, then skip the run of spaces
   ptr path = find(payload, ' ', 8);
@@ -42,8 +49,8 @@ filter {
 
   // mutating API calls must carry an Authorization header
   if (starts(path, p_api)) {
-    if (starts(payload, m_post) || starts(payload, m_put) || starts(payload, m_del)) {
-      if (scan(payload, 1024) & h_auth) { count("api_write_authed"); decide pass; }
+    if (starts(payload, m_post) || starts(payload, m_put) || starts(payload, m_patch) || starts(payload, m_del)) {
+      if (scan(payload, 2048) & h_auth) { count("api_write_authed"); decide pass; }
       log(1); decide rst("api_write_noauth", 0);
     }
   }

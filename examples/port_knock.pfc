@@ -1,20 +1,27 @@
-// Application-layer port knocking as a per-connection state machine (match on
-// flow.state). The service stays locked until the client presents a secret
-// sequence of markers IN ORDER; any wrong/out-of-order marker drops. Only after
-// the full knock does the real request pass. A stealthy alternative to exposing
-// the service directly.
+// In-band knocking as a per-connection state machine (match on flow.state). The
+// service on :7000 stays locked until the client sends a secret sequence of
+// markers IN ORDER, each as its own segment; a wrong or out-of-order marker is
+// dropped and does not advance. After the third knock the connection is open and
+// everything on it passes. Each rung carries a TTL, so the sequence has to be
+// completed promptly, and the open state is refreshed by traffic and lapses
+// after five idle minutes.
 //
-// Cross-packet: flow.state advances one rung per correct knock and carries a TTL,
-// so the sequence must complete promptly. match() gives one clean arm per rung.
-reassemble 7000;
-pattern k1 = "KNOCK-ALPHA", k2 = "KNOCK-BRAVO", k3 = "KNOCK-CHARLIE", open = "OPEN";
+// This is per CONNECTION (the state lives in the flow). It hides the service
+// from a scanner that connects and speaks the real protocol; it is not a secret
+// against anyone who can read the traffic, since the markers are sent in clear.
+// Per packet, not reassembled — see fsm.pfc for why.
+//
+// Shows: flow.state advancing one rung per packet with a TTL, match() dispatch.
+pattern k1 = "KNOCK-ALPHA", k2 = "KNOCK-BRAVO", k3 = "KNOCK-CHARLIE";
 filter {
-  if (len == 0) decide pass;
+  if (proto != 6) decide pass;
+  if (dport != 7000) decide pass;
+  if (len == 0) decide pass;                         // handshake / pure ACKs
   match (flow.state) {
     case 0 { if (starts(payload, k1)) { flow.state = 1 for 20; decide pass; } decide drop("knock_1"); }
     case 1 { if (starts(payload, k2)) { flow.state = 2 for 20; decide pass; } decide drop("knock_2"); }
-    case 2 { if (starts(payload, k3)) { flow.state = 3 for 20; decide pass; } decide drop("knock_3"); }
-    case 3 { if (starts(payload, open)) decide pass; decide drop("locked"); }
+    case 2 { if (starts(payload, k3)) { flow.state = 3 for 300; decide pass; } decide drop("knock_3"); }
+    case 3 { flow.state = 3 for 300; decide pass; }  // open: refresh the idle timer
     default { decide drop("knock_bad"); }
   }
 }

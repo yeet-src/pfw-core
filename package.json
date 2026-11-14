@@ -25,7 +25,7 @@
   "scripts": {
     "test": "npm run test:node && npm run test:unit",
     "test:unit": "yeet test test/unit",
-    "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs",
+    "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs && node test/node/examples-behavior.mjs",
     "test:verify": "yeet run scripts/verify-load.mjs",
     "test:kernel": "node test/kernel/diff.mjs",
     "gen:huff": "node src/huffman/index.js",
@@ -47,7 +47,12 @@
     "test:stack": "node test/kernel/stack.mjs",
     "test:call": "node test/kernel/call.mjs",
     "test:args": "node test/kernel/args.mjs",
-    "test:knob": "node test/kernel/knob.mjs",
+    "test:source": "node test/kernel/source.mjs",
+    "test:nat": "node test/kernel/nat.mjs",
+    "test:reasm": "node test/kernel/reasm.mjs",
+    "test:h2": "node test/kernel/h2.mjs",
+    "test:examples-kernel": "node test/kernel/examples.mjs",
+        "test:knob": "node test/kernel/knob.mjs",
     "test:kstr": "node test/kernel/kstr.mjs"
   },
   "files": [
@@ -55,6 +60,7 @@
     "bpf",
     "build",
     "examples",
+    "contrib",
     "Makefile",
     "docs"
   ]

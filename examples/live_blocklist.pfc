@@ -11,7 +11,7 @@
 nocase;
 reassemble 8080;
 filter {
-  if (dport != 80) decide pass;
+  if (dport != 8080) decide pass;
   if (knob("enforce") ?? 1 == 0) decide pass;        // operator kill-switch
 
   // Three live needles the host updates out of band:

@@ -1,0 +1,32 @@
+// A small L7 WAF — most of the ISA in one program. Over a single scan of the
+// reassembled request it matches several attack classes, and it escalates per
+// SOURCE: a tripped rule resets the connection and counts a strike against the
+// source address, and a repeat offender — on any connection — is banned outright.
+//
+// Combines: reassembly, nocase, a reused scan mask, any/seq multi-pattern tests,
+// let/assign locals, per-source strike counting (src.count), and drop/rst/ban.
+nocase;
+reassemble 8080;
+pattern sqli_union = "union", sqli_select = "select", sqli_comment = "--";
+pattern traversal = "../", passwd = "/etc/passwd";
+pattern sqlmap = "sqlmap", nikto = "nikto";
+filter {
+  if (dport != 8080) decide pass;
+
+  mask m = scan(payload, 1460);            // one pass, asked many questions
+
+  // Known scanners announce themselves — ban the source for an hour.
+  if (any(m, sqlmap, nikto)) decide ban("scanner", 3600);
+
+  // Did this request trip an attack signature?
+  let bad = 0;
+  if (seq(m, sqli_union, sqli_select) && any(m, sqli_comment)) bad = 1; // UNION..SELECT..--
+  if (any(m, traversal, passwd)) bad = 1;                               // path traversal
+  if (bad == 0) decide pass;
+
+  // A rule tripped: log it, and escalate from a per-request reset to a source
+  // ban once this source has five strikes.
+  log(1);
+  if (src.count >= 5) decide ban("repeat_offender", 1800);
+  decide rst("blocked", 0);
+}

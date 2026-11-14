@@ -1,15 +1,24 @@
-// A protocol state machine with `match`. A connection must greet, then
-// authenticate, before any command is allowed; each per-connection phase is one
-// arm of match(flow.state). `match` runs exactly one arm (no fall-through), so the
-// phase handlers can't leak into each other — much clearer than an if/else chain
-// on flow.state. (`switch` with C-style fall-through is also available when you
-// want several labels to share code; see test/unit/match.test.mjs.)
+// A protocol state machine with `match`. A connection to the line protocol on
+// :7000 must greet, then authenticate, before any command is allowed; each
+// per-connection phase is one arm of match(flow.state). `match` runs exactly one
+// arm (no fall-through), so the phase handlers can't leak into each other — much
+// clearer than an if/else chain on flow.state. (`switch` with C-style
+// fall-through is also available when you want several labels to share code;
+// see test/unit/match.test.mjs.)
 //
-// Combines: reassembly, a per-connection state machine (flow.state with a TTL),
-// cursor-anchored command matching (starts), and match dispatch.
-reassemble 7000;
+// Per packet, deliberately NOT reassembled: each command must begin a segment
+// (true of an interactive line protocol; a client that pipelines HELO and AUTH
+// in one segment is seen as one HELO). Under `reassemble` the program would be
+// handed the accumulated stream window instead, whose first bytes stay the first
+// command, so `starts(payload, ...)` could not follow the conversation.
+// flow.state writes land on the next packet.
+//
+// Shows: a per-connection state machine (flow.state with a TTL), cursor-anchored
+// command matching (starts), and match dispatch.
 pattern helo = "HELO", auth = "AUTH ", admin = "CONFIG";
 filter {
+  if (proto != 6) decide pass;
+  if (dport != 7000) decide pass;
   if (len == 0) decide pass;                         // ignore pure ACKs
   match (flow.state) {
     case 0 {                                         // new connection: must greet first

@@ -1,0 +1,89 @@
+// A full L7 WAF as a scored pipeline of subroutines — the showpiece. Each attack
+// class is its own `fn` that returns a severity score; the filter sums them into a
+// total, traces the breakdown to the host, and escalates on a per-connection
+// strike budget: a first offence is reset, a repeat offender (or a high-severity
+// single hit, like an RCE/command-exec signature) is banned at the source.
+//
+// Combines nearly the whole ISA: reassembly, nocase, subroutines with return
+// values, multi-pattern any()/seq() scoring with arithmetic, argv-tuned severity
+// thresholds, per-source escalation (src.count), ban/rst, and console()
+// observability. One scan per class keeps each check self-contained.
+//   argv[0] = block threshold (score)   (default 3)
+//   argv[1] = strikes before ban        (default 2)
+nocase;
+reassemble 8080;
+
+pattern u_union = "union", u_select = "select", u_comment = "--", u_or1 = "' or '1'='1", u_sleep = "sleep(";
+pattern x_script = "<script", x_onerror = "onerror=", x_js = "javascript:", x_img = "<img", x_svg = "<svg onload";
+pattern t_dotdot = "../", t_passwd = "/etc/passwd", t_enc = "..%2f", t_winini = "boot.ini";
+pattern s_sqlmap = "sqlmap", s_nikto = "nikto", s_nmap = "nmap", s_acunetix = "acunetix";
+pattern r_rce = "/bin/sh", r_id = "$(id", r_jndi = "${jndi:";
+
+// SQL injection: ordered UNION..SELECT (+comment) is high confidence; tautologies
+// and time-based probes add weight.
+fn score_sqli() {
+  mask m = scan(payload, 1460);
+  let s = 0;
+  if (seq(m, u_union, u_select)) s = s + 2;
+  if (any(m, u_comment)) s = s + 1;
+  if (any(m, u_or1, u_sleep)) s = s + 2;
+  return s;
+}
+
+// Reflected/stored XSS vectors.
+fn score_xss() {
+  mask m = scan(payload, 1460);
+  let s = 0;
+  if (any(m, x_script, x_svg)) s = s + 2;
+  if (any(m, x_onerror, x_js)) s = s + 1;
+  if (any(m, x_img)) s = s + 1;
+  return s;
+}
+
+// Path traversal, raw and URL-encoded.
+fn score_traversal() {
+  mask m = scan(payload, 1460);
+  let s = 0;
+  if (any(m, t_dotdot, t_enc)) s = s + 1;
+  if (any(m, t_passwd, t_winini)) s = s + 3;      // reaching a real target file
+  return s;
+}
+
+// Automated scanner fingerprints.
+fn score_scanner() {
+  if (any(scan(payload, 1024), s_sqlmap, s_nikto, s_nmap, s_acunetix)) return 3;
+  return 0;
+}
+
+// Code-execution class (RCE / Log4Shell) — any hit is critical on its own.
+fn score_rce() {
+  if (any(scan(payload, 2048), r_rce, r_id, r_jndi)) return 9;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  if (len == 0) decide pass;
+
+  let total = score_sqli() + score_xss() + score_traversal() + score_scanner() + score_rce();
+  if (total == 0) decide pass;
+
+  let strikes = src.count;                 // one read: every read increments
+  console("waf score=%d sport=%d strikes=%d", total, sport, strikes);
+  log(1);
+
+  // Critical single hit (RCE/exec) — ban the source immediately.
+  if (total >= 9) decide ban("waf_critical", 3600);
+
+  let block = argv[0] ?? 3;
+  let ban_at = argv[1] ?? 2;
+  if (total >= block) {
+    if (strikes >= ban_at) decide ban("waf_repeat", 1800);   // persistent attacker
+    decide rst("waf_blocked", 0);                               // first offence: reset
+  }
+
+  // Below the block threshold: suspicious but not conclusive — tally and watch.
+  count("waf_suspicious");
+  decide pass;
+}

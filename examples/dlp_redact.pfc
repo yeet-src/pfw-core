@@ -1,21 +1,31 @@
 // Data-loss prevention: scrub structured secrets out of traffic in place, at the
-// NIC, so they never reach the backend (or, on a gateway watching the server's
-// replies, never leave it). `redact`/`replace` take a `regex` as well as a
-// literal — but a rewrite overwrites a span in place, so the regex must be
-// FIXED-LENGTH (the match end fixes the start). Variable-length patterns (e.g. a
-// bare email) are rejected at compile time; use a fixed shape.
+// NIC, so they never reach the backend (or, watching the server's replies, never
+// leave it). `redact`/`replace` take a `regex` as well as a literal — but a
+// rewrite overwrites a span in place, so the regex must be FIXED-LENGTH (the
+// match end fixes the start). Variable-length patterns (e.g. a bare email) are
+// rejected at compile time; use a fixed shape.
 //
-// Here: fill any SSN or dashed card number with '*', and rewrite a leaked
-// internal API key to an all-X placeholder of the same length. The packet's L4
-// checksum is fixed up automatically.
-nocase;
+// Here, on the plaintext hop to and from the app on :8080: fill any dashed SSN
+// or dashed card number with a filler byte, and overwrite a GitHub personal
+// access token with a same-length placeholder. The L4 checksum is fixed up
+// automatically.
+//
+// These are SHAPE matches, not validation: any ddd-dd-dddd run is filled, whether
+// or not it is a real SSN, and an undashed number is not touched. Matching is
+// case-sensitive on purpose (no `nocase`): the token prefix is lower-case. A
+// match split across two segments is not rewritten (a rewrite works on one
+// packet). All the regexes of a program compile into ONE DFA, which has to fit
+// the kernel's 1024-state table: a token whose prefix letters can also occur in
+// its own body (an AWS `AKIA[A-Z0-9]{16}`) costs ~2500 states alone, while the
+// `_` in `ghp_` keeps this one small.
 regex ssn  = "\d{3}-\d{2}-\d{4}";             // 123-45-6789  (11 bytes)
 regex card = "\d{4}-\d{4}-\d{4}-\d{4}";        // 4111-1111-1111-1111 (19 bytes)
-regex key  = "AKIA[A-Z0-9]{16}";               // an AWS access key id (20 bytes)
+regex pat  = "ghp_[A-Za-z0-9]{36}";            // a GitHub personal access token (40 bytes)
 filter {
   if (proto != 6) decide pass;
+  if (dport != 8080 && sport != 8080) decide pass;   // requests to, and replies from, the app
   redact(ssn);                                 // -> ***********
   redact(card, 'X');                            // -> XXXXXXXXXXXXXXXXXXX
-  replace(key, "AKIAXXXXXXXXXXXXXXXX");         // same-length placeholder
+  replace(pat, "ghp_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");   // same-length placeholder
   decide pass;
 }

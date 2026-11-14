@@ -1,15 +1,30 @@
-// HTTP/2 crawler defense through the HPACK decode front-end. `decode h2` runs the
-// reassembled HTTP/2 stream through the kernel's HPACK stages, which hand the
-// matcher a decoded "name: value\n" view of the headers — so a bot that hides in
-// an HPACK-indexed or Huffman-coded User-Agent is matched in plaintext, the way
-// flat scanning never could. A hit bans the source for five minutes.
+// HTTP/2 crawler defense on the decoded headers. Over HTTP/2 a User-Agent never
+// appears as text on the wire: it is Huffman-coded the first time and sent as a
+// one-byte dynamic-table index after that, so a byte scan of the packets sees
+// nothing. `decode h2` reassembles the stream, parses the frames and HPACK-decodes
+// every completed header block (Huffman and the per-connection dynamic table
+// included) into "name: value\n" lines, and the program matches those.
 //
-// Combines: the h2 decode stage (implies reassembly), a scan over the decoded
-// header view, any() across several patterns, and ban.
+// The match is anchored to the header: `within(agent, 256)` reports only what
+// lies in the 256 bytes after "user-agent: ", so a path such as
+// /blog/gptbot-news does not trip it. (A plain second `scan` would not do: the
+// match mask accumulates across scans, and the first one already saw the path.
+// 256 bytes can run past the value into the following header lines.)
+//
+// Plaintext HTTP/2 only (h2c, e.g. the hop behind a TLS terminator or a gRPC
+// mesh): TLS-wrapped h2 on :443 is ciphertext at XDP. HTTP/1.1 arriving on the
+// same port is matched as a plain stream, where the same anchor works.
+//
+// Combines: the h2 decode stage (implies reassembly), a cursor anchor (after),
+// any() across several patterns, and a source ban.
 nocase;
 decode h2 8080;
+pattern ua = "user-agent: ";
 pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 filter {
-  if (any(scan(payload, 2048), gptbot, claudebot, bytespider)) decide ban("h2_crawler", 300);
+  if (len == 0) decide pass;                  // nothing decoded in this packet
+  if (!(scan(payload, 2048) & ua)) decide pass;
+  ptr agent = after(ua);                      // the User-Agent value
+  if (any(within(agent, 256), gptbot, claudebot, bytespider)) decide ban("h2_crawler", 300);
   decide pass;
 }

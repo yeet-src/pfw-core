@@ -1,46 +1,59 @@
-// SQL injection: a multi-signal scorer with blind-SQLi fast-path and per-connection
-// escalation. One scan feeds several questions — UNION...SELECT in order, boolean
-// tautologies (`or 1=1`, `' or '`), stacked-query comment terminators — and
-// regexes absorb the whitespace tricks (`union/**/select`) that beat fixed strings.
-// Time-based blind attempts (sleep/benchmark/waitfor) are banned immediately; other
-// hits are scored, reset, and escalated to a ban on repeat.
+// SQL injection, scored. One scan of the request feeds three STRONG signals:
+//   UNION ... SELECT            (regex: any mix of space, '+', %20, /**/ between)
+//   a boolean tautology         (`or 1=1`, `' or '1'='1`, raw or %-encoded)
+//   a time-based blind probe    (`and sleep(5)`, `waitfor delay`, ...)
+// and one WEAK one: a comment terminator (`--`, `/*`) — counted only when a
+// strong signal is already present AND the terminator sits in the first line of
+// the window (the request line).
+// On its own, or anywhere else, it means nothing: `Accept: */*` contains `/*`
+// and a multipart boundary is a run of `-`. after() gives the position of a
+// pattern's first match, and the cursor finds the end of that line, so "is it
+// in the URL" is one comparison.
 //
-// Combines: reassembly, nocase, a reused mask, seq()/any(), \s regexes, a scoring
-// subroutine with a return value, arithmetic, flow.count escalation, console/log.
+// Nothing strong -> pass. One strong signal -> reset the connection and give the
+// SOURCE a strike; three strikes, or a score of 3+ in one request (two strong
+// signals, or one plus a terminator in the URL), -> ban the source address.
+//
+// Scope: signatures over the reassembled client stream (a sliding 2048-byte
+// window) on a plaintext hop (behind the TLS terminator). It does not URL-decode — the regexes spell out
+// the common encodings — so a doubly-encoded or otherwise obfuscated payload gets
+// past it. A net in front of parameterised queries, not a substitute for them.
+//
+// Shows: reassembly, nocase, regexes sharing the scan mask with literals,
+// after() positions compared against a cursor, per-source strikes (src.count),
+// console/log, rst vs ban.
 nocase;
 reassemble 8080;
-pattern kw_union = "union", kw_select = "select", kw_from = "from";
-pattern kw_comment = "--", kw_block = "/*", kw_semi = ";";
-pattern sleep = "sleep(", benchmark = "benchmark(", waitfor = "waitfor delay", pg_sleep = "pg_sleep(";
-regex union_select = "union\s+select";
-regex or_true = "or\s+[0-9]+\s*=\s*[0-9]+";
-regex quote_or = "'\s*or\s*'";
-
-fn sqli_score() {
-  mask m = scan(payload, 2048);
-  let s = 0;
-  if (seq(m, kw_union, kw_select)) s = s + 2;
-  if (seq(m, kw_select, kw_from) && any(m, kw_comment, kw_block, kw_semi)) s = s + 1;
-  if (any(m, kw_comment, kw_block)) s = s + 1;
-  if (any(scan(payload, 2048), union_select, or_true, quote_or)) s = s + 2;
-  return s;
-}
+regex union_select = "union([\s+]|%20|%09|%0a|%0d|/\*\*/)+(all([\s+]|%20)+)?select";
+regex tautology    = "('|%27|[\s+]|%20)or([\s+]|%20)+[0-9]+([\s+]|%20)*(=|%3d)([\s+]|%20)*[0-9]";
+regex quote_or     = "('|%27)([\s+]|%20)*or([\s+]|%20)*('|%27)\w{0,8}('|%27)([\s+]|%20)*(=|%3d)";
+regex blind        = "(and|or|select|when|then)([\s+(]|%20|%28)+(pg_sleep|sleep|benchmark)(\(|%28)";
+regex waitfor      = "waitfor([\s+]|%20)+delay";
+pattern c_dash = "--", c_block = "/*";
 
 filter {
   if (proto != 6) decide pass;
-  if (dport != 80) decide pass;
+  if (dport != 8080) decide pass;
+  if (len == 0) decide pass;
 
-  // Time-based blind injection: the payload tries to stall the DB. Ban at once.
-  if (any(scan(payload, 2048), sleep, benchmark, waitfor, pg_sleep)) {
-    console("blind sqli from sport=%d", sport);
-    decide ban("sqli_blind", 1800);
-  }
-
-  let score = sqli_score();
+  mask m = scan(payload, 2048);
+  let score = 0;
+  if (any(m, union_select)) score = score + 2;
+  if (any(m, tautology, quote_or)) score = score + 2;
+  if (any(m, blind, waitfor)) score = score + 2;
   if (score == 0) decide pass;
-  console("sqli score=%d strikes=%d", score, flow.count);
+
+  // corroboration: a comment terminator inside the first (request) line
+  ptr eol = find(payload, '\r', 2048);
+  let term = 0;
+  if (any(m, c_dash)) { let at = after(c_dash); if (at <= eol) term = 1; }
+  if (any(m, c_block)) { let at = after(c_block); if (at <= eol) term = 1; }
+  score = score + term;
+
+  let strikes = src.count;                  // this source's strikes, on any connection
+  console("sqli score=%d strikes=%d sport=%d", score, strikes, sport);
   log(1);
   if (score >= 3) decide ban("sqli_high_confidence", 1800);
-  if (flow.count >= 3) decide ban("sqli_repeat", 1800);
+  if (strikes >= 3) decide ban("sqli_repeat", 1800);
   decide rst("sqli", 0);
 }

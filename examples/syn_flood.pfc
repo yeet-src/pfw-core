@@ -1,36 +1,36 @@
-// SYN-flood / half-open defence. A bare-SYN storm tries to exhaust the backlog:
-// many SYNs that never complete the handshake. We read the TCP flags, isolate the
-// opening SYN (SYN set, ACK clear), cap the SYN rate with a token bucket, and
-// track the half-open state per flow — a connection that keeps re-SYNing without
-// ever sending data is escalated from a drop to a source-wide ban. A real data
-// segment clears the suspicion.
+// SYN-flood limiter, per SOURCE ADDRESS. A flood from one host opens a new
+// connection — a new source port, so a new flow — with every SYN, which is why a
+// per-flow counter or rate() never sees it: each flow carries exactly one SYN.
+// The `src.*` members are the per-flow ones scoped to the source address, so
+// they accumulate across all of a host's connections:
 //
-// Header read: TCP flags at l4+13. Combines a subroutine, bitfield flag tests,
-// rate() limiting, a flow.state half-open machine, flow.count escalation, ban.
+//   src.rate(20, 40)   one token bucket per source: 20 new connections/s, burst 40
+//   src.count          how many SYNs this source has had refused
+//   decide ban(...)    blocklist the address; its packets are then dropped before
+//                      the program runs at all
+//
+// Only the opening SYN (SYN set, ACK clear) is counted; every other segment
+// passes untouched. SYNs over the rate are dropped, and a source that has had
+// 100 refused is banned for ten minutes.
+//
+// What this does NOT stop: a flood with SPOOFED source addresses. Every SYN then
+// arrives from a different "source", each well under its own limit, and banning
+// them would only punish the spoofed victims. That attack needs SYN cookies
+// (net.ipv4.tcp_syncookies, or a SYN proxy), not a per-source limit. Many real
+// users behind one NAT address also share one bucket — size the burst for that.
+//
+// Header read: the TCP flags byte at l4+13, via `frame at (l4) ... up to 1`.
 filter {
   if (proto != 6) decide pass;
 
   let fl = 0;
   frame at (l4) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+  let synack = fl & 18;                       // the SYN and ACK bits
+  if (synack != 2) decide pass;               // not an opening SYN
 
-  if (is_opening_syn(fl)) {
-    // a source that has re-SYNed this flow many times is flooding, not retrying
-    if (flow.count >= 6) decide ban("syn_flood", 600);
-    // cap the rate of new SYNs; drop the excess
-    if (rate(20, 40)) { log(1); decide drop("syn_rate"); }
-    flow.state = 1 for 10;                    // arm "half-open" for 10s
-    decide pass;
+  if (src.rate(20, 40)) {                     // this source is over its rate
+    if (src.count >= 100) { log(1); decide ban("syn_flood", 600); }
+    decide drop("syn_rate");
   }
-
-  // any non-SYN segment (data / the completing ACK) means the handshake is making
-  // progress — clear the half-open mark so this flow isn't counted against us.
-  if (flow.state == 1) flow.state = 0 for 1;
   decide pass;
-}
-
-fn is_opening_syn(fl) {
-  let s = fl & 2;
-  let a = fl & 16;
-  if (s == 2) { if (a == 0) return 1; }
-  return 0;
 }
