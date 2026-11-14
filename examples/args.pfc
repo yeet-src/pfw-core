@@ -1,7 +1,8 @@
 // Subroutines with arguments and a return value. The calling convention:
 //   - args go in %a0..%a6 (up to 7); a param name aliases its arg register,
-//   - the return value comes back in %rv, so a call is usable as a value
-//     (`let r = f(x);`, `if (f(x)) ...`, `if (f(x) == k) ...`),
+//   - a routine returns a value with `return <expr>;` (it lands in %rv), so a call
+//     is usable as a value (`let r = f(x);`, `if (f(x)) ...`, `if (f(x) == k) ...`);
+//     `return <verdict>` (return drop(...), return pass) still means the verdict,
 //   - routines are caller-saved over a0..a6/rv and share the data stack, so keep
 //     the stack balanced across a call and save anything you need past a nested call.
 //
@@ -15,8 +16,8 @@ pattern sqlmap = "sqlmap", nikto = "nikto";
 pattern host = "host:";
 
 fn has_scanner(ptr) {           // ptr: a packet pointer to scan from
-  rv = 0;
-  if (any(scan(ptr, 1024), sqlmap, nikto)) rv = 1;   // scan length is a constant
+  if (any(scan(ptr, 1024), sqlmap, nikto)) return 1;  // scan length is a constant
+  return 0;
 }
 
 filter {

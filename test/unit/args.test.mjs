@@ -38,6 +38,20 @@ yeet.test("up to 7 args (a0..a6)", () => {
   if (bad.ok) throw new Error("expected an 8-param error");
 });
 
+yeet.test("return <expr> returns a value from a subroutine", () => {
+  const p = prog(`fn add(a, b) { return a + b; } filter { let r = add(10, 5); if (r == 15) return rst("r", 0); return pass; }`);
+  eq(p.exec(enc("x"), {}).verdict, "rst", "return a + b");
+  // early/conditional return
+  const p2 = prog(`fn clamp(x) { if (x > 100) return 100; return x; } filter { if (clamp(dport) == 100) return drop("hi"); return pass; }`);
+  eq(p2.exec(enc("x"), { dport: 500 }).verdict, "drop", "clamped to 100");
+  eq(p2.exec(enc("x"), { dport: 50 }).verdict, "pass", "under the clamp");
+});
+
+yeet.test("return still means the verdict in the filter and in routines", () => {
+  const p = prog(`fn bail() { return drop("sub_verdict"); } filter { bail(); return pass; }`);
+  eq(p.exec(enc("x"), {}).verdict, "drop", "a verdict in a routine is terminal");
+});
+
 yeet.test("arity is checked", () => {
   const r = compile(`fn add(a, b) { rv = a + b; } filter { let r = add(1); return pass; }`);
   if (r.ok) throw new Error("expected an arity error");

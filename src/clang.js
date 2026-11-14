@@ -370,12 +370,18 @@ function parse(toks) {
     }
     if (isKw("return")) {
       next();
-      const name = eat("ident").value;
-      if (!VERDICTS.has(name)) err(`\`${name}\` is not a verdict (pass, drop, count, ban, rst)`);
-      let args = [];
-      if (isP("(")) args = parseCall(name, t.line).args;
+      // verdict form: return pass|drop|count|ban|rst [ (...) ] ;
+      if (peek().type === "ident" && VERDICTS.has(peek().value)) {
+        const name = next().value;
+        let args = [];
+        if (isP("(")) args = parseCall(name, t.line).args;
+        eat("punct", ";");
+        return { kind: "return", verdict: name, args, line: t.line };
+      }
+      // value form (in a subroutine): return <expr>;  -> rv = expr, then ret
+      const value = parseArith();
       eat("punct", ";");
-      return { kind: "return", verdict: name, args, line: t.line };
+      return { kind: "freturn", value, line: t.line };
     }
     if (isKw("mask") || isKw("ptr")) {
       const type = next().value;
@@ -887,6 +893,7 @@ function codegen(ast) {
         return;
       }
       case "return": return verdict(s);
+      case "freturn": materialize(s.value); bld.movFromCur(REG.rv); return bld.ret(); // return <expr> from a subroutine
       case "macrocall": {
         const m = macroMap.get(s.name);
         if (!m) die(`\`${s.name}\` is not a macro or a statement`, s.line);
