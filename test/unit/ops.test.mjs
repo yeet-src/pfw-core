@@ -152,6 +152,13 @@ yeet.test("redirect assembles and runs (no-op in the host model)", () => {
   if (r.verdict !== V.PASS) throw new Error("redirect should fall through to pass in the host model: " + r.verdict);
 });
 
+/* ---- arg / argc (runtime parameters; defaults when unset) ---- */
+yeet.test("arg reads a runtime value, or its default when unset", () => {
+  expectRst("arg default", eq("        arg     $0, $80", 80));                          // no args -> default 80
+  expectRst("arg value", eq("        arg     $0, $80", 5), { opts: { argv: [5] } });     // args[0] -> 5
+  expectRst("argc", eq("        argc", 2), { opts: { argv: [10, 20] } });                // two args set
+});
+
 /* ---- rate (token bucket; no bucket in opts -> allowed, falls through) ---- */
 yeet.test("rate assembles and runs (no bucket -> allowed -> pass)", () => {
   expect("rate", `        rate    $10, $20\n        je      over\n        pass\n over:  rst     $1, $0`, V.PASS);

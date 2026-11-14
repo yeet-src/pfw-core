@@ -14,6 +14,7 @@
 #define BLOOM_MAX    65536 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
+#define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -138,6 +139,8 @@ enum pfw_opcode {
     OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
     OP_REDIRECT,/* forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path */
     OP_RATE,    /* token-bucket rate limit on the flow: imm = rate/sec (low 32) | burst (high 32); ZF = over the limit */
+    OP_ARG,     /* cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) | default (low 32) */
+    OP_ARGC,    /* cur = argc (number of runtime args the host set) */
     OP_COUNT_OPCODES,
 };
 
@@ -171,6 +174,8 @@ struct pfw_prog {
     __u32 decode;      /* L7 decode over the reassembled stream before matching:
                         * DECODE_NONE, DECODE_H2, DECODE_HUFFMAN or DECODE_TRANSFORM. */
     __u32 transform_table; /* DECODE_TRANSFORM: which loaded tt_cells table (0..TT_NTABLES-1) */
+    __u32 argc;            /* number of runtime args the host set in args[] (OP_ARG / OP_ARGC) */
+    __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
     struct pfw_op ops[PFW_MAX_OPS];
     struct pfw_pat pats[PFW_MAX_PATS];
 };

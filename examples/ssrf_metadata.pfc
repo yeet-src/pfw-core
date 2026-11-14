@@ -1,0 +1,18 @@
+// Block SSRF against the cloud metadata service. A classic server-side request
+// forgery turns a vulnerable app into a proxy for 169.254.169.254 (AWS/GCP/Azure
+// link-local metadata) to steal IAM credentials. We reset any request whose
+// bytes carry the metadata IP or the GCP metadata hostname — a request that
+// mentions them is almost never legitimate from the outside.
+//
+// Combines: reassembly, nocase, scan + any over several markers.
+nocase;
+reassemble 8080;
+pattern ip      = "169.254.169.254";
+pattern gcp     = "metadata.google.internal";
+pattern azure   = "169.254.169.254/metadata";
+pattern aws_iam = "/latest/meta-data/iam/";
+filter {
+  if (proto != 6) return pass;
+  if (any(scan(payload, 2048), ip, gcp, azure, aws_iam)) { log(1); return rst("ssrf_metadata", 0); }
+  return pass;
+}

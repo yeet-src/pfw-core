@@ -1,0 +1,30 @@
+// Parameterized program: the SAME compiled bytecode, tuned per deployment with
+// runtime args the host sets without recompiling. `argv[i]` reads arg i; `?? d`
+// supplies a default when the host set fewer than i+1 args; `argc` is how many
+// were set. The values live in the program's args[] — set from JS with
+// `program.exec(frame, { argv: [...] })`, or at load time with `--argv a,b,c`.
+//
+// One firewall image serves every site: pass the port to guard, a max request
+// size, and a strict-mode toggle — all chosen at load time.
+//   argv[0] = port to guard      (default 80)
+//   argv[1] = max request bytes  (default 8192)
+//   argv[2] = strict mode: 1 = reset oversize, else just count (default 0)
+//
+// (argv reads anywhere a value is expected — comparisons, thresholds, masks.
+//  Op parameters like rate()/redirect()/dnat() still take compile-time literals.)
+pattern probe = "sqlmap", nikto = "nikto";
+filter {
+  if (proto != 6) return pass;
+  if (dport != argv[0] ?? 80) return pass;
+
+  // Known scanners are always reset, regardless of configuration.
+  if (any(scan(payload, 1024), probe, nikto)) return rst("scanner", 0);
+
+  // Oversize requests: in strict mode reset them, otherwise just tally.
+  if (len > argv[1] ?? 8192) {
+    log(1);
+    if (argv[2] ?? 0 == 1) return rst("oversize", 0);
+    count("oversize_seen");
+  }
+  return pass;
+}

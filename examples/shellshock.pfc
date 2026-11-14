@@ -1,0 +1,14 @@
+// Shellshock (CVE-2014-6271): block the Bash function-definition prefix that lets
+// attackers smuggle commands through CGI environment variables (User-Agent,
+// Cookie, etc. become env vars for the CGI script). The tell is the literal
+// "() {" at the start of a header value, usually followed by a command.
+//
+// Combines: reassembly, a scan + any over the exploit markers.
+reassemble 8080;
+pattern funcdef = "() {", bincmd = "() { :;};", echocmd = "() { :;}; echo";
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+  if (any(scan(payload, 1460), funcdef, bincmd, echocmd)) { log(1); return drop("shellshock"); }
+  return pass;
+}

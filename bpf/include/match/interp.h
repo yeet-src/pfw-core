@@ -402,6 +402,16 @@ static long pfw_step(__u32 i, void *pctx)
          * gets its own frame. imm = rate/sec (low 32) | burst (high 32). */
         fl = (fl & FL_FF) | (do_rate(st, c->now, imm) ? FL_ZF : 0);
         break;
+    case OP_ARG: {
+        /* cur = args[idx] when the host set that many args, else the inline
+         * default. idx in imm bits 32..47, default in the low 32. */
+        __u32 idx = (__u32) (imm >> 32) & 0xffff;
+        cur = idx < p->argc ? p->args[idx & (PFW_ARGC - 1)] : (__u64) (__u32) imm;
+        break;
+    }
+    case OP_ARGC:
+        cur = p->argc;
+        break;
     case OP_REDIRECT:
         /* Record the target ifindex; the actual bpf_redirect() is issued in
          * finish() on the pass path (it returns XDP_REDIRECT, which must be the

@@ -133,6 +133,11 @@ export const filter = (...stmts) => ({ _part: "filter", stmts: stmts.flat() });
 /** regex(name, "pattern"): a regex pattern matched by scan (via the DFA). */
 export const regex = (name, src) => ({ _part: "regex", name, src });
 
+/** argv[idx] ?? def — a runtime scalar arg (def used when the host set fewer args). */
+export const arg = (idx, def = null) => ({ kind: "arg", index: idx, def: def == null ? null : num(def) });
+/** argc — how many runtime args the host set. */
+export const argc = () => ({ kind: "argc" });
+
 /** Assemble program parts into an AST and compile it (same result as compile()). */
 export function program(...parts) {
   const ast = { patterns: [], macros: [], nocase: false, reasm: false, reasmDport: 0, decode: null, body: null };

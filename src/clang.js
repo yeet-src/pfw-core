@@ -32,7 +32,7 @@
  * the span from its first write to its last read in emission order.
  */
 import { Builder, opText } from "#/builder.js";
-import { DECODE, REG } from "#/isa.js";
+import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { compileRegexes } from "#/regex.js";
 
@@ -48,7 +48,7 @@ class CError extends Error {
 
 /* ---- lexer --------------------------------------------------------------- */
 
-const PUNCT = ["==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "<", ">", "!", "&", "|", "+", "-", "(", ")", "{", "}", ";", ",", "=", ".", "@"];
+const PUNCT = ["??", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "<", ">", "!", "&", "|", "+", "-", "(", ")", "{", "}", "[", "]", ";", ",", "=", ".", "@"];
 
 function lex(src) {
   const toks = [];
@@ -250,6 +250,17 @@ function parse(toks) {
         }
         err(`ring has no value member \`${member}\` (read: \`ring.len\`, \`ring.get(i)\`; write: \`ring.push(v);\`)`);
       }
+      if (name === "argv") {
+        eat("punct", "[");
+        const it = eat("number");
+        const idx = Number(it.value.startsWith("0x") ? parseInt(it.value, 16) : it.value);
+        if (idx < 0 || idx >= LIMITS.ARGC) err(`argv index 0–${LIMITS.ARGC - 1}`);
+        eat("punct", "]");
+        let def = null;
+        if (isP("??")) { next(); const d = peek(); if (d.type !== "number" && d.type !== "char") err("`??` default must be a number or char literal"); next(); def = { kind: d.type === "char" ? "char" : "num", text: d.value, line: d.line }; }
+        return { kind: "arg", index: idx, def, line: t.line };
+      }
+      if (name === "argc") return { kind: "argc", line: t.line };
       if (isP("(")) return parseCall(name, t.line);
       return { kind: "ref", name, line: t.line };
     }
@@ -712,6 +723,8 @@ function codegen(ast) {
     if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
+    if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
+    if (e.kind === "argc") return bld.argc();
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     die(`\`${e.kind === "ref" ? e.name : e.kind}\` is not a readable value`, e.line);
@@ -735,7 +748,7 @@ function codegen(ast) {
       const tmp = allocScratch(`__a${nTmp++}`, e.line);
       bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
     }
-    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc"].includes(e.kind)) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     return loadPtr(e);

@@ -26,7 +26,8 @@
     "test:bloom": "node test/kernel/bloom.mjs",
     "test:lpm6": "node test/kernel/lpm6.mjs",
     "test:redirect": "node test/kernel/redirect.mjs",
-    "test:rate": "node test/kernel/rate.mjs"
+    "test:rate": "node test/kernel/rate.mjs",
+    "test:argv": "node test/kernel/argv.mjs"
   },
   "files": [
     "src",

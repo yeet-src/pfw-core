@@ -115,6 +115,8 @@ export class Builder {
   lpm6() { return this.op(OP.LPM6); } // ZF = the IPv6 source is in the lpm6 CIDR set
   redirect(ifindex) { return this.op(OP.REDIRECT, 0, BigInt(ifindex >>> 0)); } // forward the packet out ifindex (XDP_REDIRECT)
   rate(perSec, burst) { return this.op(OP.RATE, 0, (BigInt(perSec >>> 0) & 0xffffffffn) | (BigInt(burst >>> 0) << 32n)); } // ZF = over the token-bucket limit
+  arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
+  argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -238,6 +240,8 @@ export function opText(op, patterns = [], rules = []) {
     }
     case OP.REDIRECT: return `redirect ${op.imm}`;
     case OP.RATE: return `rate ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
+    case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
+    case OP.ARGC: return `argc`;
     case OP.FINDB: case OP.SKIPB: return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;

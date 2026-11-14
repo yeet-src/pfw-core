@@ -415,6 +415,15 @@ export function assemble(source) {
         const r = numberOf(a.text, "per_second"), bu = numberOf(b.text, "burst");
         if (r < 1n || r > 0xffffffffn || bu < 1n || bu > 0xffffffffn) fail("rate args must be positive u32");
         emit(OP.RATE, 0, (r & 0xffffffffn) | (bu << 32n));
+      } else if (m === "arg") {
+        if (o.length < 1 || o.length > 2) fail("arg is `arg $IDX[, $DEFAULT]`");
+        if (a.kind !== "imm" || (b && b.kind !== "imm")) fail("arg is `arg $IDX[, $DEFAULT]`");
+        const idx = numberOf(a.text, "index"), def = b ? numberOf(b.text) : 0n;
+        if (idx < 0n || idx >= BigInt(LIMITS.ARGC)) fail(`arg index 0–${LIMITS.ARGC - 1}`);
+        emit(OP.ARG, 0, (idx << 32n) | (def & 0xffffffffn));
+      } else if (m === "argc") {
+        want(0);
+        emit(OP.ARGC);
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");

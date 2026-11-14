@@ -27,7 +27,9 @@ function progValue(p, gen) {
   while (ops.length < MAX_OPS) ops.push({ code: 0, reg: 0, imm: 0n });
   const pats = p.pats.slice(0, MAX_PATS).map((q) => { const b = q.bytes.slice(0, PAT_CAP); while (b.length < PAT_CAP) b.push(0); return { len: q.len >>> 0, bytes: b }; });
   while (pats.length < MAX_PATS) pats.push({ len: 0, bytes: new Array(PAT_CAP).fill(0) });
-  return { nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: gen >>> 0, reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0, transform_table: (p.transform_table ?? 0) >>> 0, ops, pats };
+  const args = (argv.argv ? String(argv.argv).split(",").filter((s) => s !== "") : []).map((v) => BigInt(v));
+  const argvals = args.slice(0, LIMITS.ARGC); while (argvals.length < LIMITS.ARGC) argvals.push(0n);
+  return { nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: gen >>> 0, reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0, transform_table: (p.transform_table ?? 0) >>> 0, argc: args.length >>> 0, args: argvals, ops, pats };
 }
 
 const c = compile(src);
