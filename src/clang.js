@@ -264,6 +264,12 @@ function parse(toks) {
         return { kind: "arg", index: idx, def, line: t.line };
       }
       if (name === "argc") return { kind: "argc", line: t.line };
+      if (name === "knob") {
+        eat("punct", "("); if (peek().type !== "string") err('knob("name")'); const kn = next().value; eat("punct", ")");
+        let def = null;
+        if (isP("??")) { next(); const d = peek(); if (d.type !== "number" && d.type !== "char") err("`??` default must be a number or char literal"); next(); def = { kind: d.type === "char" ? "char" : "num", text: d.value, line: d.line }; }
+        return { kind: "knob", knob: kn, def, line: t.line };
+      }
       if (isP("(")) return parseCall(name, t.line);
       return { kind: "ref", name, line: t.line };
     }
@@ -624,6 +630,9 @@ function codegen(ast) {
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
   const internPrintk = (text) => { const i = printkFormats.indexOf(text); return i >= 0 ? i : printkFormats.push(text) - 1; };
+  const knobNames = []; // knob("name") control values, by slot (the host writes the `knobs` map by this slot)
+  const knobDefaults = []; // the initial value seeded per slot (from `knob("x") ?? d`), by slot
+  const internKnob = (name) => { const i = knobNames.indexOf(name); if (i >= 0) return i; if (knobNames.length >= LIMITS.KNOBS) return -1; return knobNames.push(name) - 1; };
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
   const expanding = new Set();
   const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
@@ -792,6 +801,11 @@ function codegen(ast) {
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
+    if (e.kind === "knob") {
+      const slot = internKnob(e.knob); if (slot < 0) die(`too many knobs (max ${LIMITS.KNOBS})`, e.line);
+      if (e.def != null) { const d = immVal(e.def); if (knobDefaults[slot] != null && knobDefaults[slot] !== d) die(`conflicting default for knob "${e.knob}"`, e.line); knobDefaults[slot] = d; }
+      return bld.knob(slot);
+    }
     if (e.kind === "call" && e.name === "pop") { if (e.args.length) die("pop() takes no args", e.line); return bld.pop(); }
     if (e.kind === "call" && funcs.has(e.name)) return emitCall(e.name, e.args, true, e.line);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
@@ -817,7 +831,7 @@ function codegen(ast) {
       const tmp = allocScratch(`__a${nTmp++}`, e.line);
       bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
     }
-    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc", "knob"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
@@ -1116,6 +1130,8 @@ function codegen(ast) {
   }
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;
+  bld._knobs = knobNames;
+  bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);
   return bld;
 }
 
@@ -1140,7 +1156,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */

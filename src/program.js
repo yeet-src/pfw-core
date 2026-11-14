@@ -81,6 +81,8 @@ export class Program {
     this.nocase = compiled.nocase;
     this.regex = compiled.regex ?? null;
     this.consoleFormats = compiled.consoleFormats ?? [];
+    this.knobs = compiled.knobs ?? [];   // knob name by slot (slot = index)
+    this.knobDefaults = compiled.knobDefaults ?? []; // seeded initial value by slot
     this.asm = compiled.asm;
     this._run = null;
   }
@@ -101,7 +103,8 @@ export class Program {
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
     const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
-      bucket: opts.bucket, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow });
+      bucket: opts.bucket, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
+      knobs: this.knobs.map((name, slot) => opts.knobs?.[name] ?? this.knobDefaults[slot] ?? 0) });
     const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));
     if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
     return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, console: consoleOut };

@@ -118,6 +118,16 @@ PFW_LINK struct {
     __type(value, struct vmstack);
 } stack SEC(".maps");
 
+/* Live control values the host sets at any time, read per-packet by OP_KNOB
+ * (`knob("name")`). One shared value per slot (not percpu); the host maps a name
+ * to a slot at compile time and writes knobs[slot] whenever it wants. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_KNOBS);
+    __type(key, __u32);
+    __type(value, __u64);
+} knobs SEC(".maps");
+
 struct pfw_state {
     __u64 r[NREGS];
     __u32 pc;

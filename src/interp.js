@@ -25,7 +25,7 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, now = 0n, argv = [], shadow = false } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, now = 0n, argv = [], shadow = false, knobs = [] } = {}) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
@@ -215,6 +215,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.LPM6: zf = set6.some((c) => (src6 & c.mask) === (c.net & c.mask)); cf = false; break; /* IPv6 src in the CIDR set */
         case OP.ARG: { const idx = Number((imm >> 32n) & 0xffffn); cur = idx < argv.length ? BigInt(argv[idx]) & U64 : (imm & 0xffffffffn); break; } /* runtime arg or inline default */
         case OP.ARGC: cur = BigInt(argv.length); break; /* number of args the host set */
+        case OP.KNOB: { const slot = Number(imm) & 31; cur = BigInt(knobs[slot] ?? 0) & U64; break; } /* live host-set control value */
         case OP.FARG: if (fargs.length < 4) fargs.push(cur); break; /* push a numeric format arg */
         case OP.FARGS: { /* capture a %s string: cur is a frame offset, up to imm/32 bytes */
           if (fstrs.length < 2) {

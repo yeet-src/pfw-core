@@ -159,6 +159,11 @@ yeet.test("arg reads a runtime value, or its default when unset", () => {
   expectRst("argc", eq("        argc", 2), { opts: { argv: [10, 20] } });                // two args set
 });
 
+yeet.test("knob reads a live host-set control value (0 when unset)", () => {
+  expectRst("knob unset", eq("        knob    $0", 0));
+  expectRst("knob set", eq("        knob    $0", 5), { opts: { knobs: [5] } });
+});
+
 /* ---- farg / fargs / console (format args + emit a console message) ---- */
 yeet.test("farg + fargs + console + printk assemble and run (falls through to pass)", () => {
   expect("console", `        and     $0, %cur\n        add     $7, %cur\n        farg\n        mov     %payload, %cur\n        fargs   $8\n        console $0\n        pass`, V.PASS);

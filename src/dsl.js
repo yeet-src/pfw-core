@@ -143,6 +143,8 @@ export const regex = (name, src) => ({ _part: "regex", name, src });
 export const arg = (idx, def = null) => ({ kind: "arg", index: idx, def: def == null ? null : num(def) });
 /** argc — how many runtime args the host set. */
 export const argc = () => ({ kind: "argc" });
+/** knob("name" [, default]) — a live host-set control value (the `knobs` map); default is the seeded initial value. */
+export const knob = (name, def = null) => ({ kind: "knob", knob: name, def: def == null ? null : num(def) });
 
 /** Assemble program parts into an AST and compile it (same result as compile()). */
 export function program(...parts) {

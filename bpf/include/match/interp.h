@@ -415,6 +415,12 @@ static long pfw_step(__u32 i, void *pctx)
     case OP_ARGC:
         cur = p->argc;
         break;
+    case OP_KNOB: { /* cur = knobs[slot] — a live host-set control value */
+        __u32 slot = (__u32) imm & (PFW_KNOBS - 1);
+        __u64 *v = bpf_map_lookup_elem(&knobs, &slot);
+        cur = v ? *v : 0;
+        break;
+    }
     case OP_FARG: /* push cur as the next console/printk format argument */
         if (st->fargn < FARGS_MAX)
             st->fargs[st->fargn++ & (FARGS_MAX - 1)] = cur;

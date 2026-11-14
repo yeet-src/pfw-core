@@ -34,7 +34,8 @@
     "test:printk": "node test/kernel/printk.mjs",
     "test:stack": "node test/kernel/stack.mjs",
     "test:call": "node test/kernel/call.mjs",
-    "test:args": "node test/kernel/args.mjs"
+    "test:args": "node test/kernel/args.mjs",
+    "test:knob": "node test/kernel/knob.mjs"
   },
   "files": [
     "src",

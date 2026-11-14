@@ -48,6 +48,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
   .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
   .bind("stack", { kind: "percpu_array" })
+  .bind("knobs", { kind: "array" })
   .bind("programs", { kind: "array" })
   .bind("ac_goto", { kind: "array" })
   .bind("ac_fail", { kind: "array" })
@@ -134,6 +135,25 @@ if (argv.set6) {
   }
 }
 await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shadow ?? 0) >>> 0 });
+
+/* Live control values. First seed each knob's compiled default (knob("x") ?? d);
+ * then apply any --knobs "name=val,other=7" overrides. The host can re-write the
+ * `knobs` map (by the slot c.knobs[slot] === name) at any time to drive the
+ * running program. */
+{
+  const km = new ArrayMap(control, "knobs");
+  const defaults = c.knobDefaults ?? [];
+  for (let slot = 0; slot < (c.knobs ?? []).length; slot++)
+    if (defaults[slot]) await km.update(slot, BigInt(defaults[slot]));
+  if (argv.knobs) {
+    const slotOf = (name) => (c.knobs ?? []).indexOf(name);
+    for (const kv of String(argv.knobs).split(",").filter(Boolean)) {
+      const [name, val = "0"] = kv.split("=");
+      const slot = slotOf(name);
+      if (slot >= 0) await km.update(slot, BigInt(val));
+    }
+  }
+}
 
 /* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict
  * enum, same numbers the reference uses) so the orchestrator reads the kernel's
