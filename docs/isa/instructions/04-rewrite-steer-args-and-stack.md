@@ -57,7 +57,7 @@ are written back to the flow in `finish()`.
 - **Flags:** none.
 - **Maps:** `ac_goto`/`ac_fail`/`ac_accept` (literal) or `re_goto`/`re_accept`
   (regex) at the active generation; the packet itself is written.
-- **Compile-time rules (`src/clang.js`, `src/regex.js`):** `redact`/`replace`
+- **Compile-time rules (`src/clang/`, `src/regex.js`):** `redact`/`replace`
   take a literal `pattern` **or** a **fixed-length** `regex` (every match the same
   byte count — e.g. `\d{3}-\d{2}-\d{4}` is 11, `AKIA[A-Z0-9]{16}` is 20). A
   variable-length regex is rejected for rewrite (use it in `scan`/`any` to detect

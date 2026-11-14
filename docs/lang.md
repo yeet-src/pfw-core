@@ -1,7 +1,7 @@
 # pfw-C — the language reference
 
 pfw-C is the C-style source language of `pfw-core`. A program inspects one packet
-(or the reassembled stream) and reaches a verdict. The compiler (`src/clang.js`)
+(or the reassembled stream) and reaches a verdict. The compiler (`src/clang/`)
 lexes and parses the source to an AST, then lowers it through the shared op
 `Builder` to **pfw ISA** bytecode — the same bytecode the reference interpreter
 and the eBPF/XDP backend execute. For the machine itself (opcodes, registers,

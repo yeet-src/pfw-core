@@ -121,7 +121,7 @@ ISA" and "an ISA you can build real decoders on."
 
 Landed as a decode front-end, `decode huffman`, not yet the composable `%src,%dst`
 op below. The thesis holds end to end: the HPACK Huffman table is **built from
-RFC 7541 by `src/huffman.js`** (validated against the RFC's own worked
+RFC 7541 by `src/huffman/`** (validated against the RFC's own worked
 examples and a 256-symbol round-trip) and baked into `bpf/include/huff_table.h`;
 the `pfw_huff` tail-call stage runs it over the reassembled stream, then the
 matcher scans the decoded plaintext. Shown live in the firewall repo's live demos:

@@ -69,6 +69,11 @@ It can:
 - **Be tuned at load time** — `argv[i] ?? default` reads host-set runtime
   parameters (one bytecode, many deployments); `%shadow` is a dry-run flag that
   turns enforcement into logged-but-passed.
+- **Be driven live** — *knobs* are a named control plane the host rewrites while
+  the program runs: `knob("name") ?? default` reads a numeric control value,
+  `kstr("name")` is true when a host-set string occurs in the payload (change the
+  bad host/token and block it with no reload), and `knob struct Name { … }` groups
+  related knobs read as `Name.field`.
 - **Observe** — `console("fmt", args...)` ships a printf-style message to the
   host (with a JS callback), `printk(...)` writes to the kernel trace pipe, and
   `log(n)` snapshots payload bytes onto a verdict event.
@@ -103,6 +108,8 @@ Consequences to design around:
   | data stack depth | 64 | `push`/`pop`, `call`/`ret` |
   | rules | 64 | named verdicts, per program |
   | runtime args | 16 | `argv[i]` |
+  | knobs | 32 | `knob("name")` live control slots |
+  | string knobs | 16 | `kstr("name")`, 64 B each |
   | per-flow ring | 16 | newest-wins |
 
 - Packet **reads** are unrestricted; **writes** are the deliberate rewrite ops
@@ -125,7 +132,7 @@ import { when, guard, allOf, each, rules } from "pfw-core/fp.js";  // combinator
 | export | signature | returns |
 |---|---|---|
 | `load(src)` | `(string) -> Program` | a runnable `Program`; **throws** on a compile error |
-| `compile(src)` | `(string) -> result` | `{ ok, errors, program, patterns, rules, listing, nocase, regex, consoleFormats, printkFormats }` — never throws |
+| `compile(src)` | `(string) -> result` | `{ ok, errors, program, patterns, rules, listing, nocase, regex, consoleFormats, printkFormats, knobs, knobDefaults, knobStrs, structKnobs }` — never throws |
 | `compileAst(ast)` | `(ast) -> result` | lower an AST (what `pfw-core/dsl.js` builds) directly |
 | `compileToAsm(src)` | `(string) -> string` | the disassembly, for inspection |
 | `assemble(text)` | `(string) -> result` | the AT&T-style assembler (same `result` shape, minus source-only fields) |
@@ -133,7 +140,11 @@ import { when, guard, allOf, each, rules } from "pfw-core/fp.js";  // combinator
 On failure `compile` returns `{ ok: false, errors: [{ line, text }] }`. On
 success, `program` is the op/pattern record the kernel runs, `regex` is the
 compiled DFA (or `null`), and `consoleFormats`/`printkFormats` map a format id
-back to its string (see *Observability*).
+back to its string. The knob bindings tell a loader what live control values the
+program expects: `knobs[slot]` is the knob name at that `knobs`-map slot,
+`knobDefaults[slot]` its seeded initial value, `knobStrs[slot]` the string-knob
+name at that `knob_strs`-map slot, and `structKnobs` the `{ name, base }` groups
+declared with `knob struct`.
 
 ### The `Program` object
 
@@ -148,6 +159,7 @@ back to its string (see *Observability*).
 | `p.patterns`, `p.rules` | the interned pattern list and rule-name table |
 | `p.regex` | the regex DFA (`{ nstates, trans, accept }`) or `null` |
 | `p.consoleFormats`, `p.printkFormats` | format strings by id |
+| `p.knobs`, `p.knobDefaults`, `p.knobStrs` | live-control bindings: knob name / seeded default / string-knob name, by slot |
 | `p.asm` | the disassembly |
 
 ### Low-level building blocks
@@ -237,6 +249,8 @@ const r = p.exec(frameBytes, {
   bucket: {}, now: 0n, // token-bucket state + clock for rate()
   argv: [8080, 50],    // runtime args for argv[i]
   shadow: false,       // dry-run flag (%shadow)
+  knobs: { block: 1 }, // live numeric knobs by name (unset -> knobDefaults, else 0)
+  knobStrs: { bad: "evil.example.com" }, // live string knobs by name (kstr)
   flow: {},            // carried per-connection state
   onConsole: (line) => {}, // called per console() message
 });
@@ -278,6 +292,7 @@ const control = await new BpfObject({ exe: "bin/vm.bpf.o", base: root })
   .bind("lpm", { kind: "lpm_trie" }).bind("lpm6", { kind: "lpm_trie" })      // src in set / set6
   .bind("hashset", { kind: "hash" }).bind("bloom", { kind: "bloom_filter" })
   .bind("flows", { kind: "lru_hash" }).bind("stack", { kind: "percpu_array" })
+  .bind("knobs", { kind: "array" }).bind("knob_strs", { kind: "array" })   // live control plane
   .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
   .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
   .bind("vm.bss", { kind: "data" })
@@ -297,14 +312,15 @@ await new RingBuf(control, "events").subscribe((e) => {/* verdict events */});
 
 `scripts/apply-and-hold.mjs` is the **complete, working reference** for this: it
 binds every map, writes the program + AC tables + regex DFA + the membership sets
-+ the printk formats, patches `vm.bss` globals (`active`, `shadow`), and streams
-verdict and `console()` events back. `test/kernel/*.mjs` drive it. The full map
++ the printk formats, seeds the knobs from `c.knobDefaults` (and applies `--knobs`
+/ `--kstr` into `knobs` / `knob_strs`), patches `vm.bss` globals (`active`,
+`shadow`), and streams verdict and `console()` events back. `test/kernel/*.mjs` drive it. The full map
 list and the `pfw_prog` / `pfw_event` / `pfw_console` layouts are in
 [`docs/isa.md`](docs/isa.md).
 
 ## Examples
 
-133 complete pfw-C programs live in [`examples/`](examples); every one is compiled
+136 complete pfw-C programs live in [`examples/`](examples); every one is compiled
 by `npm run test:node`. A few, as you'd actually write them:
 
 **Reset AI crawlers by user-agent** ([`crawlers.pfc`](examples/crawlers.pfc)):
@@ -364,15 +380,19 @@ Highlights across the set — web attacks (`log4shell`, `sqli`, `xss`, `ssrf_met
 
 - **ISA** — `src/isa.js` (host view) mirrored by `bpf/include/pfw.h` (the C
   contract). Change both or neither; a test asserts they agree.
-- **Builder** — `src/builder.js`, an LLVM-IRBuilder-style op constructor (emit
-  methods, label resolution, scratch-register allocation, pattern/rule
-  interning). Every front-end targets it — one definition of how an op is built.
-- **Front-ends** — `src/clang.js` (pfw-C), `src/dsl.js` (value builder),
-  `src/fp.js` (combinators), `src/asm.js` (AT&T-style assembler).
-- **Program** — `src/program.js`, the runnable object `load()`/the DSL return.
-- **Bytecode** — `src/bytes.js` (`serializeProgram`, map dumps).
+- **Builder** — `src/builder/` (`#/builder`), an LLVM-IRBuilder-style op
+  constructor (emit methods, label resolution, scratch-register allocation,
+  pattern/rule interning) with `optext.js` for single-op disassembly. Every
+  front-end targets it — one definition of how an op is built.
+- **Front-ends** — `src/clang/` (`#/clang`, pfw-C: lex/parse/codegen),
+  `src/dsl.js` (value builder), `src/fp.js` (combinators), `src/asm/` (`#/asm`,
+  AT&T-style assembler: lex/operands/assemble).
+- **Program** — `src/program/` (`#/program`), the runnable object `load()`/the
+  DSL return, with `format.js` for the printf-style `console()`/`printk` formatter.
+- **Bytecode** — `src/bytes/` (`#/bytes`): `serializeProgram` and map dumps.
 - **Table builders** — `src/ac.js` (Aho-Corasick), `src/regex.js` (regex→DFA),
-  `src/huffman.js` (HPACK Huffman), `src/transform.js` (byte-transform tables).
+  `src/huffman/` (`#/huffman`, HPACK Huffman), `src/transform.js` (byte-transform
+  tables).
 - **Reference interpreter** — `src/interp.js`, `pfw_step` modelled
   line-for-line: the executable spec the tests assert against.
 - **eBPF backend** — `bpf/vm/` (entry + decode/rewrite stages + `core/*.h`), the
