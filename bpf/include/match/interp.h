@@ -268,6 +268,22 @@ static long pfw_step(__u32 i, void *pctx)
     case OP_RLEN:
         cur = c->flow ? c->flow->ring_count : 0;
         break;
+    case OP_REDACT:
+    case OP_REPLACE:
+        /* Wire rewrite is per-packet only (in reasm mode the matcher reads a
+         * reconstructed buffer, not the packet). Record the request; the
+         * pfw_rewrite tail-call stage applies it after matching, in its own
+         * verifier budget. */
+        if (!c->reasm && st->rw_n < RW_MAX) {
+            __u32 k = st->rw_n & (RW_MAX - 1);
+            st->rw[k].pat = op->reg & (PFW_MAX_PATS - 1);
+            st->rw[k].mode = (code == OP_REPLACE);
+            st->rw[k].repl = (__u32) (imm & (PFW_MAX_PATS - 1));
+            st->rw[k].fill = (__u32) (imm & 0xff);
+            st->rw[k].woff = (__u32) st->r[R_PAYLOAD]; /* whole payload, not cursor */
+            st->rw_n++;
+        }
+        break;
     default:
         st->verdict = V_PASS;
         faults++;

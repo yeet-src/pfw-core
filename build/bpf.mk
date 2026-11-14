@@ -36,6 +36,10 @@ BPF_SRCS := $(shell find bpf/vm -name '*.bpf.c' 2>/dev/null | sort)
 # One intermediate object per unit. They live under .build/ so they are
 # never mistaken for the loadable object in bin/.
 BPF_OBJS := $(patsubst bpf/%.bpf.c,.build/bpf/%.bpf.o,$(BPF_SRCS))
+# The maps/globals definer (core/maps.bpf.c) must link first: bpftool gen object
+# only resolves an extern map/global when its definition precedes the references.
+BPF_DEFINER := .build/bpf/vm/core/maps.bpf.o
+BPF_OBJS := $(filter $(BPF_DEFINER),$(BPF_OBJS)) $(filter-out $(BPF_DEFINER),$(BPF_OBJS))
 # The single linked object. Its `.bpf.o` suffix is what the JS side loads
 # with `import program from "../../bin/vm.bpf.o"` (the loader's
 # BpfObjectRule matches on that suffix). yeetkit rewrites that specifier

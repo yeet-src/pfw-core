@@ -47,10 +47,10 @@ yeet.test("nocase redact matches any case (fills the actual bytes)", () => {
   eq(dec(buf), "X ****** Y", "case-insensitive match redacted");
 });
 
-yeet.test("redact only touches bytes from the cursor onward", () => {
-  // move the cursor to 'B' (index 3), then redact "AA" — the first AA (before
-  // the cursor) survives, the one after it is filled.
+yeet.test("redact is payload-relative (not cursor-relative)", () => {
+  // redact scans the whole payload regardless of where the cursor was moved, so
+  // every match is filled — moving the cursor first does not shield earlier ones.
   const p = C.program(C.pattern("x", "AA"), C.filter(C.ptr("q", C.find(C.payload, "B", 16)), C.redact("x"), C.pass()));
   const buf = enc("AA B AA"); p.exec(buf, {});
-  eq(dec(buf), "AA B **", "only the match after the cursor is redacted");
+  eq(dec(buf), "** B **", "every match redacted, cursor position ignored");
 });

@@ -8,6 +8,9 @@
 #define PFW_MAX_OPS  8192 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
+#define RW_MAX       4    /* redact/replace requests a program may record per packet,
+                            * applied by the pfw_rewrite tail-call stage. A power of
+                            * two: the index is masked. */
 #define PFW_NRULES   64   /* rule ids: counters[rule] */
 #define PFW_GENS     2    /* program generations: apply writes the idle one, then flips */
 #define AC_STATES    4096 /* automaton states per generation */

@@ -50,6 +50,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .attach("pfw_resolve", { kind: "prog_array", map: "decode_jmp", index: 2 })
   .attach("pfw_huff", { kind: "prog_array", map: "decode_jmp", index: 3 })
   .attach("pfw_transform", { kind: "prog_array", map: "decode_jmp", index: 4 })
+    .attach("pfw_rewrite", { kind: "prog_array", map: "decode_jmp", index: 5 })
   .attach("pfw_xdp", { kind: "xdp", ifindex: [iface] })
   .start();
 

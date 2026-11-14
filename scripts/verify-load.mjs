@@ -29,6 +29,7 @@ try {
     .attach("pfw_resolve", { kind: "prog_array", map: "decode_jmp", index: 2 })
     .attach("pfw_huff", { kind: "prog_array", map: "decode_jmp", index: 3 })
     .attach("pfw_transform", { kind: "prog_array", map: "decode_jmp", index: 4 })
+    .attach("pfw_rewrite", { kind: "prog_array", map: "decode_jmp", index: 5 })
     .attach("pfw_xdp", { kind: "xdp", ifindex: [iface] })
     .start();
   console.log(`VERIFIER OK: every program loaded and attached (ifindex ${iface})`);

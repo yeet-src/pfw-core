@@ -164,7 +164,7 @@ export function machine({ asm, tables }) {
           const repl = code === OP.REPLACE ? pats[Number(imm & 63n)] : null;
           const fillB = Number(imm & 0xffn);
           const end = Math.min(Number(r[REG.end]), frame.length);
-          const start = Number(cur);
+          const start = Number(r[REG.payload]); /* whole payload, not cursor */
           if (p && p.len > 0 && (!repl || repl.len === p.len)) {
             for (let o = start; o >= 0 && o + p.len <= end && o < start + 2048; o++) {
               let hit = true;

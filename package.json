@@ -17,7 +17,8 @@
     "test:verify": "yeet run scripts/verify-load.mjs",
     "test:kernel": "node test/kernel/diff.mjs",
     "gen:huff": "node src/huffman.js",
-    "bpf": "make bpf"
+    "bpf": "make bpf",
+    "test:rewrite": "node test/kernel/rewrite.mjs"
   },
   "files": [
     "src",

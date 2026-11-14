@@ -73,7 +73,14 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
             if (v == XDP_TX) { rsts++; return v; }
         }
         dropped++; return XDP_DROP;
-    default: passed++; return XDP_PASS;
+    default:
+        passed++;
+        /* Forwarding the packet: if the program recorded redact/replace requests,
+         * hand off to the rewrite stage (its own verifier budget) to apply them
+         * before the packet continues. Falls through to PASS if the slot is empty. */
+        if (st->rw_n)
+            bpf_tail_call(ctx, &decode_jmp, SLOT_REWRITE);
+        return XDP_PASS;
     }
 }
 

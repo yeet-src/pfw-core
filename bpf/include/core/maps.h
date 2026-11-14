@@ -130,6 +130,12 @@ struct pfw_state {
     __u32 huff_outpos;
     __u32 huff_fail;
     __u32 tf_table; /* DECODE_TRANSFORM: active tt_cells table id, set by the entry */
+    /* Deferred packet-rewrite requests recorded by OP_REDACT/REPLACE; applied
+     * after matching by the pfw_rewrite tail-call stage (its own verifier budget).
+     * Each: match pattern, replacement pattern (replace) / fill byte (redact),
+     * mode, and the cursor at the op (the window start). */
+    __u32 rw_n;
+    struct { __u32 pat, repl, mode, fill, woff; } rw[RW_MAX];
 };
 
 PFW_LINK struct {
@@ -164,9 +170,10 @@ PFW_LINK const struct flow zero_flow;
 #define SLOT_RESOLVE   2
 #define SLOT_HUFF      3
 #define SLOT_TRANSFORM 4
+#define SLOT_REWRITE   5
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 5);
+    __uint(max_entries, 6);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");
