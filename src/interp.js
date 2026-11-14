@@ -25,13 +25,13 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [] } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, sport = 0, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, source = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [] } = {}) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
     const r = new Array(32).fill(0n);
     r[REG.payload] = BigInt(payload); r[REG.end] = BigInt(end); r[REG.proto] = BigInt(proto);
-    r[REG.dport] = BigInt(dport); r[REG.cur] = BigInt(payload); r[REG.len] = BigInt(end > payload ? end - payload : 0);
+    r[REG.dport] = BigInt(dport); r[REG.sport] = BigInt(sport); r[REG.cur] = BigInt(payload); r[REG.len] = BigInt(end > payload ? end - payload : 0);
     r[REG.saddr] = BigInt(saddr) & 0xffffffffn; /* IPv4 source, host order */
     r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
@@ -45,6 +45,12 @@ export function machine({ asm, tables, regex = null }) {
     const mark = flow.mark ?? 0;
     const userState = flow.userState ?? 0;
     let hits = flow.hits ?? 0, newState = userState, setMark = mark;
+    /* Per-SOURCE state (the `sources` map): src.state / src.count / src.rate and
+     * the source ban. The caller threads the returned `source` back in to model
+     * later packets from the same address, on any connection. */
+    const srcState = source?.userState ?? 0;
+    let srcHits = source?.hits ?? 0, srcNewState = srcState;
+    const srcBucket = source ? (source.bucket ?? (source.bucket = {})) : null;
     let ac = flow.ac, pc = 0, zf = false, cf = false, ff = false, verdict = V.NONE, rule = 0;
     const mpos = new Array(64).fill(0);
     /* Reads clamp to R_END (the program may narrow it, e.g. `frame`), and never
@@ -106,6 +112,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.JBE: jump(cf || zf); break;
         case OP.JF: if (ff) { ff = false; jump(true); } break;
         case OP.SCAN: {
+          if (reg & 1) { ac = 0; r[REG.m] = 0n; }      // fresh scan (within): only this window counts
           const w = window(cur, Number(imm > 2048n ? 2048n : imm));
           let rs = 0;
           if (w) for (let k = 0; k < w.length; k++) {
@@ -196,9 +203,14 @@ export function machine({ asm, tables, regex = null }) {
           }
           break;
         }
-        case OP.SLOAD: cur = BigInt(userState); break;
-        case OP.SSTORE: newState = Number(imm & 0xffffffffn); break;
-        case OP.BUMP: hits = (hits + 1) >>> 0; cur = BigInt(hits); break;
+        /* reg (sload/bump) or imm bit 32 (sstore) selects the scope: this flow, or
+         * the source address. Source writes are deferred exactly like flow writes. */
+        case OP.SLOAD: cur = BigInt(reg === 1 ? srcState : userState); break;
+        case OP.SSTORE: if ((imm >> 32n) & 1n) srcNewState = Number(imm & 0xffffffffn); else newState = Number(imm & 0xffffffffn); break;
+        case OP.BUMP:
+          if (reg === 1) { srcHits = (srcHits + 1) >>> 0; cur = BigInt(srcHits); }
+          else { hits = (hits + 1) >>> 0; cur = BigInt(hits); }
+          break;
         case OP.FLOW: cur = BigInt(mark); break;
         case OP.MARK: setMark = reg; break;
         case OP.COUNT: rule = reg; break; // counter side effect; execution continues
@@ -245,7 +257,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
           const rate = Number(imm & 0xffffffffn), cap = Number((imm >> 32n) & 0xffffffffn) * RL_SCALE;
-          const b = bucket, nowN = Number(now);
+          const b = reg === 1 ? srcBucket : bucket, nowN = Number(now);
           if (!b) { zf = false; cf = false; break; }
           let tokens;
           if (b.ts === undefined) tokens = cap; /* unseeded: full bucket (kernel uses rl_ts==0, where ktime is never 0) */
@@ -268,6 +280,7 @@ export function machine({ asm, tables, regex = null }) {
     return {
       verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
       flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
+      source: { userState: srcNewState, hits: srcHits, bucket: srcBucket ?? {}, banned: (source?.banned ?? false) || (vfinal === V.BAN && !shadow) },
       consoleMsgs,
     };
   };

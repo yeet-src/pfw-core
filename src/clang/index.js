@@ -22,6 +22,7 @@ import { CError } from "#/clang/errors.js";
 import { lex } from "#/clang/lex.js";
 import { parse } from "#/clang/parse.js";
 import { codegen } from "#/clang/codegen.js";
+import { BuildError } from "#/builder";
 
 /** Lower an AST (from parse(), or the dsl.js program builder) to a program. */
 export function compileAst(ast) {
@@ -30,6 +31,9 @@ export function compileAst(ast) {
     bld = codegen(ast);
   } catch (e) {
     if (e instanceof CError) return { ok: false, errors: [{ line: e.line, text: e.message }], asm: "" };
+    /* The Builder refusing an op (most often: the program outgrew MAX_OPS) is a
+     * compile error like any other, not a crash for the caller to catch. */
+    if (e instanceof BuildError) return { ok: false, errors: [{ line: 0, text: e.message }], asm: "" };
     throw e;
   }
   const r = bld.finalize();
@@ -39,7 +43,7 @@ export function compileAst(ast) {
   let regex = null;
   const regexPats = r.patterns.filter((p) => p.kind === "regex");
   if (regexPats.length) {
-    try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
+    try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id })), r.nocase); /* nocase: the input is folded, so the DFA must be too */ }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
   return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs, structKnobs: bld._structKnobs };

@@ -22,11 +22,23 @@
 
 PFW_LINK volatile __u32 active;          /* the generation packets run */
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
+PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
+PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */
 PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full, shadowed;
 /* Reassembly accounting (reasm-mode programs): segments skipped as
  * retransmits, forward-gap resyncs, flows joined mid-stream (fail closed),
  * and segments that overran the reassembly buffer (fail closed). */
 PFW_LINK volatile __u64 reasm_retrans, reasm_gaps, reasm_midjoin, reasm_over;
+/* reasm_slid: times a window slid forward to keep following a long stream;
+ * reasm_held: out-of-order segments beyond the window, dropped so TCP resends
+ * them once the window has moved; reasm_trunc: segments larger than the window
+ * (only their first REASM_CAP bytes were inspected). */
+PFW_LINK volatile __u64 reasm_slid, reasm_held, reasm_trunc;
+/* decode h2: header blocks decoded, connections matched raw (no h2 preface),
+ * references the kept dynamic table could not resolve (shown as "?"), decoded
+ * views truncated at H2_CAP, and connections reset because they could not be
+ * followed (malformed, a header block larger than the window, a lost table). */
+PFW_LINK volatile __u64 h2_blocks, h2_raw, h2_unresolved, h2_trunc, h2_failed;
 
 /* Per-packet decision time: total nanoseconds spent evaluating the
  * program (summed over `ran` packets) and a histogram of it. The bucket
@@ -85,6 +97,25 @@ PFW_LINK struct {
     __type(key, struct flow_key);
     __type(value, struct flow);
 } flows SEC(".maps");
+
+/* Per-source state (struct source), keyed on the source address: the source ban
+ * and src.state / src.count / src.rate. LRU, so a flood of spoofed sources
+ * evicts the coldest entries instead of filling the table. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, SRC_MAX);
+    __type(key, struct src_key);
+    __type(value, struct source);
+} sources SEC(".maps");
+
+/* Connections diverted by `dnat`, keyed by the reply tuple, so the entry can
+ * translate the reply's source back (action/nat.h). */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, NAT_MAX);
+    __type(key, struct nat_key);
+    __type(value, struct nat_val);
+} nat SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
@@ -165,6 +196,26 @@ struct pfw_state {
     __u32 huff_outpos;
     __u32 huff_fail;
     __u32 tf_table; /* DECODE_TRANSFORM: active tt_cells table id, set by the entry */
+    /* What a decode stage hands the matcher: the decoded plaintext the program
+     * scans in place of the raw stream (REASM_CAP bytes, like the stream window,
+     * so the same masked reads serve both). */
+    __u8 view[REASM_CAP];
+    /* DECODE_H2 work area. h2a holds the header block (frames -> HPACK input),
+     * h2b the intermediate between the HPACK and resolve stages (Huffman output
+     * can be larger than its input, hence H2_CAP); the resolved "name: value\n"
+     * lines land in `view`. All the
+     * evolving cursors live here, in the map, and are reloaded on every loop
+     * iteration, so the verifier does not track them precisely (see transform.h). */
+    __u8 h2a[REASM_CAP];
+    __u8 h2b[H2_CAP];
+    struct h2_work {
+        /* frames */
+        __u32 pos, consumed, hb_len, hb_done, in_hdr, done, fail, rst, skip;
+        /* hpack */
+        __u32 phase, target, kind, val, shift, strings_left, huff, str_rem, lenpos, slen, out, hstate;
+        /* resolve */
+        __u32 rphase, rkind, ridx, rstrings, rlo, rrem, text, ins, slot, spos, nlen;
+    } h2;
     /* Deferred packet-rewrite requests recorded by OP_REDACT/REPLACE; applied
      * after matching by the pfw_rewrite tail-call stage (its own verifier budget).
      * Each: match pattern, replacement pattern (replace) / fill byte (redact),
@@ -177,6 +228,13 @@ struct pfw_state {
     __u64 rl_tokens;   /* OP_RATE token bucket (scaled x RL_SCALE), loaded from / written back to the flow */
     __u64 rl_ts;       /* OP_RATE last-refill ktime ns */
     __u32 set_rl;      /* 1 = write rl_tokens/rl_ts back to the flow */
+    /* The source-scoped twins (SCOPE_SRC), loaded from / written back to the
+     * `sources` entry by match_half exactly as the flow fields are. */
+    __u32 src_state; /* the source's user state at entry (what src.state reads) */
+    __u32 src_set_state, src_new_state, src_state_ttl;
+    __u32 src_hits, src_set_hits;
+    __u32 src_set_rl;
+    __u64 src_rl_tokens, src_rl_ts;
     __u64 fargs[FARGS_MAX]; /* OP_FARG numeric format-arg buffer, flushed by console()/printk() */
     __u32 fargn;
     __u8 fstr[FSTR_MAX][STRARG_CAP]; /* OP_FARGS captured %s strings */
@@ -262,6 +320,16 @@ PFW_LINK struct {
     __type(value, __u64);
 } re_accept SEC(".maps");
 
+/* HPACK dynamic tables, one per decoded HTTP/2 connection (struct h2conn). A
+ * separate map from `flows` so only h2 connections pay for a table. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, H2_CONNS);
+    __type(key, struct flow_key);
+    __type(value, struct h2conn);
+} h2conns SEC(".maps");
+PFW_LINK const struct h2conn zero_h2conn;
+
 /* A zeroed flow lives in rodata, not on the 512-byte BPF stack: the flow
  * struct now carries a REASM_CAP buffer and will not fit as a local. */
 PFW_LINK const struct flow zero_flow;
@@ -277,9 +345,10 @@ PFW_LINK const struct flow zero_flow;
 #define SLOT_HUFF      3
 #define SLOT_TRANSFORM 4
 #define SLOT_REWRITE   5
+#define SLOT_HPACK     6
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 6);
+    __uint(max_entries, 7);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");

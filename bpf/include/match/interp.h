@@ -10,43 +10,7 @@
 #include "io/read.h"
 #include "match/scan.h"
 #include "action/event.h"   /* console_emit */
-
-/* DNAT: rewrite the destination (IPv4 + port) and fix the IP + L4 checksums.
- * __noinline so its locals get their own stack frame (pfw_step is already large).
- * Per-packet, IPv4 TCP/UDP; no loop, so it's cheap. imm = ip(low32) | port<<32. */
-static __noinline void do_dnat(struct xdp_md *xdp, struct pfw_state *st, __u64 imm)
-{
-    __u32 proto = (__u32) st->r[R_PROTO];
-    if (proto != IPPROTO_TCP && proto != IPPROTO_UDP)
-        return;
-    __u32 l3 = (__u32) st->r[R_L3], l4 = (__u32) st->r[R_L4];
-    __u8 ver = 0;
-    if (bpf_xdp_load_bytes(xdp, l3, &ver, 1) || (ver >> 4) != 4)
-        return;                                      /* IPv4 only */
-    __be32 oldip = 0, newip = bpf_htonl((__u32) imm);
-    __be16 oldport = 0, newport = bpf_htons((__u16) (imm >> 32));
-    if (bpf_xdp_load_bytes(xdp, l3 + 16, &oldip, 4) || bpf_xdp_load_bytes(xdp, l4 + 2, &oldport, 2))
-        return;
-    bpf_xdp_store_bytes(xdp, l3 + 16, &newip, 4);        /* dst IPv4 */
-    bpf_xdp_store_bytes(xdp, l4 + 2, &newport, 2);       /* dst port */
-    __wsum dip = bpf_csum_diff(&oldip, 4, &newip, 4, 0);
-    __u16 ipck = 0;                                      /* IP header checksum */
-    if (bpf_xdp_load_bytes(xdp, l3 + 10, &ipck, 2) == 0) {
-        __u32 s = (__u16) ~ipck;
-        s += dip; s = (s & 0xffff) + (s >> 16); s = (s & 0xffff) + (s >> 16);
-        ipck = (__u16) ~s;
-        bpf_xdp_store_bytes(xdp, l3 + 10, &ipck, 2);
-    }
-    __u32 coff = proto == IPPROTO_TCP ? l4 + 16 : l4 + 6; /* L4 checksum */
-    __u16 l4ck = 0;
-    if (bpf_xdp_load_bytes(xdp, coff, &l4ck, 2) == 0 && (proto == IPPROTO_TCP || l4ck != 0)) {
-        __wsum d = bpf_csum_diff((__be32 *) &oldport, 2, (__be32 *) &newport, 2, dip); /* dst IP (pseudo) + port */
-        __u32 s = (__u16) ~l4ck;
-        s += d; s = (s & 0xffff) + (s >> 16); s = (s & 0xffff) + (s >> 16);
-        l4ck = (__u16) ~s;
-        bpf_xdp_store_bytes(xdp, coff, &l4ck, 2);
-    }
-}
+#include "action/nat.h"     /* do_dnat */
 
 /* Token-bucket rate limiter over the flow's rl_tokens/rl_ts (carried in st,
  * written back to the flow in finish()). Tokens are fixed-point x RL_SCALE.
@@ -54,27 +18,29 @@ static __noinline void do_dnat(struct xdp_md *xdp, struct pfw_state *st, __u64 i
  * which avoids both floats and overflow for sane rates. Returns 1 when the
  * packet is OVER the limit (no token to spend), 0 when allowed. __noinline so
  * the 64-bit math stays out of pfw_step's stack frame. */
-static __noinline int do_rate(struct pfw_state *st, __u64 now, __u64 imm)
+static __noinline int do_rate(struct pfw_state *st, __u64 now, __u64 imm, __u32 scope)
 {
+    __u64 ts = scope == SCOPE_SRC ? st->src_rl_ts : st->rl_ts;
+    __u64 have = scope == SCOPE_SRC ? st->src_rl_tokens : st->rl_tokens;
+    int over = 0;
     __u64 rate = (__u32) imm;                 /* tokens per second */
     __u64 cap = (__u32) (imm >> 32) * RL_SCALE; /* bucket capacity, scaled */
     __u64 tokens;
-    if (st->rl_ts == 0) {                     /* first sight of this flow: full bucket */
+    if (ts == 0) {                            /* first sight of this flow/source: full bucket */
         tokens = cap;
     } else {
-        __u64 elapsed = now > st->rl_ts ? now - st->rl_ts : 0;
+        __u64 elapsed = now > ts ? now - ts : 0;
         __u64 refill = elapsed * rate / 1000; /* ns * (tok/s) / 1000 = tokens x RL_SCALE */
-        tokens = st->rl_tokens + refill;
+        tokens = have + refill;
         if (tokens > cap) tokens = cap;
     }
-    st->rl_ts = now;
-    st->set_rl = 1;
-    if (tokens >= RL_SCALE) {                 /* spend one token: allowed */
-        st->rl_tokens = tokens - RL_SCALE;
-        return 0;
-    }
-    st->rl_tokens = tokens;                   /* over the limit */
-    return 1;
+    if (tokens >= RL_SCALE)                   /* spend one token: allowed */
+        tokens -= RL_SCALE;
+    else
+        over = 1;                             /* over the limit */
+    if (scope == SCOPE_SRC) { st->src_rl_ts = now; st->src_rl_tokens = tokens; st->src_set_rl = 1; }
+    else { st->rl_ts = now; st->rl_tokens = tokens; st->set_rl = 1; }
+    return over;
 }
 
 /* Substring search for a live host-set string knob in the payload window.
@@ -241,6 +207,10 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_SCAN: {
+        /* reg bit 0 = a fresh scan (`within`): the mask and the automaton start
+         * empty, so the result is exactly what lies in this window — not what an
+         * earlier scan, or an earlier segment of the connection, already found. */
+        if (op->reg & 1) { st->ac_state = 0; st->r[R_M] = 0; }
         __u32 n = window(c, cur, (__u32) (PFW_CLAMP(imm, SCAN_CAP)));
         if (n) {
             scanned_bytes += n;
@@ -339,17 +309,30 @@ static long pfw_step(__u32 i, void *pctx)
         st->ttl = (__u32) imm;
         break;
     case OP_SLOAD:
-        cur = c->user_state;
+        cur = op->reg == SCOPE_SRC ? st->src_state : c->user_state;
         break;
     case OP_SSTORE:
-        st->new_state = (__u32) imm;
-        st->set_state = 1;
-        st->state_ttl = reg;
+        /* op->reg is the TTL in seconds (unmasked); the scope rides in imm bit 32. */
+        if ((imm >> 32) & 1) {
+            st->src_new_state = (__u32) imm;
+            st->src_set_state = 1;
+            st->src_state_ttl = op->reg;
+        } else {
+            st->new_state = (__u32) imm;
+            st->set_state = 1;
+            st->state_ttl = op->reg;
+        }
         break;
     case OP_BUMP:
-        st->hits++;
-        st->set_hits = 1;
-        cur = st->hits;
+        if (op->reg == SCOPE_SRC) {
+            st->src_hits++;
+            st->src_set_hits = 1;
+            cur = st->src_hits;
+        } else {
+            st->hits++;
+            st->set_hits = 1;
+            cur = st->hits;
+        }
         break;
     case OP_RPUSH:
         /* Push cur onto the flow's ring (newest at head). Needs a tracked flow
@@ -446,7 +429,7 @@ static long pfw_step(__u32 i, void *pctx)
         /* Token-bucket rate limit on this flow. ZF = 1 when over the limit
          * (the packet consumed no token). __noinline so the 64-bit refill math
          * gets its own frame. imm = rate/sec (low 32) | burst (high 32). */
-        fl = (fl & FL_FF) | (do_rate(st, c->now, imm) ? FL_ZF : 0);
+        fl = (fl & FL_FF) | (do_rate(st, c->now, imm, op->reg) ? FL_ZF : 0);
         break;
     case OP_ARG: {
         /* cur = args[idx] when the host set that many args, else the inline

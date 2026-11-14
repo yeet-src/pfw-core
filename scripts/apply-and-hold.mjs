@@ -72,6 +72,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .attach("pfw_huff", { kind: "prog_array", map: "decode_jmp", index: 3 })
   .attach("pfw_transform", { kind: "prog_array", map: "decode_jmp", index: 4 })
     .attach("pfw_rewrite", { kind: "prog_array", map: "decode_jmp", index: 5 })
+  .attach("pfw_hpack", { kind: "prog_array", map: "decode_jmp", index: 6 })
   .attach("pfw_xdp", { kind: "xdp", ifindex: [iface] })
   .start();
 
@@ -177,7 +178,15 @@ await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shad
 const consoleFormats = c.consoleFormats ?? [];
 const sub = await new RingBuf(control, "events").subscribe((w) => {
   const e = w?.pfw_event ?? w;
-  console.log(`EVENT ${Number(e.verdict ?? 0)}`);
+  /* --dump 1 also prints the bytes log() captured (JSON-escaped), so a test can
+   * read what the program was looking at — e.g. a decoded HTTP/2 header view. */
+  let data = "";
+  if (argv.dump) {
+    const len = Math.min(Number(e.len ?? 0), 256), by = e.data ?? [];
+    let s = ""; for (let b = 0; b < len; b++) s += String.fromCharCode((by[b] ?? 0) & 0xff);
+    data = " " + JSON.stringify(s);
+  }
+  console.log(`EVENT ${Number(e.verdict ?? 0)}${data}`);
 });
 const csub = await new RingBuf(control, "console_ring").subscribe((w) => {
   const e = w?.pfw_console ?? w;

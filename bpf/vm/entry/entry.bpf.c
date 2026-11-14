@@ -28,6 +28,8 @@
 #include "action/rst.h"
 #include "action/event.h"
 #include "core/match.h"
+#include "core/source.h"
+#include "action/nat.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
@@ -59,9 +61,9 @@ int pfw_match(struct xdp_md *ctx)
         key.sport = sp; key.dport = dp; key.proto = p.proto; key.family = p.family;
         f = bpf_map_lookup_elem(&flows, &key);
     }
-    __u32 use_reasm = prog->reasm && p.proto == IPPROTO_TCP
-                   && (prog->reasm_dport == 0 || p.dport == prog->reasm_dport);
-    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, use_reasm, 0);
+    /* Only ever reached by tail call from a decode stage, which left the decoded
+     * view in st->view and pointed the registers at it: that is what is read. */
+    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, 1, st->view);
 }
 
 SEC("xdp")
@@ -75,6 +77,22 @@ int pfw_xdp(struct xdp_md *ctx)
 
     struct pkt p = {};
     if (!parse(ctx, &p)) {
+        passed++;
+        return XDP_PASS;
+    }
+
+    /* A standing source ban drops everything from that address, on any port or
+     * protocol, before any per-flow work. */
+    if (src_banned(&p)) {
+        src_enforced++;
+        if (shadow) { shadowed++; passed++; return XDP_PASS; }
+        dropped++;
+        return XDP_DROP;
+    }
+
+    /* The reply half of a connection `dnat` diverted: put the address the client
+     * dialled back as the source and pass it on. The program is not run on it. */
+    if (p.family == AF_INET && nat_reverse(ctx, p.l3, p.l4, p.proto)) {
         passed++;
         return XDP_PASS;
     }
@@ -194,7 +212,13 @@ int pfw_xdp(struct xdp_md *ctx)
                 flows_created++;
         }
         if (!f) { passed++; return XDP_PASS; }
-        if (reasm_feed(ctx, &p, f, st)) {
+        int rf = reasm_feed(ctx, &p, f, st, prog->decode == DECODE_H2);
+        if (rf == REASM_HOLD) {
+            /* Out of order and beyond the window: drop it, TCP will resend it. */
+            dropped++;
+            return XDP_DROP;
+        }
+        if (rf) {
             /* Fail closed: mark the flow and tear it down so the peer reconnects
              * on a fresh flow we can see whole. */
             f->mark = MARK_RST;
@@ -233,5 +257,5 @@ int pfw_xdp(struct xdp_md *ctx)
         bpf_tail_call(ctx, &decode_jmp, SLOT_TRANSFORM);
     }
     (void) use_reasm;
-    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, use_reasm, 0);
+    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, use_reasm, f ? f->reasm : NULL);
 }

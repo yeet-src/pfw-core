@@ -25,19 +25,23 @@ struct pfw_ctx {
     __u32 re_state; /* rescan: current regex DFA state, carried across bytes */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */
     __u64 now;      /* packet-time ktime ns, for OP_RATE */
-    struct flow *flow; /* the flow whose reasm buffer backs reads in reasm mode */
+    struct flow *flow; /* the flow: per-connection state (ring, ...) */
+    __u8 *rsrc;        /* reasm mode: the REASM_CAP-byte buffer reads come from — the flow's
+                        * reassembled stream (entry), or the decoded view st->view (after a
+                        * decode stage). One source per program, so the interpreter loop is
+                        * verified against a single pointer type. */
 };
 
 /* Copy a window of the flow's reassembled stream into st->buf, so the scan
  * callbacks read st->buf[i] exactly as they do for a packet window — the hot
  * loops stay offset-free, which keeps the verifier's state budget in check. */
-struct reasm_win_ctx { struct flow *f; struct pfw_state *st; __u32 off; __u32 n; };
+struct reasm_win_ctx { __u8 *src; struct pfw_state *st; __u32 off; __u32 n; };
 static long reasm_win_step(__u32 i, void *ctx_)
 {
     struct reasm_win_ctx *c = ctx_;
     if (i >= c->n)
         return 1;
-    c->st->buf[PFW_MASK(i, SCAN_CAP)] = c->f->reasm[PFW_MASK((c->off + i), REASM_CAP)];
+    c->st->buf[PFW_MASK(i, SCAN_CAP)] = c->src[PFW_MASK((c->off + i), REASM_CAP)];
     return 0;
 }
 
@@ -59,9 +63,9 @@ static __always_inline __u32 window(struct pfw_ctx *c, __u64 off, __u32 want)
     barrier_var(want);
     want = ((want - 1) & (SCAN_CAP - 1)) + 1;
     if (c->reasm) {
-        if (!c->flow)
+        if (!c->rsrc)
             return 0;
-        struct reasm_win_ctx wc = { .f = c->flow, .st = c->st, .off = (__u32) off, .n = want };
+        struct reasm_win_ctx wc = { .src = c->rsrc, .st = c->st, .off = (__u32) off, .n = want };
         bpf_loop(want, reasm_win_step, &wc, 0);
         return want;
     }
@@ -80,9 +84,9 @@ static __always_inline int load(struct pfw_ctx *c, __u64 off, __u32 size, int be
     /* Reassembly mode: scalars come from the flow's reassembled stream.
      * Loop-free (a variable-bound loop blows the verifier's state budget). */
     if (c->reasm) {
-        if (!c->flow)
+        if (!c->rsrc)
             return 0;
-        __u8 *b = c->flow->reasm;
+        __u8 *b = c->rsrc;
         __u32 m = REASM_CAP - 1;
         __u64 v = 0;
         switch (size) {

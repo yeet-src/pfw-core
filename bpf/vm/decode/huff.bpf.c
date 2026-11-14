@@ -27,7 +27,6 @@ int pfw_huff(struct xdp_md *ctx)
         __u32 ol = PFW_CLAMP(st->huff_outpos, REASM_CAP);
         struct cp_ctx cp = { .f = f, .st = st, .n = ol };
         if (ol) bpf_loop(ol, cp_step, &cp, 0);
-        f->reasm_len = ol;
         PFW_SET_VIEW(st, ol);
     }
     bpf_tail_call(ctx, &decode_jmp, SLOT_MATCH);

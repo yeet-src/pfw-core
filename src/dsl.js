@@ -62,6 +62,8 @@ const arith = (op) => (a, b) => ({ kind: "arith", op, a: E(a), b: E(b) });
 export const add = arith("+"), sub = arith("-"), bor = arith("|"), bitand = arith("&"), shl = arith("<<"), shr = arith(">>");
 
 export const scan = (ptr, length) => ({ kind: "call", name: "scan", args: [E(ptr), num(length)] });
+/** within(ptr, n): a fresh scan — only the patterns inside [ptr, ptr+n), nothing carried over. */
+export const within = (ptr, length) => ({ kind: "call", name: "within", args: [E(ptr), num(length)] });
 export const after = (pat) => ({ kind: "call", name: "after", args: [E(pat)] });
 export const find = (ptr, ch, length) => ({ kind: "call", name: "find", args: [E(ptr), chr(ch), num(length)] });
 export const starts = (ptr, pat) => ({ kind: "call", name: "starts", args: [E(ptr), E(pat)] });
@@ -70,6 +72,11 @@ export const all = (first, ...pats) => ({ kind: "call", name: "all", args: [E(fi
 export const seq = (first, ...pats) => ({ kind: "call", name: "seq", args: [E(first), ...pats.map(E)] });
 /** rate(perSecond, burst): condition, true when the flow is over the token-bucket limit. */
 export const rate = (perSecond, burst) => ({ kind: "call", name: "rate", args: [num(perSecond), num(burst)] });
+/** The source-scoped twins: keyed on the source address, not the connection. */
+export const srcRate = (perSecond, burst) => ({ ...rate(perSecond, burst), scope: 1 });
+export const srcState = { kind: "flowstate", scope: 1 };
+export const srcCount = { kind: "flowcount", scope: 1 };
+export const setSrcState = (v, ttl) => ({ kind: "setstate", value: num(v), ttl: ttl == null ? null : num(ttl), scope: 1 });
 
 const chr = (c) => (typeof c === "string" && c.length === 1 ? { kind: "char", text: c } : num(c));
 const ruleArg = (r) => { if (typeof r !== "string") throw new Error("rule must be a name (string)"); return { kind: "string", text: r }; };
