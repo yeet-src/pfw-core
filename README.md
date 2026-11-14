@@ -63,7 +63,8 @@ It can:
 - **Match the source** — inline CIDR (`src in "10.0.0.0/8"`), a host-loaded v4/v6
   CIDR trie (`src in set`, `src6 in set6`), an exact set (`x in hash`), or a
   Bloom filter (`x in bloom`).
-- **Rate-limit** — a per-flow token bucket (`rate(per_sec, burst)`).
+- **Rate-limit** — a token bucket per connection (`rate(per_sec, burst)`) or per
+  source address (`src.rate(per_sec, burst)`).
 - **Rewrite the packet** — overwrite a match in place: `redact(pat[, 'c'])` fills
   it, `replace(pat, "same-length")` swaps it (literal patterns, or fixed-length
   regex); the L4 checksum is fixed up.
@@ -257,6 +258,7 @@ const r = p.exec(frameBytes, {
   src6: "2001:db8::1", // source IPv6 (for `src6 in set6`)
   set: ["10.0.0.0/8"], hashset: [80, 443], bloom: [1, 2], set6: ["2001:db8::/32"],
   bucket: {}, now: 0n, // token-bucket state + clock for rate()
+  source: {},          // per-source state (src.state / src.count / src.rate, bans): thread r.source back in
   argv: [8080, 50],    // runtime args for argv[i]
   shadow: false,       // dry-run flag (%shadow)
   knobs: { block: 1 }, // live numeric knobs by name (unset -> knobDefaults, else 0)
@@ -264,12 +266,18 @@ const r = p.exec(frameBytes, {
   flow: {},            // carried per-connection state
   onConsole: (line) => {}, // called per console() message
 });
-// r = { verdict, code, would, rule, ruleName, flow, console }
+// r = { verdict, code, would, rule, ruleName, flow, source, console }
 ```
 
 `r.verdict` is the decision string; `r.would` is the would-be verdict when
 `shadow` turned an enforcement into a pass; `r.console` is the array of formatted
-`console()` messages.
+`console()` messages. `r.source` is the source address's state after the packet
+(`banned` once a `ban` landed): pass it back as `opts.source` and the next packet
+from that source — on any connection — sees it, and is dropped unseen if banned.
+
+`exec` runs over exactly the bytes you give it: it does not model TCP reassembly
+or the `decode` front-ends. Those are covered against the real kernel
+(`test:reasm`, `test:h2`, `test:examples-kernel`).
 
 Thread `r.flow` back as `opts.flow` to **simulate a multi-packet connection**:
 

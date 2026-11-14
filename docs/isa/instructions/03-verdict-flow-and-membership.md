@@ -62,8 +62,11 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Flags:** none.
 - **Maps:** `counters` (per-rule tally).
 - **Example:** `decide drop("blocklist");`
-- **Notes:** shadow mode turns this into a counted `XDP_PASS`. Unlike `ban`, it
-  does **not** mark the flow — only this packet is dropped.
+- **Notes:** shadow mode turns this into a counted `XDP_PASS`. Per-packet, only
+  this packet is dropped. On a reassembled stream (`reassemble` / `decode`) the
+  **connection** is marked `MARK_DROP` as well: TCP retransmits the dropped
+  segment, and by then its bytes have been consumed or have slid out of the
+  window, so the retransmission would otherwise be judged clean and delivered.
 
 ### 27 — `OP_COUNT` (`count $rule`)
 
@@ -190,11 +193,12 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Assembler:** `bump %cur` (or `srcbump %cur`) — **pfw-C:** `flow.count` (or `src.count`)
 - **Encoding:** code = 35; operand `%cur`; `reg` = scope: 0 this connection, 1 the
   source address (a counter that survives a reconnect).
-- **Operation:** `st->hits++; st->set_hits = 1; %cur = st->hits` — read-then-
-  increment the per-connection hit counter; the new value is written back to the
-  flow in `finish()`.
+- **Operation:** `st->hits++; st->set_hits = 1; %cur = st->hits` — increment the
+  hit counter, then read it (the first read yields 1); the new value is written
+  back in `finish()`. With the source scope the counter is `st->src_hits`, kept
+  per source address in the `sources` map.
 - **Flags:** none.
-- **Maps:** `flows`.
+- **Maps:** `flows`, or `sources` with the source scope.
 - **Example:** `if (flow.count >= 100) decide ban("flood", 600);`
 - **Notes:** reading `flow.count` increments it, so each evaluation counts once.
 

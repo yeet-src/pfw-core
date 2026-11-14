@@ -75,6 +75,10 @@ kernel. They implement identical semantics for matching, arithmetic, flow state,
 and the ring. A few ops are **kernel-only side effects** the payload-only host
 model represents differently (noted per-op in §4): `dnat`/`redirect` are host
 no-ops; `rate`, the membership tests, `console`, `shadow`, and the data stack are
-modelled through `exec` options.
+modelled through `exec` options, as is per-source state (the `source` option,
+threaded across calls like `flow`). The host model does **not** model TCP
+reassembly or the decode front-ends — `exec` runs over exactly the bytes it is
+given — so those are covered by the kernel tests (`test:reasm`, `test:h2`,
+`test:examples-kernel`).
 
 ---

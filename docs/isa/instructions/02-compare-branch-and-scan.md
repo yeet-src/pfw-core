@@ -123,12 +123,17 @@ through to `pc + 1`. Forward-only (see above).
 
 ### 20 — `OP_SCAN` (`scan $len[, (%cur)]`)
 - **Assembler:** `scan $LEN` or `scan $LEN, (%cur)` — the window always begins at
-  the cursor; `LEN` is `1 … SCAN_CAP (2048)`.
-- **Encoding:** `code = 20`, `reg = 0`, `imm = window length` (clamped to
+  the cursor; `LEN` is `1 … SCAN_CAP (2048)`. `fscan` is the fresh form —
+  **pfw-C:** `scan(ptr, N)` / `within(ptr, N)`.
+- **Encoding:** `code = 20`, `reg` bit 0 = fresh, `imm = window length` (clamped to
   `SCAN_CAP`). The length is a **compile-time constant** (the assembler and pfw-C
   both reject a variable).
-- **Operation:** copy up to `n = min(imm, SCAN_CAP, %end − cur)` bytes from the
-  cursor into `st->buf`, then run **one `bpf_loop(n, …)`** that advances, per
+- **Operation:** when the fresh bit is set, first clear `%m` and the automaton
+  state, so the result is exactly the patterns inside this window — a plain
+  `scan` ORs into a mask that still holds every earlier scan's hits (and, per
+  packet, earlier segments of the connection), and continues the automaton from
+  where the last scan stopped. Then copy up to `n = min(imm, SCAN_CAP, %end −
+  cur)` bytes from the cursor into `st->buf`, then run **one `bpf_loop(n, …)`** that advances, per
   byte:
   - the **Aho-Corasick** automaton over *all literal patterns at once*
     (`ac_goto`/`ac_fail`/`ac_accept`): on an accepting state it ORs the accepting

@@ -144,6 +144,8 @@ numeric knobs and 16 string knobs per program.
 
 `rate(per_sec, burst)` is a per-flow token-bucket **condition**, true when the
 flow is over its limit. Both arguments are compile-time constants.
+`src.rate(per_sec, burst)` is the same with one bucket per **source address**,
+shared by every connection that source opens (§6).
 
 ```c
 if (rate(5, 20)) decide drop("too_fast");  // 5/s steady, burst 20

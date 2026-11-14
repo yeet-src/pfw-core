@@ -1,7 +1,14 @@
 # A general ISA for programmable firewalls (design note)
 
-Status: design, not built. A companion to [isa.md](isa.md), which documents the
-ISA as it exists today. This note is about where it goes next, and why.
+Status: a design note, kept as written. A companion to [isa.md](isa.md), which
+documents the ISA as it exists today; where the two disagree, isa.md is right.
+
+> **Since this note.** Several things it describes as missing or failing closed
+> now exist: `decode h2` decodes Huffman strings, keeps the per-connection HPACK
+> dynamic table and handles CONTINUATION (isa §8); TCP reassembly slides its
+> window instead of resetting at the buffer's end (isa §3); and there is
+> per-source state alongside per-flow state. The h2 decoder is still staged C,
+> not a program over P1–P4 — the thesis below is unchanged, and unproven for it.
 
 It was written out of a concrete exercise: turning a one-line upstream patch
 (apache/httpd `1b47e95`, CVE-2026-106023, a NULL `r->hostname` in `mod_md`) into
@@ -45,8 +52,8 @@ From `isa.md`, plus the work this note grew out of:
   `cmpstr`/`mpos`/`findb`/`skipb`.
 - Verdicts: `pass`/`drop`/`rst`/`ban`/`count`/`log`; a per-flow table with a
   carried automaton state, one `user_state` int, and a hit counter.
-- **TCP reassembly** (out-of-order, first-wins overlap, fail-closed on
-  gap/eviction) — a substrate primitive, because every TCP L7 protocol needs it.
+- **TCP reassembly** (out-of-order, first-wins overlap, fail-closed on a
+  mid-stream join) — a substrate primitive, because every TCP L7 protocol needs it.
 - A **decode front-end**: a stage normalizes the stream to a plaintext view the
   matcher scans (`decode h2` reassembles → frames → HPACK-decodes → the rule
   scans the decoded headers).
