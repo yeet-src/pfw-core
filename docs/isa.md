@@ -1,203 +1,544 @@
-# pfw: a pattern-matching ISA for XDP (draft 0)
+# The pfw ISA — architecture reference
 
-A once-verified interpreter at XDP, in the shape of walkshop's walk VM:
-the program is data in a map, every instruction is one `bpf_loop` step,
-the state lives in a per-CPU map element, and the C prologue parses
-L2/L3/L4 and fills the registers. What is new is the pattern group: an
-Aho-Corasick automaton built on the host from the program's own string
-literals (h2-firewall's sparse goto + failure-link tables) and one
-instruction, `scan`, that runs it over a window of the packet.
+This is the authoritative reference for the pfw virtual machine: the register
+file, the memory model, every instruction, the bytecode encoding, and the maps
+the program runs against. It is the contract shared by the host
+(`src/isa.js`, `src/interp.js`) and the kernel (`bpf/include/pfw.h`,
+`bpf/include/match/interp.h`); a test (`test/node/check-isa.mjs`) asserts the two
+enums agree.
 
-Straight-line code with forward-only jumps, so a program always ends.
-Apply = assemble on the host, build the automaton, write ops + tables
-into the inactive generation, flip the active index. The kernel never
-sees a half-written program.
+Counts, verified against `src/isa.js`:
 
-## Machine
+- **62 opcodes** (`OP_END = 0` … `OP_RET = 61`; `OP_COUNT_OPCODES = 62`).
+- **32 physical registers** (indices `0`–`31`, `NREGS = 32`). The host register
+  map has **33 names** because `%src` is an assembler alias for `%saddr`
+  (both index 20).
 
-| register | kind | meaning |
+pfw is a **forward-only cursor machine**. A program inspects one packet (or a
+per-flow reassembled stream), walks a single cursor through the bytes front to
+back, and reaches a verdict. It is compiled to this ISA, run on the host by a
+reference interpreter, and run in the kernel by a once-verified eBPF/XDP
+interpreter that reads the exact same bytecode. The design is shaped by one hard
+requirement: the kernel program must pass the eBPF verifier, so **termination is
+provable by construction**.
+
+---
+
+## 1. Machine model
+
+### Execution
+
+A program is an array of `struct pfw_op` in the `programs` map. The interpreter
+(`pfw_step`) executes **one instruction per step**, driven by
+`bpf_loop(PFW_MAX_OPS, pfw_step, …)` — so a run is **at most 8192 steps**. A step
+ends the run early (returns non-zero) when:
+
+- a verdict has been set (`st->verdict != V_NONE`),
+- the program counter runs past the program (`pc >= nops` or `pc >= PFW_MAX_OPS`),
+- `OP_END` or an unknown opcode is reached (both set `V_PASS`).
+
+Each step reads the op at `pc`, executes it, and sets `pc = next` (normally
+`pc + 1`; a taken jump/call/ret sets it otherwise).
+
+### The accumulator (`%cur`)
+
+`%cur` (register 13) is the **working accumulator**: loads land in it, arithmetic
+operates on it, comparisons read it, the cursor *is* it (scan/find/pointer ops
+read and advance `%cur`), and membership/rate tests read it. Most instructions
+are implicitly "about `%cur`." It is 64-bit and wraps mod 2⁶⁴.
+
+### Flags
+
+Three 1-bit flags live in `st->flags`:
+
+| flag | bit | meaning |
 |---|---|---|
-| `%frame` | ro | offset 0 of the frame (L2 or L3) |
-| `%l3` `%l4` `%payload` | ro | offsets filled by the prologue |
-| `%end` | rw | one past the last readable byte; assignable (only ever narrowed, e.g. by `frame`) to clip a body's reads to a sub-region |
-| `%src` | ro | IPv4 source address, host byte order (`%saddr` is the same register; 0 for IPv6) |
-| `%ctx` | ro | ifindex, proto, ports in a side struct the prologue fills |
-| `%cur` | rw | the cursor: an offset into the frame, or a loaded value |
-| `%s0`..`%s7` | rw | scratch; the compiler allocates `ptr`/`let` locals onto these by live range, so any number may be declared as long as at most eight are live at once |
-| `%m` | rw | match mask: bit *i* set when pattern *i* was seen by the last `scan` |
-| `ZF` `CF` | flags | set by `cmp`, `test`, `cmpstr`; read by the jumps |
+| `ZF` | `FL_ZF = 1` | zero / equal / condition-true |
+| `CF` | `FL_CF = 2` | carry / unsigned less-than |
+| `FF` | `FL_FF = 4` | fault (a read went out of bounds, or a lookup found nothing) |
 
-Offsets, not addresses: XDP reads go through `bpf_xdp_load_bytes`, which
-takes an offset and follows multi-buffer frames. The assembly looks the
-same as tcpwalk2's (`movbew 2(%l4), %cur`), it is the C that differs.
+Flag discipline:
 
-## Instructions
+- **Comparison / test ops** (`cmp_i`, `cmp_r`, `test`, `cidr`, `cmpstr`, `lpm`,
+  `hash`, `bloom`, `lpm6`, `rate`) recompute `ZF`/`CF` from scratch but
+  **preserve `FF`** (`fl = (fl & FL_FF) | …`). So each comparison clears the
+  previous `ZF`/`CF`.
+- **Fault producers** set `FF`: `load` (read past `%end`), `mpos` (no match),
+  `findb` (byte not found), `rget` (index out of range). `FF` is *sticky* — it
+  stays set until a `jf` consumes it.
+- `jf` is the only consumer of `FF`: when taken, it **clears** `FF`.
+- Conditional branches read the flags; they do not change them.
 
-Cursor and loads (walk VM, with big-endian loads added because every
-L3/L4 field on the wire is big-endian):
+### The match mask (`%m`)
 
+`%m` (register 12) is a 64-bit **bitmask of pattern matches**. `scan` runs the
+Aho-Corasick automaton (and the regex DFA) over a window and ORs a bit per
+matched pattern/regex into `%m`; `test $MASK` sets `ZF` from `(%m & MASK) == 0`.
+Pattern *i* owns bit *i* (so at most `PFW_MAX_PATS = 64` patterns). On a TCP flow
+`%m` and the automaton state persist across segments.
+
+### Control flow and the forward-only rule
+
+All **label** jumps go **forward**: a jump target `imm` must satisfy
+`pc < imm <= PFW_MAX_OPS`. The assembler refuses a backward label, and the
+interpreter fails closed (sets `V_PASS`, bumps `faults`) if a bytecode jump
+violates it anyway. This is what makes loops impossible and termination trivial
+for the verifier.
+
+The **one controlled exception is `call`/`ret`.** `call` pushes the return
+address (`pc + 1`) onto the data stack and sets `pc = imm` (which may be
+backward — the assembler exempts `call` from the forward check); `ret` pops an
+address off the data stack into `pc`. Backward control flow is therefore
+possible at run time, but it is still bounded by the overall 8192-step
+`bpf_loop` budget, so termination holds regardless. Repetition that isn't a
+subroutine is a **compile-time unroll** (`repeat`, `frame … up to N`) with a
+fixed ceiling.
+
+### Host vs. kernel
+
+`src/interp.js` is the executable spec; `bpf/include/match/interp.h` is the
+kernel. They implement identical semantics for matching, arithmetic, flow state,
+and the ring. A few ops are **kernel-only side effects** the payload-only host
+model represents differently (noted per-op in §4): `dnat`/`redirect` are host
+no-ops; `rate`, the membership tests, `console`, `shadow`, and the data stack are
+modelled through `exec` options.
+
+---
+
+## 2. Registers
+
+32 registers (`NREGS = 32`), 64-bit each, in `st->r[]`. The index is masked
+`& (NREGS - 1)`, so `NREGS` must stay a power of two. Read with `mov %reg, %cur`
+(`MOV_RC`); write with `mov %cur, %reg` (`MOV_CR`, which ignores a write to
+`%cur`).
+
+| idx | name(s) | role | set by |
+|---|---|---|---|
+| 0 | `%frame` | offset 0 of the L2 frame | entry |
+| 1 | `%l3` | offset of the IP header | entry (parse) |
+| 2 | `%l4` | offset of the TCP/UDP header | entry (parse) |
+| 3 | `%payload` | first byte after L4 | entry (parse) |
+| 4 | `%end` | one past the last readable byte | entry (parse) |
+| 5 | `%proto` | IP protocol (`6` TCP, `17` UDP) | entry |
+| 6 | `%sport` | source port | entry |
+| 7 | `%dport` | destination port | entry |
+| 8–11 | `%s0`–`%s3` | scratch / `let` locals | program |
+| 12 | `%m` | match mask (scan results) | `scan` |
+| 13 | `%cur` | **the cursor / accumulator** | most ops |
+| 14 | `%ifindex` | ingress interface index | entry |
+| 15 | `%len` | payload byte count (`end − payload`) | entry |
+| 16–19 | `%s4`–`%s7` | more scratch / `let` locals | program |
+| 20 | `%saddr` (`%src`) | IPv4 source, **host byte order** (0 for IPv6) | entry |
+| 21 | `%shadow` | the host shadow-mode flag (read-only intent) | entry |
+| 22 | `%sp` | data-stack pointer | `push`/`pop`/`call`/`ret`, writable |
+| 23 | `%bp` | data-stack base pointer (frame marker) | program, writable |
+| 24–30 | `%a0`–`%a6` | subroutine argument registers | caller |
+| 31 | `%rv` | subroutine return-value register | callee |
+
+Notes:
+
+- `%src` is purely an assembler/host alias for `%saddr` (same index 20).
+- At entry, `%cur` is initialised to `%payload`. In reassembly mode `%payload`,
+  `%cur` are 0 and `%end`/`%len` span the reassembled prefix.
+- Every register is physically writable via `MOV_CR` (except `%cur`, which takes
+  op results); by convention a program writes only `%s0`–`%s7`, `%sp`/`%bp`,
+  `%a0`–`%a6`, `%rv`. `%m` is written by `scan`.
+
+---
+
+## 3. Memory model
+
+### Packet reads
+
+Reads are unrestricted up to `%end`. `load` reads 1/2/4/8 bytes at `%cur + imm`,
+little- or big-endian; out of bounds sets `FF` and leaves `%cur` unchanged.
+`scan`/`findb`/`cmpstr`/`skipb` read a bounded window starting at `%cur`; the
+window never crosses `%end` and is clamped (`scan`/`findb` to `SCAN_CAP = 2048`,
+`skipb`/`cmpstr` to `PFW_PAT_CAP = 64`). The kernel copies the window into
+`st->buf` via `window()` and matches over that; in reassembly mode the bytes come
+from the flow's `reasm` buffer instead of the wire.
+
+Packet **writes** are only the deliberate rewrite ops — `redact`/`replace`
+(recorded, applied by the rewrite stage) and `dnat` — each with checksum fixup.
+
+### Scratch
+
+`%s0`–`%s7` are eight general registers; the compilers allocate `let` locals onto
+them by live range (so more than eight live locals is a compile error).
+
+### The data stack
+
+A per-CPU `struct vmstack { u64 s[STACK_CAP]; }` (`STACK_CAP = 64`) in the
+`stack` map, indexed by `%sp`. `push` stores `%cur` and increments `%sp`; `pop`
+decrements `%sp` and loads `%cur`. `%bp` is a free register for marking a frame
+(`%bp = %sp`) and unwinding (`%sp = %bp`). `call`/`ret` use the **same** stack for
+return addresses, so a subroutine must keep it balanced across a call. Depth is
+capped at 64; `push` past the top and `pop`/`ret` below the bottom are no-ops.
+
+### Per-flow state
+
+Keyed on the 5-tuple `struct flow_key` (`saddr[16]`, `daddr[16]`, `sport`,
+`dport`, `proto`, `family`) in the `flows` LRU hash (`MAX_FLOWS = 16384`). Each
+`struct flow` carries:
+
+| field | op surface | meaning |
+|---|---|---|
+| `mark`, `rule`, `expires` | `ban`/`rst`/`mark`, `flow` | enforcement mark + TTL (enforced on later packets at the entry fast path) |
+| `user_state`, `state_expires` | `flow.state` (`sload`/`sstore`) | a program state machine with a TTL |
+| `hits` | `flow.count` (`bump`) | per-connection hit counter |
+| `rl_tokens`, `rl_ts` | `rate` | token-bucket state |
+| `ring[16]`, `ring_head`, `ring_count` | `ring.push/get/len` (`rpush`/`rget`/`rlen`) | newest-wins ring (`RING_CAP = 16`) |
+| `ac_state`, `mask`, `gen` | `scan` / `%m` | automaton state carried across TCP segments |
+| `reasm*`, `filled`, `synned` | reassembly mode | contiguous-prefix TCP reassembly (`REASM_CAP = 2048`) |
+
+State **writes are deferred**: a `flow.state = N` (etc.) is written back after the
+program finishes, so it is visible on the *next* packet, not the one that set it.
+The reference interpreter models this exactly.
+
+### Host-loaded lookup maps
+
+Written by the loader, read by instructions:
+
+| map | op | type | key → value |
+|---|---|---|---|
+| `lpm` | `lpm` (`src in set`) | `LPM_TRIE` | `{prefixlen, u8[4]}` (net order) → u32 |
+| `lpm6` | `lpm6` (`src6 in set6`) | `LPM_TRIE` | `{prefixlen, u8[16]}` → u32 |
+| `hashset` | `hash` (`x in hash`) | `HASH` | u32 → u32 (presence) |
+| `bloom` | `bloom` (`x in bloom`) | `BLOOM_FILTER` | u32 value, `map_extra = 5` hashes |
+| `ac_goto`/`ac_fail`/`ac_accept` | `scan` | `ARRAY` | Aho-Corasick automaton (per gen) |
+| `re_goto`/`re_accept` | `scan` (regex) | `ARRAY` | regex DFA table + accept masks (per gen) |
+| `tt_cells` | `decode transform` | `ARRAY` | byte-transform tables (`TT_NTABLES = 8`) |
+| `programs[gen].args[]` | `arg`/`argc` | in `pfw_prog` | runtime scalar params (`PFW_ARGC = 16`) |
+| `programs[gen].fmts[]` | `printk` | in `pfw_prog` | in-kernel format strings (`PFW_FMTS = 8` × `PFW_FMT_CAP = 64`) |
+
+---
+
+## 4. Instruction set
+
+All 62 opcodes. Encoding fields are `code`, `reg` (u32), `imm` (u64) — see §5.
+"Flags" lists what each op writes; blank means it touches none. `cur` = `%cur`.
+
+### Moves and arithmetic
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 1 | `mov_rc` | `reg` | `cur = r[reg]` | |
+| 2 | `mov_cr` | `reg` | `r[reg] = cur` (no-op if `reg == cur`) | |
+| 3 | `add_i` | `imm` | `cur += imm` | |
+| 4 | `sub_i` | `imm` | `cur -= imm` | |
+| 5 | `add_r` | `reg` | `cur += r[reg]` | |
+| 6 | `sub_r` | `reg` | `cur -= r[reg]` | |
+| 7 | `and_i` | `imm` | `cur &= imm` | |
+| 36 | `or_i` | `imm` | `cur |= imm` | |
+| 37 | `shl_i` | `imm` | `cur <<= (imm & 63)` | |
+| 38 | `shr_i` | `imm` | `cur >>= (imm & 63)` | |
+
+### Load
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 8 | `load` | `reg`, `imm` | `cur = load(cur + imm, size = reg & 15, big-endian if reg & 16)` | `FF` on OOB |
+
+`reg` packs the access: low 4 bits = byte size (1/2/4/8), bit 4 (`LOAD_BE = 16`) =
+big-endian. On an out-of-bounds read `cur` is unchanged and `FF` is set.
+
+### Compare and branch
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 9 | `cmp_i` | `imm` | `ZF = cur == imm`; `CF = cur < imm` | `ZF`,`CF` |
+| 10 | `cmp_r` | `reg` | `ZF = cur == r[reg]`; `CF = cur < r[reg]` | `ZF`,`CF` |
+| 11 | `test` | `imm` | `ZF = (m & imm) == 0` | `ZF` |
+| 12 | `jmp` | `imm` | `pc = imm` (forward) | |
+| 13 | `je` | `imm` | jump if `ZF` | |
+| 14 | `jne` | `imm` | jump if `!ZF` | |
+| 15 | `jb` | `imm` | jump if `CF` (unsigned `<`) | |
+| 16 | `jae` | `imm` | jump if `!CF` (unsigned `>=`) | |
+| 17 | `ja` | `imm` | jump if `!CF && !ZF` (unsigned `>`) | |
+| 18 | `jbe` | `imm` | jump if `CF || ZF` (unsigned `<=`) | |
+| 19 | `jf` | `imm` | jump if `FF`; **clears `FF`** when taken | `FF` cleared |
+
+A taken jump to a non-forward/out-of-range target fails closed (`V_PASS`,
+`faults++`).
+
+### Scan and match
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 20 | `scan` | `imm` | run the automaton (+ regex DFA) over `imm` bytes at `cur`; OR match bits into `%m`, record match end positions | sets `%m` |
+| 21 | `mpos` | `reg` | `cur = end offset of the first match of pattern reg`; `FF` if none | `FF` if none |
+| 22 | `cmpstr` | `reg` | `ZF = bytes at cur equal pattern reg` | `ZF` |
+| 23 | `findb` | `reg`, `imm` | `cur = offset of byte (reg & 0xff) within imm bytes`; `FF` if not found | `FF`/`!FF` |
+| 24 | `skipb` | `reg`, `imm` | advance `cur` past a run of byte `(reg & 0xff)`, at most `imm` (clamped to `PFW_PAT_CAP`) | |
+
+`scan`'s window is clamped to `SCAN_CAP = 2048`; it resets the regex DFA state and
+walks both automata in one pass. `cmpstr`/`mpos` take a pattern index in `reg`.
+
+### Verdicts, flow state, and events
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 0 | `end` | — | `verdict = PASS`, stop | |
+| 25 | `pass` | — | `verdict = PASS` | |
+| 26 | `drop` | `reg` | `verdict = DROP`, `rule = reg` | |
+| 27 | `count` | `reg` | `counters[reg]++` (non-terminating) | |
+| 28 | `log` | `imm` | snapshot `imm` bytes at `cur` (≤ `LOG_CAP = 256`) onto the next event | |
+| 29 | `ban` | `reg`, `imm` | `verdict = BAN`, `rule = reg`, mark flow `MARK_DROP` for `imm` s | |
+| 30 | `rst` | `reg`, `imm` | `verdict = RST`, `rule = reg`, mark flow `MARK_RST` for `imm` s | |
+| 31 | `flow` | — | `cur = the flow's current mark` | |
+| 32 | `mark` | `reg`, `imm` | set flow mark `= reg` for `imm` s | |
+| 33 | `sload` | — | `cur = flow.user_state` | |
+| 34 | `sstore` | `reg`, `imm` | `flow.user_state = imm` for `reg` seconds (0 = forever) | |
+| 35 | `bump` | — | `cur = ++flow.hits` | |
+| 39 | `cidr` | `imm` | `ZF = cur (IPv4, host order) ∈ net/prefix`; `imm = net(low32) | prefix<<32` | `ZF` |
+| 40 | `rpush` | — | push `cur` onto the flow ring (newest at head) | |
+| 41 | `rget` | — | `cur = ring entry at index cur` (0 = newest); `cur = 0` + `FF` if out of range | `FF` if OOR |
+| 42 | `rlen` | — | `cur = flow.ring_count` | |
+
+`count` and `log` do **not** stop the program (both fall through); every other
+verdict op is terminal.
+
+### Membership
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 46 | `lpm` | — | `ZF = cur (IPv4, host order) ∈ lpm trie` (longest-prefix) | `ZF` |
+| 47 | `hash` | — | `ZF = (cur & 0xffffffff) ∈ hashset` (exact) | `ZF` |
+| 48 | `bloom` | — | `ZF = (cur & 0xffffffff)` probably ∈ bloom (no false negatives) | `ZF` |
+| 49 | `lpm6` | — | `ZF = IPv6 source (read from the packet at l3+8) ∈ lpm6 trie`; IPv6 only | `ZF` |
+
+### Rewrite and steer (kernel-only effects)
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 43 | `redact` | `reg`, `imm` | overwrite every match of pattern `reg` in `[payload, end)` with fill byte `(imm & 0xff)` | |
+| 44 | `replace` | `reg`, `imm` | overwrite every match of pattern `reg` with pattern `(imm & 0x3f)` (same length) | |
+| 45 | `dnat` | `imm` | rewrite dst IPv4+port to `imm = ip(low32) | port<<32`; fix IP + L4 csums | |
+| 50 | `redirect` | `imm` | forward the packet out `ifindex = imm` (`bpf_redirect` → `XDP_REDIRECT`); terminal, overrides the verdict | |
+
+`redact`/`replace` only **record** a request (up to `RW_MAX = 4`); the
+`pfw_rewrite` tail-call stage applies them after matching. `reg` bit 15 marks a
+regex pattern (then `imm` bits 8–14 carry the fixed match length). These are
+host no-ops in the reference model (payload rewrite / forwarding aren't part of
+the host frame model); `rate`, membership, etc. are modelled via `exec` opts.
+
+### Rate limit
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 51 | `rate` | `imm` | per-flow token bucket; `ZF = 1` when **over** the limit. `imm = rate/sec(low32) | burst<<32` | `ZF` |
+
+Tokens are fixed-point (`× RL_SCALE = 1e6`); refill is `elapsed_ns × rate / 1000`,
+capped at `burst`. A fresh flow starts with a full bucket.
+
+### Runtime args, console, printk
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 52 | `arg` | `imm` | `cur = args[idx]` if `idx < argc` else default. `imm = default(low32) | idx(bits 32..47)` | |
+| 53 | `argc` | — | `cur = argc` (number of runtime args the host set) | |
+| 54 | `farg` | — | push `cur` as the next **numeric** format arg (≤ `FARGS_MAX = 4`) | |
+| 55 | `fargs` | `imm` | capture a `%s` string: copy up to `imm` bytes (≤ `STRARG_CAP = 256`) from the packet at `cur` (≤ `FSTR_MAX = 2`) | |
+| 56 | `console` | `imm` | emit a console event (format id `imm`) with the gathered args to `console_ring`; resets the arg buffers | |
+| 57 | `printk` | `imm` | `bpf_trace_printk` the in-kernel format `fmts[imm]` with up to 3 numeric fargs | |
+
+`console` is modelled on the host (messages collected and returned from `exec`);
+`printk` is a host no-op.
+
+### Data stack and subroutines
+
+| # | mnemonic | operands | semantics | flags |
+|---|---|---|---|---|
+| 58 | `push` | — | `stack[sp++] = cur` (no-op if full) | |
+| 59 | `pop` | — | `cur = stack[--sp]` (no-op if empty) | |
+| 60 | `call` | `imm` | `stack[sp++] = pc + 1`; `pc = imm` (may be backward) | |
+| 61 | `ret` | — | `pc = stack[--sp]` (no-op if empty) | |
+
+---
+
+## 5. Bytecode encoding
+
+### `struct pfw_op`
+
+```c
+struct pfw_op { __u32 code; __u32 reg; __u64 imm; };
 ```
-mov    %REG, %cur            cur = reg
-lea    D(%REG), %cur         cur = reg + D
-add    $N, %cur  /  sub $N, %cur
-movb/w/l/q  D(%cur), %cur    load little-endian N bytes at cur+D
-movbew/movbel D(%cur), %cur  load big-endian 2/4 bytes (ports, lengths)
-mov    %cur, %sN  /  mov %sN, %cur
-add    %sN, %cur  /  sub %sN, %cur
-and    $MASK, %cur
-or     $N, %cur   /  shl $N, %cur  /  shr $N, %cur
-```
 
-Compare and branch (x86 flag semantics, forward-only labels):
+`reg` is masked `& (NREGS - 1)` for register ops, `& (PFW_MAX_PATS - 1)` for
+pattern ops, `& (PFW_NRULES - 1)` for rule ops. Multi-field operands pack into
+`reg`/`imm`:
 
-```
-cmp    $IMM, %cur            ZF = (cur == imm), CF = (cur < imm)
-test   $MASK, %m             ZF = ((m & mask) == 0)
-cidr   A.B.C.D/PREFIX        ZF = (cur, as an IPv4 address, lies in the network)
-je jne jb jae ja jbe  LABEL
-jmp    LABEL
-```
-
-`cidr` tests whatever is in `%cur`, so `mov %src, %cur` first to match the
-source address, or load any address field (an `X-Forwarded-For`, a parsed
-`:authority`) into `%cur` and match that. In pfw-C it is the `in` operator:
-`if (src in "10.0.0.0/8")`. The network and prefix are folded into one
-immediate (net in the low 32 bits, host order; prefix in bits 32–39), so the
-op is pure arithmetic — no map, no loop. IPv4 only for now; IPv6 is later.
-
-Patterns (the new group; `.pat` literals build one automaton per program):
-
-```
-.pat   NAME, "literal"        a pattern; bit NAME in %m; "\r\n", "\x00" escapes
-.pat   NAME, 0x47 0x45 0x54   the same from bytes
-.nocase                       fold ASCII case for every pattern in this program
-
-scan   $LEN, (%cur)           run the automaton over [cur, cur+LEN), clipped to %end;
-                              %m |= every pattern seen; first end-offset per pattern kept
-mpos   $NAME, %cur            cur = offset just past the first match of NAME (fails if none)
-cmpstr $NAME, (%cur)          anchored compare at cur: ZF = bytes at cur equal NAME
-findb  $BYTE, $LEN            cur = offset of the first BYTE within LEN (fails if none)
-skipb  $BYTE                  cur advances past a run of BYTE (spaces, tabs)
-```
-
-Verdicts and output:
-
-```
-pass                          XDP_PASS (also the fall-through at the end)
-drop   $RULE                  counters[RULE]++, XDP_DROP
-count  $RULE                  counters[RULE]++, continue
-log    $LEN                   one event to the ring: 5-tuple, %m, the rule, LEN bytes at cur
-```
-
-Failure: a load past `%end`, a `mpos` with no match, a `findb` miss
-sets the fault flag; the next `jf LABEL` (jump if fault) takes it, and a
-program that never checks it ends with `pass`. Looking, never dropping,
-on anything it could not read is the safe default; a program that
-wants fail-closed writes `jf drop_it`.
-
-Stateful (v1): a verdict bans the flow, not just the packet, and the
-automaton state is carried across a TCP flow's segments.
-
-```
-ban    $RULE, $TTL_S          mark the 4-tuple drop, count, drop this packet
-rst    $RULE, $TTL_S          mark the 4-tuple rst, answer with a TCP RST (XDP_TX)
-flow   %cur                   cur = this flow's mark (0 = none)
-mark   $V, $TTL_S             set the flow's mark (user marks from 16)
-sload  %cur                   cur = this flow's user state (flow.state)
-sstore $STATE                 set this flow's user state
-bump   %cur                   cur = ++this flow's hit counter (flow.count)
-rpush  %cur                   push cur onto this flow's ring (ring.push)
-rget   %cur                   cur = ring entry at index cur, 0 = newest (ring.get); 0 + fault if absent
-rlen   %cur                   cur = this flow's ring length (ring.len)
-```
-
-The flow table carries, across a connection: the automaton state (for
-`scan` continuity), a `user_state` integer (`flow.state`, a hand-rolled
-state machine), a `hits` counter (`flow.count`, for rate limiting), and a
-**ring** (P3) — a fixed-capacity, newest-wins `u32` ring (`ring.push` /
-`ring.get` / `ring.len`), the shape of the HPACK dynamic table and of
-rate-limit history. `bump` increments and reads the counter in one op; the
-ring ops need a tracked flow (always present in reasm mode).
-
-## Budgets (draft)
-
-| | |
+| op | encoding |
 |---|---|
-| ops per program | 64 |
-| patterns per program | 64 (one `u64` mask) |
-| pattern length | 1..64 bytes |
-| automaton states | 4096 (goto table 4096 × 256 × u16 = 2 MiB per generation) |
-| failure chain per byte | ≤ 16 hops |
-| bytes per `scan` | ≤ 2048 |
-| programs | one per attached interface, two generations |
+| `load` | `reg` = size `(0..15)` \| big-endian bit `16` |
+| `cidr` | `imm` = net (low 32, host order) \| prefix `<< 32` |
+| `dnat` | `imm` = ip (low 32, net order on the wire) \| port `<< 32` |
+| `rate` | `imm` = rate/sec (low 32) \| burst `<< 32` |
+| `arg` | `imm` = default (low 32) \| index `<< 32` (bits 32–47) |
+| `redact` | `reg` = pat id \| regex bit `<< 15`; `imm` = fill byte (low 8) \| rlen `<< 8` |
+| `replace` | `reg` = pat id \| regex bit `<< 15`; `imm` = repl pat id (low 6) \| rlen `<< 8` |
+| `sstore` | `reg` = TTL seconds; `imm` = new state value |
+| `ban`/`rst`/`mark` | `reg` = rule / mark; `imm` = TTL seconds |
+| `findb`/`skipb` | `reg` = byte (low 8); `imm` = window / max run |
 
-## Example: drop AI crawlers on :80
+### `struct pfw_prog`
 
-```
-.nocase
-.pat  gptbot,    "GPTBot"
-.pat  claudebot, "ClaudeBot"
-.pat  ccbot,     "CCBot"
-.pat  bytespider,"Bytespider"
-.pat  get,       "GET "
-.pat  post,      "POST "
+The `programs[gen]` map value:
 
-        movbew  2(%l4), %cur          ; tcp dport
-        cmp     $80, %cur
-        jne     out
-        mov     %payload, %cur
-        cmpstr  $get, (%cur)          ; a request line, not a continuation
-        je      head
-        cmpstr  $post, (%cur)
-        jne     out
-head:   scan    $1460, (%cur)         ; the request head, as far as the frame goes
-        test    $gptbot|$claudebot|$ccbot|$bytespider, %m
-        jz      out
-        log     $64
-        drop    $crawler
-out:    pass
+```c
+struct pfw_prog {
+    __u32 nops, npats, nocase, gen;
+    __u32 reasm, reasm_dport, decode, transform_table;
+    __u32 argc;  __u64 args[PFW_ARGC];
+    __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
+    struct pfw_op  ops[PFW_MAX_OPS];     // 8192
+    struct pfw_pat pats[PFW_MAX_PATS];   // 64 × {u32 len; u8 bytes[64]}
+};
 ```
 
-## Example: refuse the h2c preface
+`serializeProgram(program, gen)` (host) produces this value; `build(patterns,
+nocase)` produces the Aho-Corasick tables (`ac_goto`/`ac_fail`/`ac_accept`), and
+the regex compiler produces the DFA tables (`re_goto`/`re_accept`). The loader
+writes the program into `programs[gen]`, the automaton/DFA/transform tables and
+the membership sets into their maps, patches the `active`/`shadow` globals, then
+attaches `pfw_xdp`. Two generations (`PFW_GENS = 2`) let an update write the idle
+generation and flip `active` atomically.
 
+---
+
+## 6. Maps and globals
+
+| map | type | key → value | purpose |
+|---|---|---|---|
+| `programs` | ARRAY (2) | u32 → `pfw_prog` | the program, per generation |
+| `ac_goto` | ARRAY | u32 → u16 | AC goto table (`gen·AC_STATES·256 + state·256 + byte`) |
+| `ac_fail` | ARRAY | u32 → u16 | AC failure links |
+| `ac_accept` | ARRAY | u32 → u64 | AC per-state accept bitmask |
+| `re_goto` | ARRAY | u32 → u16 | regex DFA transitions |
+| `re_accept` | ARRAY | u32 → u64 | regex DFA accept masks |
+| `tt_cells` | ARRAY | u32 → u32 | loadable byte-transform tables |
+| `lpm` / `lpm6` | LPM_TRIE | `lpm_key`/`lpm6_key` → u32 | `src in set` / `src6 in set6` |
+| `hashset` | HASH | u32 → u32 | `x in hash` |
+| `bloom` | BLOOM_FILTER | u32 value | `x in bloom` (`map_extra = 5`) |
+| `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
+| `state` | PERCPU_ARRAY (1) | u32 → `pfw_state` | per-CPU execution state |
+| `stack` | PERCPU_ARRAY (1) | u32 → `vmstack` | the data stack |
+| `counters` | PERCPU_ARRAY (64) | u32 → u64 | per-rule counters |
+| `decide_hist` | PERCPU_ARRAY (16) | u32 → u64 | decision-time histogram |
+| `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
+| `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
+| `decode_jmp` | PROG_ARRAY (6) | u32 → prog | tail-call targets (§8) |
+
+### Globals (in `vm.bss`, host-readable/patchable)
+
+- `active` — the generation packets run.
+- `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
+- Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
+  ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,
+  reasm_midjoin, reasm_over`), `decide_ns`, `scanned_bytes`, `flows_created`.
+
+### Event records
+
+```c
+struct pfw_event {                      // events ring
+    __u64 ts; __u32 ifindex, rule, verdict, len; __u64 mask;
+    __u8 family, proto; __u16 sport, dport, _pad;
+    __u8 saddr[16], daddr[16], data[LOG_CAP];   // data = the log() snapshot
+};
+struct pfw_console {                    // console_ring
+    __u64 ts; __u32 ifindex, fmtid, nnum, nstr;
+    __u64 nums[FARGS_MAX];              // numeric args
+    __u16 slen[FSTR_MAX]; __u8 strs[FSTR_MAX][STRARG_CAP];  // %s args
+};
 ```
-.pat  preface, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
-        mov     %payload, %cur
-        cmpstr  $preface, (%cur)
-        jne     out
-        drop    $h2c
-out:    pass
-```
 
-## Reassembly and decode front-ends
+---
 
-Two program-level directives normalize the stream before matching, so the ISA
-above runs over the bytes the server will actually act on:
+## 7. Verdicts and actions
 
-```
-.reasm [PORT]            match the reassembled TCP stream, not the packet (dport PORT only)
-.decode h2 [PORT]        HTTP/2 HEADERS/HPACK -> "name: value" plaintext, then match
-.decode huffman [PORT]   HPACK-Huffman-decode the stream, then match
-```
+`enum pfw_verdict { V_NONE, V_PASS, V_DROP, V_BAN, V_RST }`. `finish()`
+(`match_half`) turns the final verdict into an XDP action:
 
-A decode front-end implies `.reasm`. `huffman` is the first instance of P2 in
-docs/primitives.md — "a decoding is data": the table is built from RFC 7541 by
-`src/huffman.js` and baked into `bpf/include/huff_table.h`, and the
-kernel just runs it. In pfw-C: `decode huffman PORT;` (alongside `decode h2`).
-Invalid input fails closed (reset).
+| verdict | XDP action | side effects |
+|---|---|---|
+| `PASS` (or none) | `XDP_PASS` (or tail-call the rewrite stage if `rw_n`) | — |
+| `DROP` | `XDP_DROP` | `count_rule`, `dropped++` |
+| `BAN` | `XDP_DROP` | flow marked `MARK_DROP` for the TTL; later packets dropped at the entry fast path |
+| `RST` | `XDP_TX` (IPv4 TCP: a crafted RST) else `XDP_DROP` | flow marked `MARK_RST` for the TTL |
 
-## Walking length-prefixed structure: `frame`
+Overrides and fast paths:
 
-```
-frame [at PTR] (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
-    ... frame.len, frame.type, frame.data available; reads clipped to this record ...
-}
-```
+- **`redirect`** takes precedence over any verdict: `maybe_redirect` issues
+  `bpf_redirect(ifindex)` and returns `XDP_REDIRECT`.
+- **Shadow mode**: when `shadow` is set, a `DROP`/`BAN`/`RST` is still counted,
+  logged, and its flow mark written, but the packet is returned `XDP_PASS`
+  (`shadowed++`). `%shadow` also exposes the flag to the program.
+- **Entry fast path**: before running the program, an established flow already
+  carrying `MARK_DROP`/`MARK_RST` (and not expired) is enforced immediately
+  (dropped or RST), honouring shadow mode. A fresh TCP SYN clears a stale mark in
+  reassembly mode so a reused ephemeral port is judged on its own bytes.
+- **Flow write-back** (marks, user state, hits, rate tokens, automaton state) is
+  applied after the run, visible on the next packet.
 
-Walk up to `$MAX` records, each a `head`-byte header (fields read by name, size
-and offset: `u8`/`u16`/`u32` and `be16`/`be24`/`be32`) then `len` payload bytes.
-In the body, `frame.len` and `frame.type` are the parsed fields and `frame.data`
-points at the payload; `%end` is narrowed to the record so a `scan`/load cannot
-read past it. The cursor advances `head + len` per record. This is P4 of
-docs/primitives.md — a pfw-C-only construct that unrolls to the ops above, so the
-ISA's forward-only termination guarantee is preserved.
+`enum pfw_mark { MARK_NONE, MARK_DROP = 1, MARK_RST = 2 }` (user marks via `mark`
+use values from 16 up).
+
+---
+
+## 8. Decode front-ends and the rewrite stage
+
+A program may normalise the reassembled stream before matching
+(`pfw_prog.decode`): `DECODE_NONE (0)`, `DECODE_H2 (1)` (HPACK, HTTP/2 HEADERS),
+`DECODE_HUFFMAN (2)` (HPACK-Huffman via a baked table), `DECODE_TRANSFORM (3)` (a
+host-loaded `tt_cells` table chosen by `transform_table`). Decoding and matching
+are **separate eBPF programs** so each stays within the verifier's per-program
+budget; they are wired through the `decode_jmp` PROG_ARRAY:
+
+| slot | program |
+|---|---|
+| `SLOT_DECODE (0)` | HPACK/h2 decode |
+| `SLOT_MATCH (1)` | the matcher (`pfw_match`) |
+| `SLOT_RESOLVE (2)` | HPACK index resolution |
+| `SLOT_HUFF (3)` | Huffman decode |
+| `SLOT_TRANSFORM (4)` | loadable-table decode |
+| `SLOT_REWRITE (5)` | apply recorded `redact`/`replace` + fix the L4 checksum |
+
+The entry (`pfw_xdp`) parses L2–L4, does TCP reassembly when enabled, initialises
+the per-CPU state, and either tail-calls a decode stage or runs the matcher
+inline. On the pass path, if the program recorded any rewrites, the matcher
+tail-calls `SLOT_REWRITE` before the packet continues.
+
+---
+
+## 9. Budgets
+
+From `LIMITS` (`src/isa.js`) / `pfw.h`:
+
+| limit | value | |
+|---|---|---|
+| instructions (`MAX_OPS`) | 8192 | per program; also the step ceiling |
+| patterns (`MAX_PATS`) | 64 | one bit each in `%m` |
+| pattern length (`PAT_CAP`) | 64 B | |
+| scan window (`SCAN_CAP`) | 2048 B | and the `findb` window |
+| AC states (`AC_STATES`) | 4096 | per generation |
+| regex DFA states (`RE_STATES`) | 1024 | |
+| scratch registers | 8 | `%s0`–`%s7`, reused by live range |
+| subroutine args | 7 | `%a0`–`%a6`; return in `%rv` |
+| data-stack depth (`STACK_CAP`) | 64 | `push`/`pop`, `call`/`ret` |
+| rules (`NRULES`) | 64 | named verdicts / counters |
+| runtime args (`ARGC`) | 16 | `argv[i]` |
+| console numeric args (`FARGS`) | 4 | per `console`/`printk` call |
+| console `%s` args (`FSTR`) | 2 | ≤ `STRARG = 256` B each |
+| printk formats (`FMTS`) | 8 | ≤ `FMT_CAP = 64` B each, in-kernel |
+| per-flow ring (`RING_CAP`) | 16 | newest-wins |
+| rewrites per packet (`RW_MAX`) | 4 | recorded, applied by the rewrite stage |
+| log snapshot (`LOG_CAP`) | 256 B | into the event |
+| reassembly buffer (`REASM_CAP`) | 2048 B | per flow |
+| flows (`MAX_FLOWS`) | 16384 | LRU |
+| generations (`GENS`) | 2 | atomic program swap |
+
+---
+
+*Companion documents: [`lang.md`](lang.md) — the pfw-C language and how each
+construct lowers to this ISA; [`primitives.md`](primitives.md) — the design note
+on building higher-level features from the base primitives.*
