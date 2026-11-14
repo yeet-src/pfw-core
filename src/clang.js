@@ -558,6 +558,8 @@ function codegen(ast) {
   const regexDefs = new Map(ast.patterns.filter((p) => p.def.kind === "regex").map((p) => [p.name, p.def.src]));
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
   const masks = new Set();
+  const consoleFormats = []; // console() format strings, by id (the host maps id -> string)
+  const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
   const expanding = new Set();
   const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
@@ -933,6 +935,23 @@ function codegen(ast) {
           if (!Number.isInteger(ifx) || ifx < 1 || ifx > 0xffffffff) die("redirect ifindex must be a positive integer", s.line);
           return bld.redirect(ifx);
         }
+        if (c.name === "console") {
+          if (!c.args.length || c.args[0].kind !== "string") die('console("format", args...)', s.line);
+          const fmt = String.fromCharCode(...unescapeStr(c.args[0].text));
+          const convs = (fmt.match(/%[-#0-9.]*[diouxXcs%]/g) || []).filter((x) => x[x.length - 1] !== "%");
+          const nargs = c.args.length - 1;
+          if (convs.length !== nargs) die(`console format has ${convs.length} conversion(s) but ${nargs} arg(s)`, s.line);
+          const nstr = convs.filter((x) => x.endsWith("s")).length;
+          if (nargs - nstr > LIMITS.FARGS) die(`console takes at most ${LIMITS.FARGS} numeric args`, s.line);
+          if (nstr > LIMITS.FSTR) die(`console takes at most ${LIMITS.FSTR} %s args`, s.line);
+          const id = internFormat(fmt);
+          for (let i = 0; i < convs.length; i++) {
+            const arg = c.args[i + 1];
+            if (convs[i].endsWith("s")) { loadPtr(arg); bld.fargs(LIMITS.STRARG); } // %s: a pointer into the packet
+            else { value(arg); bld.farg(); }
+          }
+          return bld.console(id);
+        }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }
@@ -948,6 +967,7 @@ function codegen(ast) {
 
   ast.body.forEach(stmt);
   bld.pass(); // the fall-through verdict
+  bld._consoleFormats = consoleFormats;
   return bld;
 }
 
@@ -972,7 +992,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */

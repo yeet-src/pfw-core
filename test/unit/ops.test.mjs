@@ -159,6 +159,11 @@ yeet.test("arg reads a runtime value, or its default when unset", () => {
   expectRst("argc", eq("        argc", 2), { opts: { argv: [10, 20] } });                // two args set
 });
 
+/* ---- farg / fargs / console (format args + emit a console message) ---- */
+yeet.test("farg + fargs + console assemble and run (falls through to pass)", () => {
+  expect("console", `        and     $0, %cur\n        add     $7, %cur\n        farg\n        mov     %payload, %cur\n        fargs   $8\n        console $0\n        pass`, V.PASS);
+});
+
 /* ---- rate (token bucket; no bucket in opts -> allowed, falls through) ---- */
 yeet.test("rate assembles and runs (no bucket -> allowed -> pass)", () => {
   expect("rate", `        rate    $10, $20\n        je      over\n        pass\n over:  rst     $1, $0`, V.PASS);

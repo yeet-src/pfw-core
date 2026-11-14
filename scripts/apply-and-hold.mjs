@@ -10,7 +10,8 @@
 import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
 import { compile } from "#/clang.js";
 import { build } from "#/ac.js";
-import { LIMITS } from "#/isa.js";
+import { LIMITS, EV } from "#/isa.js";
+import { formatMsg } from "#/program.js";
 import { transformCells } from "#/transform.js";
 
 const argv = yeet.args ?? {};
@@ -127,9 +128,20 @@ await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shad
 /* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict
  * enum, same numbers the reference uses) so the orchestrator reads the kernel's
  * actual decision rather than guessing from the socket. */
+const consoleFormats = c.consoleFormats ?? [];
 const sub = await new RingBuf(control, "events").subscribe((w) => {
   const e = w?.pfw_event ?? w;
-  console.log(`EVENT ${Number(e.verdict ?? 0)}`);
+  const v = Number(e.verdict ?? 0);
+  if (v === EV.CONSOLE) {
+    const lv = Number(e.len ?? 0), n = Math.min(lv & 0xff, 4), sn = Math.min((lv >> 8) & 0xff, 2), d = e.data || [];
+    const nums = [];
+    for (let i = 0; i < n; i++) { let x = 0n; for (let b = 0; b < 8; b++) x |= BigInt((d[i * 8 + b] ?? 0) & 0xff) << BigInt(8 * b); nums.push(x); }
+    const strs = [];
+    for (let s = 0; s < sn; s++) { const base = 4 * 8 + 1 + s * (1 + 32), slen = (d[base] ?? 0) & 0xff; let str = ""; for (let b = 0; b < slen; b++) str += String.fromCharCode((d[base + 1 + b] ?? 0) & 0xff); strs.push(str); }
+    console.log(`CONSOLE ${formatMsg(consoleFormats[Number(e.rule ?? 0)] ?? "", nums, strs)}`);
+    return;
+  }
+  console.log(`EVENT ${v}`);
 });
 
 console.log(`READY nops=${c.program.nops} decode=${c.program.decode ?? 0} reasm=${c.program.reasm ?? 0}`);

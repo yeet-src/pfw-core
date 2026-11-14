@@ -29,7 +29,8 @@
     "test:rate": "node test/kernel/rate.mjs",
     "test:argv": "node test/kernel/argv.mjs",
     "test:regex-rewrite": "node test/kernel/regex-rewrite.mjs",
-    "test:shadow": "node test/kernel/shadow.mjs"
+    "test:shadow": "node test/kernel/shadow.mjs",
+    "test:console": "node test/kernel/console.mjs"
   },
   "files": [
     "src",

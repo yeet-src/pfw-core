@@ -1,0 +1,17 @@
+// Debug/observability with console(): printf-style messages to the host (JS),
+// delivered over the event ring and formatted there. Numeric args (%d %u %x %c)
+// are captured by value; %s copies up to 32 bytes from a packet pointer. The JS
+// side handles them in a callback — log them, count them, ship them to a metrics
+// pipe. Unlike log(), which snapshots payload bytes with a verdict, console() is
+// a free-standing trace you can sprinkle anywhere in a program.
+//
+// Here: trace every HTTP request's port and first bytes, and flag big ones —
+// without changing any verdict (the packets still pass).
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+  if (len == 0) return pass;                       // skip pure ACKs
+  console("http :%d (%d bytes): %s", dport, len, payload);
+  if (len > 1400) console("large request: %d bytes", len);
+  return pass;
+}

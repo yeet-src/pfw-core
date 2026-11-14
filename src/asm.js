@@ -424,6 +424,17 @@ export function assemble(source) {
       } else if (m === "argc") {
         want(0);
         emit(OP.ARGC);
+      } else if (m === "farg") {
+        want(0);
+        emit(OP.FARG);
+      } else if (m === "fargs") {
+        want(1);
+        if (a.kind !== "imm") fail("fargs is `fargs $CAP`");
+        emit(OP.FARGS, 0, numberOf(a.text, "cap") & 0xffffffffn);
+      } else if (m === "console") {
+        want(1);
+        if (a.kind !== "imm") fail("console is `console $FMTID`");
+        emit(OP.CONSOLE, 0, numberOf(a.text, "fmtid") & 0xffffffffn);
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");

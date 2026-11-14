@@ -118,6 +118,9 @@ export class Builder {
   rate(perSec, burst) { return this.op(OP.RATE, 0, (BigInt(perSec >>> 0) & 0xffffffffn) | (BigInt(burst >>> 0) << 32n)); } // ZF = over the token-bucket limit
   arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
   argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
+  farg() { return this.op(OP.FARG); } // push cur as the next numeric console/printk format arg
+  fargs(cap) { return this.op(OP.FARGS, 0, BigInt(cap)); } // capture a %s string from the packet at cur (up to cap bytes)
+  console(fmtid) { return this.op(OP.CONSOLE, 0, BigInt(fmtid)); } // emit a console message (format id) to the host
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -243,6 +246,9 @@ export function opText(op, patterns = [], rules = []) {
     case OP.RATE: return `rate ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
     case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
     case OP.ARGC: return `argc`;
+    case OP.FARG: return `farg`;
+    case OP.FARGS: return `fargs ${op.imm}`;
+    case OP.CONSOLE: return `console ${op.imm}`;
     case OP.FINDB: case OP.SKIPB: return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;

@@ -143,6 +143,11 @@ struct pfw_state {
     __u64 rl_tokens;   /* OP_RATE token bucket (scaled x RL_SCALE), loaded from / written back to the flow */
     __u64 rl_ts;       /* OP_RATE last-refill ktime ns */
     __u32 set_rl;      /* 1 = write rl_tokens/rl_ts back to the flow */
+    __u64 fargs[FARGS_MAX]; /* OP_FARG numeric format-arg buffer, flushed by console()/printk() */
+    __u32 fargn;
+    __u8 fstr[FSTR_MAX][STRARG_CAP]; /* OP_FARGS captured %s strings */
+    __u8 fslen[FSTR_MAX];
+    __u32 fsn;
 };
 
 PFW_LINK struct {

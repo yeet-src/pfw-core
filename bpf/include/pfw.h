@@ -15,6 +15,10 @@
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
+#define FARGS_MAX    4    /* numeric format args a console()/printk() call can carry */
+#define FSTR_MAX     2    /* %s string args a call can carry */
+#define STRARG_CAP   32   /* bytes captured per %s arg (power of two) */
+#define PFW_EV_CONSOLE 100 /* pfw_event.verdict value marking a console message (not a verdict) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -142,6 +146,9 @@ enum pfw_opcode {
     OP_RATE,    /* token-bucket rate limit on the flow: imm = rate/sec (low 32) | burst (high 32); ZF = over the limit */
     OP_ARG,     /* cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) | default (low 32) */
     OP_ARGC,    /* cur = argc (number of runtime args the host set) */
+    OP_FARG,    /* push cur as the next numeric format argument (for console/printk) */
+    OP_FARGS,   /* capture a %s string: cur is a packet offset, copy up to imm bytes */
+    OP_CONSOLE, /* emit a console event to the host: imm = format id, args = the pushed fargs */
     OP_COUNT_OPCODES,
 };
 

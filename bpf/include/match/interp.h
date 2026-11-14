@@ -9,6 +9,7 @@
 #include "core/maps.h"
 #include "io/read.h"
 #include "match/scan.h"
+#include "action/event.h"   /* console_emit */
 
 /* DNAT: rewrite the destination (IPv4 + port) and fix the IP + L4 checksums.
  * __noinline so its locals get their own stack frame (pfw_step is already large).
@@ -413,6 +414,34 @@ static long pfw_step(__u32 i, void *pctx)
     }
     case OP_ARGC:
         cur = p->argc;
+        break;
+    case OP_FARG: /* push cur as the next console/printk format argument */
+        if (st->fargn < FARGS_MAX)
+            st->fargs[st->fargn++ & (FARGS_MAX - 1)] = cur;
+        break;
+    case OP_FARGS: { /* capture a %s string: cur is a packet offset, copy up to STRARG_CAP bytes */
+        if (st->fsn < FSTR_MAX) {
+            __u32 s = st->fsn & (FSTR_MAX - 1);
+            __u32 off = (__u32) cur;
+            __u64 end = st->r[R_END];
+            __u32 len = (__u32) imm;
+            if (len > STRARG_CAP) len = STRARG_CAP;
+            if (off >= end) len = 0;
+            else if (off + len > end) len = (__u32) (end - off);
+            __builtin_memset(st->fstr[s], 0, STRARG_CAP);
+            st->fslen[s] = 0;
+            if (len && !c->reasm) {   /* packet read; reasm streams aren't supported for %s */
+                len = ((len - 1) & (STRARG_CAP - 1)) + 1;
+                if (bpf_xdp_load_bytes(c->xdp, off, st->fstr[s], len) == 0)
+                    st->fslen[s] = len;
+            }
+            st->fsn++;
+        }
+        break;
+    }
+    case OP_CONSOLE: /* flush the gathered args to the host as a console message */
+        console_emit(c->xdp, st, (__u32) imm);
+        st->fargn = 0;
         break;
     case OP_REDIRECT:
         /* Record the target ifindex; the actual bpf_redirect() is issued in

@@ -106,6 +106,9 @@ export const dnat = (ip, port) => ({ kind: "exprstmt", call: { kind: "call", nam
 /** redirect(ifindex): forward the packet out another interface (XDP_REDIRECT); terminal. */
 export const redirect = (ifindex) => ({ kind: "exprstmt", call: { kind: "call", name: "redirect", args: [num(ifindex)] } });
 
+/** console("fmt", args...): emit a printf-style message to the host (JS callback). */
+export const console_ = (fmt, ...args) => ({ kind: "exprstmt", call: { kind: "call", name: "console", args: [{ kind: "string", text: fmt }, ...args.map(E)] } });
+
 /* frameWalk({ at?, len:{type,off}, type?:{type,off}, head, up }, ...body) */
 export const frameWalk = (spec, ...body) => ({
   kind: "frame",

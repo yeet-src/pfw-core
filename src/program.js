@@ -19,6 +19,32 @@ import { machine, V } from "#/interp.js";
 
 const VNAME = { [V.PASS]: "pass", [V.DROP]: "drop", [V.BAN]: "ban", [V.RST]: "rst" };
 const ipToU32 = (s) => s.split(".").reduce((a, o) => ((a << 8) | (Number(o) & 0xff)) >>> 0, 0) >>> 0;
+const U64M = (1n << 64n) - 1n;
+/* printf-style formatting for console()/printk() messages. Numeric args (%d %i %u
+ * %o %x %X %c) come from `nums` (u64 BigInt/number), string args (%s) from `strs`,
+ * each pulled in format order; %% is literal. Flags/width are parsed but not
+ * padded (a debug formatter). Shared by the reference and the loader. */
+export function formatMsg(fmt, nums = [], strs = []) {
+  let ni = 0, si = 0;
+  const trimNul = (s) => s.replace(/\0+$/, "");
+  return String(fmt).replace(/%[-#0 +]*\d*(?:\.\d+)?[diouxXcs%]/g, (spec) => {
+    const conv = spec[spec.length - 1];
+    if (conv === "%") return "%";
+    if (conv === "s") return trimNul(strs[si++] ?? "");
+    const a = nums[ni++];
+    const n = (typeof a === "bigint" ? a : BigInt(a ?? 0)) & U64M;
+    switch (conv) {
+      case "d": case "i": return BigInt.asIntN(64, n).toString();
+      case "u": return n.toString();
+      case "o": return n.toString(8);
+      case "x": return n.toString(16);
+      case "X": return n.toString(16).toUpperCase();
+      case "c": return String.fromCharCode(Number(n & 0xffn));
+      default: return spec;
+    }
+  });
+}
+
 /* "2001:db8::1" -> 128-bit BigInt (handles one "::" run). */
 const ip6ToBig = (s) => {
   const [head, tail] = s.split("::");
@@ -54,6 +80,7 @@ export class Program {
     this.listing = compiled.listing;
     this.nocase = compiled.nocase;
     this.regex = compiled.regex ?? null;
+    this.consoleFormats = compiled.consoleFormats ?? [];
     this.asm = compiled.asm;
     this._run = null;
   }
@@ -75,7 +102,9 @@ export class Program {
     const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
       bucket: opts.bucket, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow });
-    return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow };
+    const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));
+    if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
+    return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, console: consoleOut };
   }
 }
 
