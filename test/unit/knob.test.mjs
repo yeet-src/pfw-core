@@ -51,6 +51,23 @@ yeet.test("the same knob reused keeps one slot", () => {
   eq(c.knobs.length, 1, "one slot for repeated name");
 });
 
+yeet.test("struct knob: consecutive slots, field reads, per-field defaults", () => {
+  const c = compile(`knob struct cfg { rate ?? 50, burst ?? 100, mode }; filter { if (len > cfg.rate) decide drop("r"); decide pass; }`);
+  eq(c.ok, true, "compiles");
+  eq(c.knobs[0], "cfg.rate", "slot 0"); eq(c.knobs[1], "cfg.burst", "slot 1"); eq(c.knobs[2], "cfg.mode", "slot 2");
+  eq(Number(c.knobDefaults[0]), 50, "rate default"); eq(Number(c.knobDefaults[1]), 100, "burst default");
+  eq(c.structKnobs[0].name, "cfg", "struct name"); eq(c.structKnobs[0].base, 0, "base slot");
+  const p = toProgram(c);
+  eq(p.exec(enc("x".repeat(80)), {}).verdict, "drop", "80 > default rate 50");
+  eq(p.exec(enc("x".repeat(10)), {}).verdict, "pass", "10 < 50");
+  eq(p.exec(enc("x".repeat(80)), { knobs: { "cfg.rate": 100 } }).verdict, "pass", "host raised cfg.rate to 100");
+});
+
+yeet.test("struct knob rejects an unknown field", () => {
+  const r = compile(`knob struct cfg { rate }; filter { if (cfg.nope == 1) decide drop("x"); decide pass; }`);
+  if (r.ok) throw new Error("expected an unknown-field error");
+});
+
 yeet.test("DSL knob() lowers the same as the source", () => {
   const s = compile(`filter { if (knob("block") == 1) decide drop("b"); decide pass; }`);
   const d = C.program(C.filter(C.iff(C.eq(C.knob("block"), 1), C.drop("b")), C.pass()));

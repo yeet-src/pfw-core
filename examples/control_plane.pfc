@@ -1,0 +1,38 @@
+// The full live control plane: scalar, struct, and string knobs together. Every
+// value here is set by the host in a BPF map and can change AT ANY TIME — so an
+// operator (or an automated feed) retunes, toggles, and re-targets this running
+// filter with no recompile and no reload.
+//
+//   - scalar knob:  knob("enforce") ?? 1        — a kill-switch / mode dial
+//   - struct knob:  policy.max_rps / .burst     — a group of related dials the
+//                   host can batch-write together (consecutive slots)
+//   - string knob:  kstr("bad_host")            — a live needle (push the current
+//                   bad host/token and block it instantly)
+//
+// Host side (any time, live):
+//   setKnob(control, "enforce", 1)
+//   setKnob(control, "policy.max_rps", 50); setKnob(control, "policy.burst", 100)
+//   setKStr(control, "bad_host", "shop.evil.example")
+nocase;
+reassemble 8080;
+
+knob struct policy { max_rps ?? 50, burst ?? 100, mode ?? 2 };   // 0 off, 1 observe, 2 enforce
+
+filter {
+  if (dport != 80) decide pass;
+  if (knob("enforce") ?? 1 == 0) decide pass;            // global kill-switch
+
+  // Live blocklist needle, re-targetable by the host.
+  if (kstr("bad_host")) {
+    log(1);
+    if (policy.mode == 2) decide ban("blocked_host", 3600);
+    decide pass;                                           // observe-only
+  }
+
+  // Per-connection rate, dials driven by the struct knob.
+  if (len > 0 && rate(50, 100)) {                          // (rate args are compile-time;
+    log(2);                                                //  the struct dials gate the response)
+    if (len > policy.max_rps && policy.mode == 2) decide drop("too_fast");
+  }
+  decide pass;
+}

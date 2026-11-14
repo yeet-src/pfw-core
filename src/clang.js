@@ -161,6 +161,8 @@ function parse(toks) {
   const patterns = [];
   const macros = [];
   const functions = [];
+  const structKnobs = [];            // knob struct NAME { fields } declarations
+  const structKnobNames = new Map(); // NAME -> Set(field) for member resolution in parsePrimary
   let nocase = false;
   let reasm = false;
   let reasmDport = 0;
@@ -264,6 +266,11 @@ function parse(toks) {
         return { kind: "arg", index: idx, def, line: t.line };
       }
       if (name === "argc") return { kind: "argc", line: t.line };
+      if (structKnobNames.has(name) && isP(".")) {
+        next(); const field = eat("ident").value;
+        if (!structKnobNames.get(name).has(field)) err(`struct knob \`${name}\` has no field \`${field}\``);
+        return { kind: "knob", knob: `${name}.${field}`, def: null, line: t.line };
+      }
       if (name === "knob") {
         eat("punct", "("); if (peek().type !== "string") err('knob("name")'); const kn = next().value; eat("punct", ")");
         let def = null;
@@ -570,6 +577,28 @@ function parse(toks) {
       while (!isP("}")) stmts.push(parseStmt());
       eat("punct", "}");
       macros.push({ name, stmts });
+    } else if (isKw("knob")) {
+      // knob struct NAME { f1 [?? d], f2, ... };  — a named group of consecutive knob slots
+      next();
+      if (!isKw("struct")) err("top-level `knob` is `knob struct NAME { f1, f2 };`");
+      next();
+      const sname = eat("ident").value;
+      if (structKnobNames.has(sname)) err(`struct knob \`${sname}\` already declared`);
+      eat("punct", "{");
+      const fields = [];
+      const fset = new Set();
+      while (!isP("}")) {
+        const fname = eat("ident").value;
+        if (fset.has(fname)) err(`duplicate field \`${fname}\` in struct knob \`${sname}\``);
+        fset.add(fname);
+        let def = null;
+        if (isP("??")) { next(); const d = peek(); if (d.type !== "number" && d.type !== "char") err("`??` default must be a number or char literal"); next(); def = { kind: d.type === "char" ? "char" : "num", text: d.value, line: d.line }; }
+        fields.push({ name: fname, def });
+        if (isP(",")) next(); else break;
+      }
+      eat("punct", "}"); eat("punct", ";");
+      structKnobs.push({ name: sname, fields });
+      structKnobNames.set(sname, fset);
     } else if (isKw("fn")) {
       next();
       const name = eat("ident").value;
@@ -595,7 +624,7 @@ function parse(toks) {
     }
   }
   if (!body) throw new CError("a program needs a `filter { … }` block", 0);
-  return { patterns, macros, functions, nocase, reasm, reasmDport, decode, body };
+  return { patterns, macros, functions, structKnobs, nocase, reasm, reasmDport, decode, body };
 }
 
 /* ---- codegen: AST → ops, via the shared Builder ------------------------- */
@@ -1120,6 +1149,17 @@ function codegen(ast) {
   else if (ast.decode) bld.setTransform(TRANSFORM_TABLES[ast.decode].id, ast.reasmDport || 0);
   else if (ast.reasm) bld.setReasm(ast.reasmDport || 0);
 
+  /* Reserve consecutive knob slots for each struct knob (so the host can batch-
+   * write the whole group), seeding any per-field defaults. Done before the body
+   * so the fields occupy the first, contiguous slots. */
+  for (const sk of ast.structKnobs ?? []) {
+    for (const f of sk.fields) {
+      const slot = internKnob(`${sk.name}.${f.name}`);
+      if (slot < 0) die(`too many knobs (max ${LIMITS.KNOBS})`, f.def?.line ?? 0);
+      if (f.def != null) knobDefaults[slot] = immVal(f.def);
+    }
+  }
+
   ast.body.forEach(stmt);
   bld.pass(); // the fall-through verdict
 
@@ -1138,6 +1178,7 @@ function codegen(ast) {
   bld._knobs = knobNames;
   bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);
   bld._knobStrs = knobStrNames;
+  bld._structKnobs = (ast.structKnobs ?? []).map((sk) => ({ name: sk.name, base: knobNames.indexOf(`${sk.name}.${sk.fields[0].name}`), fields: sk.fields.map((f) => f.name) }));
   return bld;
 }
 
@@ -1162,7 +1203,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs, structKnobs: bld._structKnobs };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */
