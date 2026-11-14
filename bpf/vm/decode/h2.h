@@ -9,8 +9,8 @@
 #ifndef PFW_H2_H
 #define PFW_H2_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
+#include "core/common.h"
+#include "core/maps.h"
 
 /* Pass 1: locate the first HEADERS block. */
 struct h2_scan { struct flow *f; __u32 rlen, phase, pre; __u8 fh[16]; __u32 fhn, frame_rem, hb_off, hb_len, done, cont; };

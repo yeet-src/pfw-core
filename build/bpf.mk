@@ -24,7 +24,15 @@ ARCH    := $(UNAME_M:x86_64=x86)
 ARCH    := $(ARCH:aarch64=arm64)
 
 VMLINUX  := bpf/include/vmlinux.h
-BPF_SRCS := $(wildcard bpf/*.bpf.c)
+# The VM object's units live under bpf/vm/, grouped into topic folders
+# (core/ parse/ io/ match/ decode/ action/ entry/). Globbed recursively so
+# the topic folders fold into one object (bin/vm.bpf.o) rather than each
+# becoming a standalone object the way other bpf/ subdirs do.
+# Sorted so the link order is deterministic AND the definer sorts first:
+# core/maps.bpf.c defines the shared maps/globals and `core/` precedes the
+# program-unit folders, so its definitions are linked before the extern refs
+# (bpftool gen object only resolves externs when the definition comes first).
+BPF_SRCS := $(shell find bpf/vm -name '*.bpf.c' 2>/dev/null | sort)
 # One intermediate object per unit. They live under .build/ so they are
 # never mistaken for the loadable object in bin/.
 BPF_OBJS := $(patsubst bpf/%.bpf.c,.build/bpf/%.bpf.o,$(BPF_SRCS))
@@ -42,16 +50,16 @@ BPF_OUT  := bin/vm.bpf.o
 # not have (bpf/ssl, bpf/gotls, …) must load and attach independently of
 # the kernel-global probes in bpf/socket. The JS side loads these from the
 # project's bin/ by relative path (app/lib/probes/objects.js).
-BPF_DIRS       := $(patsubst bpf/%/,%,$(filter-out bpf/include/,$(wildcard bpf/*/)))
+BPF_DIRS       := $(patsubst bpf/%/,%,$(filter-out bpf/include/ bpf/vm/,$(wildcard bpf/*/)))
 BPF_STANDALONE := $(foreach d,$(BPF_DIRS),bin/$(d).bpf.o)
 
-BPF_CFLAGS ?= -g -O2 -Wall -target bpf -D__TARGET_ARCH_$(ARCH) -mcpu=v3 -I bpf/include
+BPF_CFLAGS ?= -g -O2 -Wall -target bpf -D__TARGET_ARCH_$(ARCH) -mcpu=v3 -I bpf/include -I bpf/vm
 # Add the vendored libbpf program headers (<bpf/bpf_helpers.h>, …) when a
 # vendored toolchain supplies them; resolved by build/toolchain.mk. Without
 # it, the build falls back to a host libbpf-dev on the default include path.
 BPF_CFLAGS += $(if $(BPF_SYSINCLUDE),-I$(BPF_SYSINCLUDE))
 
-# vm.bpf.o is only built when a top-level unit exists to go in it.
+# vm.bpf.o is only built when a unit under bpf/vm/ exists to go in it.
 bpf: $(if $(BPF_SRCS),$(BPF_OUT)) $(BPF_STANDALONE)
 
 # `| toolchain` (order-only) ensures the vendored clang/bpftool are present in
@@ -61,7 +69,7 @@ $(VMLINUX): | toolchain
 	sh build/gen-vmlinux.sh $(BPFTOOL) $@
 
 # Compile each unit to an intermediate object.
-.build/bpf/%.bpf.o: bpf/%.bpf.c $(VMLINUX) $(wildcard bpf/include/*.h) | toolchain
+.build/bpf/%.bpf.o: bpf/%.bpf.c $(VMLINUX) $(shell find bpf -name '*.h' 2>/dev/null) | toolchain
 	@command -v $(CLANG) >/dev/null 2>&1 || { echo "error: clang not found — install clang"; exit 1; }
 	@mkdir -p $(dir $@)
 	$(CLANG) $(BPF_CFLAGS) -c $< -o $@
@@ -120,6 +128,7 @@ clangd:
 	  '    - -target' \
 	  '    - bpf' \
 	  '    - -Ibpf/include' \
+	  '    - -Ibpf/vm' \
 	  $(if $(BPF_SYSINCLUDE),'    - -I$(BPF_SYSINCLUDE)') \
 	  '    - -D__TARGET_ARCH_$(ARCH)' \
 	  '    - -D__BPF_TRACING__' \

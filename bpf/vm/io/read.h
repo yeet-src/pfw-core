@@ -5,8 +5,8 @@
 #ifndef PFW_READ_H
 #define PFW_READ_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
+#include "core/common.h"
+#include "core/maps.h"
 
 struct pfw_ctx {
     struct xdp_md *xdp;

@@ -3,9 +3,9 @@
 #ifndef PFW_EVENT_H
 #define PFW_EVENT_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
-#include "pfw_parse.h"
+#include "core/common.h"
+#include "core/maps.h"
+#include "parse/parse.h"
 
 static __always_inline void count_rule(__u32 rule)
 {

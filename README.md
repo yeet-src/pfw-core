@@ -187,7 +187,7 @@ const tables = p.tables();          // the ac_goto / ac_fail / ac_accept automat
 ```
 
 A loader writes `programBytes` into the `programs` BPF map and `tables` into the
-automaton maps, then the XDP interpreter (`bpf/pfw.bpf.c`, built by `make bpf`)
+automaton maps, then the XDP interpreter (`bpf/vm/`, built by `make bpf`)
 runs it per packet. The low-level equivalents are exported too
 (`serializeProgram`, `build`, and `machine` for the raw interpreter) if you are
 driving the maps yourself rather than through `Program`.
@@ -295,7 +295,7 @@ The rest, each a single-feature demonstration:
   Huffman from RFC 7541), `src/transform.js` (loadable byte-transform tables).
 - **Reference interpreter** — `src/interp.js`, `pfw_step` modelled
   line-for-line: the executable spec the tests assert against.
-- **eBPF backend** — `bpf/pfw.bpf.c`, the once-verified kernel interpreter that
+- **eBPF backend** — `bpf/vm/` (entry + stages + core/*.h), the once-verified kernel interpreter that
   reads exactly the bytes `serializeProgram`/`build` produce. `make bpf`.
 
 ## Build & test

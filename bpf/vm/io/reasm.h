@@ -5,8 +5,8 @@
 #ifndef PFW_REASM_H
 #define PFW_REASM_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
+#include "core/common.h"
+#include "core/maps.h"
 
 /* Place one byte of a segment into the flow buffer at its sequence offset,
  * first-wins on overlap (the Linux policy — already-received bytes are kept,

@@ -8,12 +8,12 @@
 #ifndef PFW_STAGE_H
 #define PFW_STAGE_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
-#include "pfw_parse.h"
-#include "pfw_interp.h"
-#include "pfw_event.h"
-#include "pfw_rst.h"
+#include "core/common.h"
+#include "core/maps.h"
+#include "parse/parse.h"
+#include "match/interp.h"
+#include "action/event.h"
+#include "action/rst.h"
 
 /* The match half: run the interpreter over whichever view is active and apply
  * the verdict. Inlined and handed already-computed state, so it adds no call

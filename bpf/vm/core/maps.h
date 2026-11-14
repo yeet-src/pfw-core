@@ -5,7 +5,7 @@
 #ifndef PFW_MAPS_H
 #define PFW_MAPS_H
 
-#include "pfw_common.h"
+#include "core/common.h"
 
 /* Modular link mode. One unit defines the maps and globals (it does
  * `#define PFW_MAPS_DEFINE` before including this); every other unit gets

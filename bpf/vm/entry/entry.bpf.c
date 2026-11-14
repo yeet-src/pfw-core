@@ -5,47 +5,46 @@
  * element. This file is the thin top: the license, the module includes, and the
  * SEC("xdp") programs (the entry, the matcher, and the tail-call decode stages).
  *
- * The machinery lives in bpf/include/pfw_*.h, one responsibility each, all
- * `static __always_inline`. Because this is a single translation unit that
- * includes them, everything inlines exactly as it did when this was one file —
- * the verifier sees byte-identical code. The split is for readers, not the
- * compiler:
+ * The machinery lives in bpf/vm/<topic>/*.h, one responsibility each, all
+ * `static __always_inline`. Each unit is a single translation unit that includes
+ * them, so everything inlines exactly as it did when this was one file — the
+ * verifier sees byte-identical code. The split is for readers, not the compiler:
  *
- *   pfw_common.h     base includes (vmlinux, libbpf, pfw.h)
- *   pfw_maps.h       control/counter globals, maps, pfw_state, decode_jmp
- *   pfw_parse.h      L2..L4 -> struct pkt
- *   pfw_read.h       pfw_ctx, window(), load()
- *   pfw_scan.h       Aho-Corasick + findb/cmpstr/skipb byte-ops
- *   pfw_transform.h  table-driven decode steps (huffman / loaded transform)
- *   pfw_interp.h     pfw_step: one instruction
- *   pfw_rst.h        send_rst
- *   pfw_event.h      count_rule, emit
- *   pfw_reasm.h      TCP reassembly
- *   pfw_h2.h         HTTP/2 HEADERS/HPACK decode
- *   pfw_stage.h      match_half + the P1 stage framework
+ *   core/common.h       base includes (vmlinux, libbpf, pfw.h)
+ *   core/maps.h         control/counter globals, maps, pfw_state, decode_jmp
+ *   core/stage.h        match_half + the P1 stage framework
+ *   parse/parse.h       L2..L4 -> struct pkt
+ *   io/read.h           pfw_ctx, window(), load()
+ *   io/reasm.h          TCP reassembly
+ *   match/scan.h        Aho-Corasick + findb/cmpstr/skipb byte-ops
+ *   match/interp.h      pfw_step: one instruction
+ *   decode/transform.h  table-driven decode steps (huffman / loaded transform)
+ *   decode/h2.h         HTTP/2 HEADERS/HPACK decode
+ *   action/rst.h        send_rst
+ *   action/event.h      count_rule, emit
  *
- * This unit DEFINES the maps and counter globals (PFW_MAPS_DEFINE); the decode
- * stages in pfw_stages.bpf.c reference them `extern`, and the BPF static linker
- * (bpftool gen object) merges the two units into one bin/app.bpf.o.
+ * The maps and counter globals are DEFINED once in core/maps.bpf.c; this unit
+ * and decode/stages.bpf.c reference them `extern` (core/maps.h emits them that
+ * way when PFW_MAPS_DEFINE is unset). bpftool gen object links all the vm/
+ * units into one bin/vm.bpf.o.
  */
-#define PFW_MAPS_DEFINE
-#include "pfw_common.h"
-#include "pfw_maps.h"
-#include "pfw_parse.h"
-#include "pfw_read.h"
-#include "pfw_scan.h"
-#include "pfw_transform.h"
-#include "pfw_interp.h"
-#include "pfw_rst.h"
-#include "pfw_event.h"
-#include "pfw_reasm.h"
-#include "pfw_h2.h"
-#include "pfw_stage.h"
+#include "core/common.h"
+#include "core/maps.h"
+#include "parse/parse.h"
+#include "io/read.h"
+#include "match/scan.h"
+#include "decode/transform.h"
+#include "match/interp.h"
+#include "action/rst.h"
+#include "action/event.h"
+#include "io/reasm.h"
+#include "decode/h2.h"
+#include "core/stage.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
 /* The tail-call decode stages (pfw_decode/resolve/huff/transform) live in their
- * own unit, bpf/pfw_stages.bpf.c, statically linked into this object. */
+ * own unit, bpf/vm/decode/stages.bpf.c, statically linked into this object. */
 
 /* Matcher stage (tail-call target): re-derive what the entry computed, then
  * run the interpreter over the active view. st and the flow buffer persist. */

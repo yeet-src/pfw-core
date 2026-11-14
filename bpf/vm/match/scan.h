@@ -5,9 +5,9 @@
 #ifndef PFW_SCAN_H
 #define PFW_SCAN_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
-#include "pfw_read.h"
+#include "core/common.h"
+#include "core/maps.h"
+#include "io/read.h"
 
 static __always_inline __u8 fold(__u8 b, __u32 nocase)
 {

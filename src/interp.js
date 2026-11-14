@@ -1,5 +1,5 @@
 /* A reference interpreter for the pfw ISA: pfw_step, window, ac_step, findb_step
- * and cmpstr_step from bpf/pfw.bpf.c, modelled line for line over the ops and
+ * and cmpstr_step from bpf/vm/match/scan.h, modelled line for line over the ops and
  * automaton the real assembler (src/asm.js) produces. The conformance tests in
  * this directory run programs through it and assert on the verdict, so a change
  * to the kernel interpreter that is not mirrored here (or vice versa) shows up as

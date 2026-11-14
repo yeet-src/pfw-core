@@ -70,7 +70,7 @@ fixed, already-verified `pfw_step` runs), so they never hit the verifier — the
 The verifier pain is entirely in the hand-written C **decode stages**, where we
 wrote the same prologue four times. So the landed piece is the **stage
 framework**: `flow_lookup()`, `stage_reset()`, and the `PFW_STAGE_ENTER(ctx)`
-macro in `bpf/pfw.bpf.c` factor the parse / state / flow prologue and the
+macro in `bpf/vm/core/stage.h` factor the parse / state / flow prologue and the
 fail-closed reset, so `pfw_decode` / `pfw_resolve` / `pfw_huff` are now just their
 bodies and a new decode stage is `PFW_STAGE_ENTER(ctx); if (f) { ...; }
 bpf_tail_call(ctx, &decode_jmp, SLOT_NEXT); return XDP_PASS;`. Continuations ride

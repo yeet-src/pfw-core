@@ -3,7 +3,7 @@
 #ifndef PFW_PARSE_H
 #define PFW_PARSE_H
 
-#include "pfw_common.h"
+#include "core/common.h"
 
 #ifndef ETH_P_IP
 #define ETH_P_IP 0x0800

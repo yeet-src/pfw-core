@@ -3,8 +3,8 @@
 #ifndef PFW_RST_H
 #define PFW_RST_H
 
-#include "pfw_common.h"
-#include "pfw_parse.h"
+#include "core/common.h"
+#include "parse/parse.h"
 
 static __always_inline __u16 csum_fold(__u32 sum)
 {

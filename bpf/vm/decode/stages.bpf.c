@@ -1,26 +1,26 @@
 /* pfw: the tail-call decode stages, a separate compile unit from the entry.
  *
  * These SEC("xdp") programs are their own translation unit; `bpftool gen object`
- * statically links this with pfw.bpf.c into one bin/app.bpf.o. The maps and
- * counter globals are DEFINED in pfw.bpf.c (PFW_MAPS_DEFINE); here they are
- * `extern` (pfw_maps.h emits them that way when PFW_MAPS_DEFINE is unset) and the
- * BPF linker resolves them to the single definition. No LICENSE here — pfw.bpf.c
- * carries the one.
+ * statically links all bpf/vm/ units into one bin/vm.bpf.o. The maps and counter
+ * globals are DEFINED in core/maps.bpf.c (PFW_MAPS_DEFINE); here they are
+ * `extern` (core/maps.h emits them that way when PFW_MAPS_DEFINE is unset) and the
+ * BPF linker resolves them to the single definition. No LICENSE here — the entry
+ * unit carries the one.
  *
  * The machinery is still the shared static-inline headers, so each stage inlines
  * exactly as before; only the program bodies moved to their own object.
  */
-#include "pfw_common.h"
-#include "pfw_maps.h"      /* extern: resolved against pfw.bpf.c's definitions */
-#include "pfw_parse.h"
-#include "pfw_read.h"
-#include "pfw_scan.h"
-#include "pfw_transform.h"
-#include "pfw_interp.h"
-#include "pfw_rst.h"
-#include "pfw_event.h"
-#include "pfw_h2.h"
-#include "pfw_stage.h"
+#include "core/common.h"
+#include "core/maps.h"      /* extern: resolved against core/maps.bpf.c */
+#include "parse/parse.h"
+#include "io/read.h"
+#include "match/scan.h"
+#include "decode/transform.h"
+#include "match/interp.h"
+#include "action/rst.h"
+#include "action/event.h"
+#include "decode/h2.h"
+#include "core/stage.h"
 
 /* Decoder stage: HPACK-decode the reassembled h2 stream into st->dec (the
  * resolve stage expands it), then tail-call resolve. */

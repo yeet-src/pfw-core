@@ -5,10 +5,10 @@
 #ifndef PFW_INTERP_H
 #define PFW_INTERP_H
 
-#include "pfw_common.h"
-#include "pfw_maps.h"
-#include "pfw_read.h"
-#include "pfw_scan.h"
+#include "core/common.h"
+#include "core/maps.h"
+#include "io/read.h"
+#include "match/scan.h"
 
 static long pfw_step(__u32 i, void *pctx)
 {
