@@ -10,9 +10,9 @@ reassemble 8080;
 pattern jndi = "${jndi:", ldap = "${jndi:ldap", rmi = "${jndi:rmi", dns = "${jndi:dns";
 pattern lower = "${lower:", upper = "${upper:", env = "${env:";   // obfuscation nests
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
   mask m = scan(payload, 2048);
-  if (any(m, jndi, ldap, rmi, dns)) { log(1); return drop("log4shell"); }
-  if (any(m, lower, upper, env)) { log(1); return drop("log4shell_obf"); } // nested ${lower:j}ndi
-  return pass;
+  if (any(m, jndi, ldap, rmi, dns)) { log(1); decide drop("log4shell"); }
+  if (any(m, lower, upper, env)) { log(1); decide drop("log4shell_obf"); } // nested ${lower:j}ndi
+  decide pass;
 }

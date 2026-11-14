@@ -20,7 +20,7 @@ yeet.test("src6 in set6 — membership across v6 prefixes", () => {
 });
 
 yeet.test("src6 in set6 — pfw-C compiles and the DSL matches it", () => {
-  const s = compile(`filter { if (src6 in set6) return drop("v6"); return pass; }`);
+  const s = compile(`filter { if (src6 in set6) decide drop("v6"); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   const d = C.program(C.filter(C.iff(C.inSet6(), C.drop("v6")), C.pass()));
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");

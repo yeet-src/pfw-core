@@ -1,11 +1,11 @@
 // Walk length-prefixed records (P4): only scan HTTP/2 HEADERS frames.
 pattern bot = "GPTBot";
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
   frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
     if (frame.type == 1) {
-      if (scan(frame.data, 1024) & bot) return rst("h2_bot", 0);
+      if (scan(frame.data, 1024) & bot) decide rst("h2_bot", 0);
     }
   }
-  return pass;
+  decide pass;
 }

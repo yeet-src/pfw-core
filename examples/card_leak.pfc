@@ -23,16 +23,16 @@ fn has_card() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;   // inspect server responses
-  if (len == 0) return pass;                        // skip pure ACKs
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;   // inspect server responses
+  if (len == 0) decide pass;                        // skip pure ACKs
 
   if (has_card()) {
     let hits = flow.count;                          // read-then-increment, once
     log(1);
     console("card leak sport=%d hit=%d", sport, hits);
-    if (hits >= 3) return ban("card_leak_repeat", 1800);   // chronic leaker: ban the src
-    return rst("card_leak", 0);                             // otherwise cut this response
+    if (hits >= 3) decide ban("card_leak_repeat", 1800);   // chronic leaker: ban the src
+    decide rst("card_leak", 0);                             // otherwise cut this response
   }
-  return pass;
+  decide pass;
 }

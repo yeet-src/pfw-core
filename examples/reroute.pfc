@@ -11,11 +11,11 @@
 pattern bot = "GPTBot";
 
 filter {
-  if (proto != 6) return pass;          // TCP only
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;          // TCP only
+  if (dport != 80) decide pass;
   if (scan(payload, 256) & bot) {
     dnat("10.99.0.2", 8080);            // rewrite dst to the sandbox listener
     redirect(5);                         // and forward it out ifindex 5
   }
-  return pass;                           // non-bots reach the stack unchanged
+  decide pass;                           // non-bots reach the stack unchanged
 }

@@ -9,12 +9,12 @@
 // Here: allow bursts of up to 20 requests, then a steady 5 requests/sec per
 // connection on :80; drop anything faster.
 filter {
-  if (proto != 6) return pass;          // TCP
-  if (dport != 80) return pass;
-  if (len == 0) return pass;            // don't spend tokens on pure ACKs
+  if (proto != 6) decide pass;          // TCP
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;            // don't spend tokens on pure ACKs
   if (rate(5, 20)) {
     log(2);                             // over the limit -> tell userspace
-    return drop("too_fast");
+    decide drop("too_fast");
   }
-  return pass;
+  decide pass;
 }

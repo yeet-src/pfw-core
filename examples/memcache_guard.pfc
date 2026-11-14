@@ -17,18 +17,18 @@ fn admin_cmd(p) {
 }
 
 filter {
-  if (dport != 11211) return pass;
+  if (dport != 11211) decide pass;
 
   if (proto == 17) {                            // UDP memcached = amplification
-    if (admin_cmd(payload)) { log(2); return drop("memcache_udp_amp"); }
-    return pass;
+    if (admin_cmd(payload)) { log(2); decide drop("memcache_udp_amp"); }
+    decide pass;
   }
 
-  if (admin_cmd(payload)) { log(1); return drop("memcache_admin"); }
+  if (admin_cmd(payload)) { log(1); decide drop("memcache_admin"); }
   if (rate(500, 1000)) {
     let n = flow.count;
-    if (n >= 50) return ban("memcache_flood", 900);
-    return drop("memcache_ratelimit");
+    if (n >= 50) decide ban("memcache_flood", 900);
+    decide drop("memcache_ratelimit");
   }
-  return pass;
+  decide pass;
 }

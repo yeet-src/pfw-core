@@ -27,15 +27,15 @@ fn xss_score() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let score = xss_score();
-  if (score == 0) return pass;
+  if (score == 0) decide pass;
   console("xss score=%d sport=%d strikes=%d", score, sport, flow.count);
   log(1);
 
-  if (score >= 3) return ban("xss_high_confidence", 1800);   // one strong request: cut the source
-  if (flow.count >= 3) return ban("xss_repeat", 1800);       // persistent prober
-  return rst("xss", 0);                                       // first low-confidence hit: reset
+  if (score >= 3) decide ban("xss_high_confidence", 1800);   // one strong request: cut the source
+  if (flow.count >= 3) decide ban("xss_repeat", 1800);       // persistent prober
+  decide rst("xss", 0);                                       // first low-confidence hit: reset
 }

@@ -18,14 +18,14 @@ fn restricted(p) {
 }
 
 filter {
-  if (rate(100, 200)) { log(3); return drop("grpc_flood"); }
+  if (rate(100, 200)) { log(3); decide drop("grpc_flood"); }
 
   if (restricted(payload)) {
-    if (scan(payload, 2048) & bearer) return pass;   // authenticated call: allow
+    if (scan(payload, 2048) & bearer) decide pass;   // authenticated call: allow
     let strike = flow.count;
     console("grpc restricted unauth strike=%d", strike);
-    if (strike >= 5) return ban("grpc_abuse", 1800);
-    return drop("grpc_restricted");
+    if (strike >= 5) decide ban("grpc_abuse", 1800);
+    decide drop("grpc_restricted");
   }
-  return pass;
+  decide pass;
 }

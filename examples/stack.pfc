@@ -8,7 +8,7 @@
 // Here: stash a couple of header fields on the stack, mark a frame, do some
 // throwaway work, then unwind — and decide using the saved values (LIFO).
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
 
   push(sport);           // save the source port
   push(dport);           // save the destination port
@@ -19,6 +19,6 @@ filter {
 
   let d = pop();         // dest port (pushed last of the saved pair)
   let s = pop();         // source port
-  if (d == 22 && s == d) return drop("ssh_loopback");
-  return pass;
+  if (d == 22 && s == d) decide drop("ssh_loopback");
+  decide pass;
 }

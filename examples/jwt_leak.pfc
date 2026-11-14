@@ -17,17 +17,17 @@ fn jwt_present() { if (any(scan(payload, 480), jwt1, jwt2, jwt3)) return 1; retu
 fn has_authz()   { if (any(scan(payload, 480), authz)) return 1; return 0; }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80 && dport != 443) return pass;
-  if (!jwt_present()) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80 && dport != 443) decide pass;
+  if (!jwt_present()) decide pass;
 
   // a JWT WITH an Authorization header is almost certainly the header itself: ok
-  if (has_authz()) { count("jwt_in_header"); return pass; }
+  if (has_authz()) { count("jwt_in_header"); decide pass; }
 
   // a JWT with NO Authorization header => it's in the URL / cookie / body: a leak
   let hits = flow.count;
   console("jwt leaked outside Authorization dport=%d hit=%d", dport, hits);
   log(3);
-  if (hits >= 10) return ban("jwt_harvest", 600);   // flood of tokens: likely harvesting
-  return pass;                                        // otherwise observe, don't break auth
+  if (hits >= 10) decide ban("jwt_harvest", 600);   // flood of tokens: likely harvesting
+  decide pass;                                        // otherwise observe, don't break auth
 }

@@ -26,17 +26,17 @@ fn triage() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let sev = triage();
-  if (sev == 0) return pass;
+  if (sev == 0) decide pass;
 
   let strikes = flow.count;
   log(1);
   console("scanner sev=%d sport=%d strikes=%d", sev, sport, strikes);
 
-  if (sev == 2) return ban("scanner_tool", 3600);   // confirmed tool: gone for an hour
-  if (strikes >= 3) return ban("repeat_probe", 1800); // persistent prober
-  return rst("probe", 0);                             // first probes: just reset
+  if (sev == 2) decide ban("scanner_tool", 3600);   // confirmed tool: gone for an hour
+  if (strikes >= 3) decide ban("repeat_probe", 1800); // persistent prober
+  decide rst("probe", 0);                             // first probes: just reset
 }

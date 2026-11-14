@@ -23,23 +23,23 @@ fn is_introspection() {
 fn internal() { if (src in "10.0.0.0/8") return 1; if (src in set) return 1; return 0; }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
-  if (!to_graphql()) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  if (!to_graphql()) decide pass;
 
   // Deeply nested documents: likely a resource-exhaustion query.
-  if (scan(payload, 2048) & deep) { console("graphql deep-nest sport=%d", sport); return rst("graphql_depth", 0); }
+  if (scan(payload, 2048) & deep) { console("graphql deep-nest sport=%d", sport); decide rst("graphql_depth", 0); }
 
   if (is_introspection()) {
-    if (internal()) { count("introspect_internal"); return pass; }   // tooling may introspect
+    if (internal()) { count("introspect_internal"); decide pass; }   // tooling may introspect
     console("graphql introspection external sport=%d strikes=%d", sport, flow.count);
     log(1);
-    if (flow.count >= argv[0] ?? 3) return ban("introspect_repeat", 1800);
-    return rst("graphql_introspection", 0);
+    if (flow.count >= argv[0] ?? 3) decide ban("introspect_repeat", 1800);
+    decide rst("graphql_introspection", 0);
   }
 
   // Ordinary queries: cap volume per connection.
-  if (rate(50, 100)) return drop("graphql_ratelimited");
-  return pass;
+  if (rate(50, 100)) decide drop("graphql_ratelimited");
+  decide pass;
 }

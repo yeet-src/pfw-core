@@ -4,7 +4,7 @@
 // updates at runtime — a blocklist of thousands of CIDRs matched in one lookup,
 // longest-prefix wins. The set is populated out-of-band (not in the program).
 filter {
-  if (proto != 6) return pass;
-  if (src in set) return drop("blocklist");
-  return pass;
+  if (proto != 6) decide pass;
+  if (src in set) decide drop("blocklist");
+  decide pass;
 }

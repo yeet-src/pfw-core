@@ -23,16 +23,16 @@ fn is_traversal(p) {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   // GET /path?query HTTP/1.1 — walk past the method to the path.
   ptr path = find(payload, ' ', 16);
   skip(path, ' ');
 
-  if (is_traversal(path) == 0) return pass;
+  if (is_traversal(path) == 0) decide pass;
   console("traversal on path from sport=%d strikes=%d", sport, flow.count);
   log(1);
-  if (flow.count >= 2) return ban("traversal_repeat", 3600);
-  return drop("path_traversal");
+  if (flow.count >= 2) decide ban("traversal_repeat", 3600);
+  decide drop("path_traversal");
 }

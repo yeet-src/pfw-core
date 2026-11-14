@@ -23,11 +23,11 @@ fn triage() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let sev = triage();
-  if (sev == 0) return pass;
+  if (sev == 0) decide pass;
 
   let strikes = flow.count;
   log(7);
@@ -38,5 +38,5 @@ filter {
     dnat("10.99.0.2", 8080);     // the honeypot listener
     redirect(5);                  // out the sandbox veth (terminal)
   }
-  return rst("probe", 0);         // early soft probes just get reset
+  decide rst("probe", 0);         // early soft probes just get reset
 }

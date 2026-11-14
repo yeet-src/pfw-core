@@ -9,8 +9,8 @@ nocase;
 reassemble 8080;
 pattern host = "host:", badsite = "tracker.example";
 filter {
-  if (dport != 80) return pass;
+  if (dport != 80) decide pass;
   ptr h = after(host);                   // cursor just past "Host:"
-  if (scan(h, 256) & badsite) return ban("blocked_host", 3600);
-  return pass;
+  if (scan(h, 256) & badsite) decide ban("blocked_host", 3600);
+  decide pass;
 }

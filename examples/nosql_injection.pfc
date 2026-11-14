@@ -24,16 +24,16 @@ fn nosql_score() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
 
   let score = nosql_score();
-  if (score == 0) return pass;
+  if (score == 0) decide pass;
 
   console("nosqli score=%d sport=%d strikes=%d", score, sport, flow.count);
   log(1);
-  if (score >= 5) return ban("nosqli_codeexec", 3600);       // $where etc. — ban now
-  if (flow.count >= 3) return ban("nosqli_repeat", 1800);    // persistent prober
-  return rst("nosqli", 0);
+  if (score >= 5) decide ban("nosqli_codeexec", 3600);       // $where etc. — ban now
+  if (flow.count >= 3) decide ban("nosqli_repeat", 1800);    // persistent prober
+  decide rst("nosqli", 0);
 }

@@ -18,9 +18,9 @@ const p = load(`
   nocase;
   pattern bot = "GPTBot", claudebot = "ClaudeBot";
   filter {
-    if (dport != 80) return pass;
-    if (scan(payload, 1460) & (bot | claudebot)) return rst("crawler", 60);
-    return pass;
+    if (dport != 80) decide pass;
+    if (scan(payload, 1460) & (bot | claudebot)) decide rst("crawler", 60);
+    decide pass;
   }
 `);
 
@@ -111,7 +111,7 @@ throwing.
 
 ```js
 import { load } from "pfw-core";
-const p = load(`pattern bot="GPTBot"; filter { if (scan(payload,256)&bot) return rst("x",0); return pass; }`);
+const p = load(`pattern bot="GPTBot"; filter { if (scan(payload,256)&bot) decide rst("x",0); decide pass; }`);
 ```
 
 **2. JS value builder (DSL)** — the same constructs as composable JS values.
@@ -207,9 +207,9 @@ in [`examples/`](examples) and every one is compiled by `npm run test:node`.
 nocase;
 pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 filter {
-  if (dport != 80) return pass;
-  if (scan(payload, 1460) & (gptbot | claudebot | bytespider)) return rst("crawler", 60);
-  return pass;
+  if (dport != 80) decide pass;
+  if (scan(payload, 1460) & (gptbot | claudebot | bytespider)) decide rst("crawler", 60);
+  decide pass;
 }
 ```
 
@@ -221,13 +221,13 @@ nocase;
 pattern kw_union = "union", kw_select = "select", kw_comment = "--";
 pattern passwd = "/etc/passwd", winshell = "cmd.exe";
 filter {
-  if (dport != 80) return pass;
+  if (dport != 80) decide pass;
   mask m = scan(payload, 1460);         // one pass, reused below
   // UNION ... SELECT in order, with a comment tail too:
-  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) return drop("sqli");
+  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) decide drop("sqli");
   // path-traversal / RCE probes — any single hit is enough:
-  if (any(m, passwd, winshell)) return rst("rce_probe", 0);
-  return pass;
+  if (any(m, passwd, winshell)) decide rst("rce_probe", 0);
+  decide pass;
 }
 ```
 
@@ -239,12 +239,12 @@ dropped:
 reassemble 8080;                        // see the coalesced TCP stream
 pattern hello = "HELLO";
 filter {
-  if (flow.state == 1) return pass;     // already greeted — let it through
+  if (flow.state == 1) decide pass;     // already greeted — let it through
   if (starts(payload, hello)) {
     flow.state = 1 for 300;             // remember "greeted" for 300s
-    return pass;
+    decide pass;
   }
-  return drop("no_greeting");           // spoke out of turn
+  decide drop("no_greeting");           // spoke out of turn
 }
 ```
 
@@ -254,13 +254,13 @@ unroll over length-prefixed records (HTTP/2 frames), scanning only HEADERS:
 ```c
 pattern bot = "GPTBot";
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
   frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
     if (frame.type == 1) {              // HEADERS frame
-      if (scan(frame.data, 1024) & bot) return rst("h2_bot", 0);
+      if (scan(frame.data, 1024) & bot) decide rst("h2_bot", 0);
     }
   }
-  return pass;
+  decide pass;
 }
 ```
 

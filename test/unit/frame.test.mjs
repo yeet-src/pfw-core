@@ -19,13 +19,13 @@ const HDR = (s) => frameBytes(1, s);  // HEADERS
 const { run } = fromC(`
 pattern bot = "GPTBot";
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
   frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 4 {
     if (frame.type == 1) {
-      if (scan(frame.data, 256) & bot) return rst("bot", 0);
+      if (scan(frame.data, 256) & bot) decide rst("bot", 0);
     }
   }
-  return pass;
+  decide pass;
 }`);
 const verdict = (buf) => run(buf, {}, { proto: 6 }).verdict === V.RST ? "rst" : "pass";
 const want = (name, buf, exp) => { const got = verdict(buf); if (got !== exp) throw new Error(`${name}: ${got} (want ${exp})`); };

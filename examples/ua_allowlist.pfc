@@ -21,16 +21,16 @@ fn allowed() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
 
-  if (src in "10.0.0.0/8") return pass;   // internal clients are trusted
-  if (allowed()) return pass;             // known-good User-Agent
+  if (src in "10.0.0.0/8") decide pass;   // internal clients are trusted
+  if (allowed()) decide pass;             // known-good User-Agent
 
   let strikes = flow.count;
   log(9);
   console("ua not allowlisted strikes=%d sport=%d", strikes, sport);
-  if (strikes >= 5) return ban("bad_ua", 1800);
-  return rst("bad_ua", 0);
+  if (strikes >= 5) decide ban("bad_ua", 1800);
+  decide rst("bad_ua", 0);
 }

@@ -32,9 +32,9 @@ fn is_attack(ptr) {
 fn too_big(limit) { if (len > limit) return 1; return 0; }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != argv[0] ?? 80) return pass;      // tenant's port
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != argv[0] ?? 80) decide pass;      // tenant's port
+  if (len == 0) decide pass;
 
   let strict = argv[2] ?? 0;
   let ban_at = argv[3] ?? 5;
@@ -42,21 +42,21 @@ filter {
   // Scanners: always banned, every tenant.
   if (is_scanner(payload)) {
     console("tenant scanner port=%d sport=%d", dport, sport);
-    return ban("scanner", 3600);
+    decide ban("scanner", 3600);
   }
 
   // Attacks: reset, and escalate a persistent attacker to a ban.
   if (is_attack(payload)) {
     log(1);
-    if (flow.count >= ban_at) return ban("attack_repeat", 1800);
-    return rst("attack", 0);
+    if (flow.count >= ban_at) decide ban("attack_repeat", 1800);
+    decide rst("attack", 0);
   }
 
   // Oversize: strict tenants reset, permissive tenants only tally.
   if (too_big(argv[1] ?? 8192)) {
     console("tenant oversize port=%d len=%d strict=%d", dport, len, strict);
-    if (strict == 1) return rst("oversize", 0);
+    if (strict == 1) decide rst("oversize", 0);
     count("oversize_seen");
   }
-  return pass;
+  decide pass;
 }

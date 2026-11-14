@@ -33,7 +33,7 @@ function send(payload) {
 }
 
 // print the destination port and the first bytes of the request
-const source = `filter { if (dport != ${PORT}) return pass; if (len == 0) return pass; console("req to :%d says %s", dport, payload); return pass; }`;
+const source = `filter { if (dport != ${PORT}) decide pass; if (len == 0) decide pass; console("req to :%d says %s", dport, payload); decide pass; }`;
 
 let fail = 0, n = 0;
 const server = net.createServer((s) => { s.on("data", () => {}); s.on("error", () => {}); });

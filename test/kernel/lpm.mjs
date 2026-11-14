@@ -37,7 +37,7 @@ function send(payload) {
 }
 
 // `src in set` -> rst (logs so the verdict surfaces as an event); else pass.
-const source = `filter { if (dport != ${PORT}) return pass; if (src in set) { log(16); return rst("in_set", 0); } return pass; }`;
+const source = `filter { if (dport != ${PORT}) decide pass; if (src in set) { log(16); decide rst("in_set", 0); } decide pass; }`;
 const CASES = [
   { name: "127.0.0.1 in 127.0.0.0/8 -> rst", set: "127.0.0.0/8", want: V.RST },
   { name: "127.0.0.1 in 127.0.0.1/32 -> rst", set: "127.0.0.1/32", want: V.RST },

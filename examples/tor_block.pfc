@@ -21,21 +21,21 @@ fn hits_sensitive() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (!is_tor()) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (!is_tor()) decide pass;
 
   let mode = argv[0] ?? 1;
   let sensitive = hits_sensitive();
   console("tor src sport=%d mode=%d sensitive=%d", sport, mode, sensitive);
 
-  if (mode == 2) return ban("tor_block_all", 1800);
-  if (mode == 0) { log(1); return pass; }           // observe: tag and allow
+  if (mode == 2) decide ban("tor_block_all", 1800);
+  if (mode == 0) { log(1); decide pass; }           // observe: tag and allow
 
   // mode 1: block sensitive paths, escalate persistent probers.
   if (sensitive == 1) {
-    if (flow.count >= 3) return ban("tor_probe_repeat", 3600);
-    return rst("tor_sensitive", 0);
+    if (flow.count >= 3) decide ban("tor_probe_repeat", 3600);
+    decide rst("tor_sensitive", 0);
   }
-  return pass;
+  decide pass;
 }

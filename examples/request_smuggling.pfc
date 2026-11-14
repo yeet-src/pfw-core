@@ -23,15 +23,15 @@ fn classify() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let kind = classify();
-  if (kind == 0) return pass;
+  if (kind == 0) decide pass;
 
   log(3);
   console("smuggling kind=%d sport=%d", kind, sport);
-  if (kind == 2) return drop("http_smuggling");     // ambiguous framing: refuse
-  if (flow.count >= 2) return ban("smuggle_probe", 1800);
-  return rst("te_obfuscated", 0);
+  if (kind == 2) decide drop("http_smuggling");     // ambiguous framing: refuse
+  if (flow.count >= 2) decide ban("smuggle_probe", 1800);
+  decide rst("te_obfuscated", 0);
 }

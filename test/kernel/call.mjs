@@ -34,7 +34,7 @@ function connect() {
 }
 
 // a routine computes the verdict flag into %bp; the caller acts on it
-const source = `fn decide() { bp = 0; if (dport == ${PORT}) bp = 1; } filter { decide(); if (bp == 1) { log(16); return rst("sub", 0); } return pass; }`;
+const source = `fn pick() { bp = 0; if (dport == ${PORT}) bp = 1; } filter { pick(); if (bp == 1) { log(16); decide rst("sub", 0); } decide pass; }`;
 
 let fail = 0, n = 0;
 const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });
@@ -48,7 +48,7 @@ try {
     await sleep(500);
     const obs = events.slice(before).includes(V.RST) ? V.RST : V.PASS;
     n++; const ok = obs === V.RST; if (!ok) fail++;
-    console.log(`  ${ok ? "ok  " : "FAIL"} call decide(); ret; act on %bp -> ${ok ? "rst" : "pass"}`);
+    console.log(`  ${ok ? "ok  " : "FAIL"} call pick(); ret; act on %bp -> ${ok ? "rst" : "pass"}`);
   });
 } finally { server.close(); }
 console.log(`\n${n - fail}/${n} as expected`);

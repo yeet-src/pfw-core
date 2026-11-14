@@ -37,7 +37,7 @@ const vname = (v) => ({ [V.PASS]: "pass", [V.RST]: "rst" }[v] ?? v);
 let fail = 0, n = 0;
 // Two listeners: one on a port in the set, one not; the program resets ports in the set.
 const PORT_IN = 59631, PORT_OUT = 59632;
-const source = `filter { if (dport in bloom) { log(16); return rst("bloom_port", 0); } return pass; }`;
+const source = `filter { if (dport in bloom) { log(16); decide rst("bloom_port", 0); } decide pass; }`;
 const servers = [PORT_IN, PORT_OUT].map((p) => { const s = net.createServer((c) => { c.on("data", () => c.write("ok")); c.on("error", () => {}); }); return new Promise((r) => s.listen(p, "127.0.0.1", () => r(s))); });
 const srv = await Promise.all(servers);
 console.log("kernel hash — bloom port membership\n");

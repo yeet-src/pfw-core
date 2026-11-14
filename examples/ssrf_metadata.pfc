@@ -12,7 +12,7 @@ pattern gcp     = "metadata.google.internal";
 pattern azure   = "169.254.169.254/metadata";
 pattern aws_iam = "/latest/meta-data/iam/";
 filter {
-  if (proto != 6) return pass;
-  if (any(scan(payload, 2048), ip, gcp, azure, aws_iam)) { log(1); return rst("ssrf_metadata", 0); }
-  return pass;
+  if (proto != 6) decide pass;
+  if (any(scan(payload, 2048), ip, gcp, azure, aws_iam)) { log(1); decide rst("ssrf_metadata", 0); }
+  decide pass;
 }

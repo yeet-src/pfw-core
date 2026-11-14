@@ -38,7 +38,7 @@ function echo(payload) {
 }
 
 // trace the port + length of each request, then pass it through unchanged
-const source = `filter { if (dport != ${PORT}) return pass; if (len == 0) return pass; printk("pfw: req to %d len %d", dport, len); return pass; }`;
+const source = `filter { if (dport != ${PORT}) decide pass; if (len == 0) decide pass; printk("pfw: req to %d len %d", dport, len); decide pass; }`;
 
 let fail = 0, n = 0;
 const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });

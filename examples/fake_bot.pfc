@@ -20,17 +20,17 @@ fn claims_crawler() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   if (claims_crawler()) {
-    if (src in set) return pass;        // from a published crawler range: genuine
+    if (src in set) decide pass;        // from a published crawler range: genuine
 
     let strikes = flow.count;
     log(8);
     console("fake crawler from unverified src, strikes=%d sport=%d", strikes, sport);
-    if (strikes >= 2) return ban("fake_crawler", 7200);
-    return rst("fake_crawler", 0);
+    if (strikes >= 2) decide ban("fake_crawler", 7200);
+    decide rst("fake_crawler", 0);
   }
-  return pass;
+  decide pass;
 }

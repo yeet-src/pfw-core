@@ -7,22 +7,22 @@
 // Combines: UDP matching, the token bucket (rate) per client, a size guard with
 // arithmetic, flow.count escalation, console(), and drop/ban.
 filter {
-  if (proto != 17) return pass;         // UDP
-  if (dport != 53) return pass;         // DNS
+  if (proto != 17) decide pass;         // UDP
+  if (dport != 53) decide pass;         // DNS
 
   if (rate(20, 50)) {                    // >20 queries/s past a burst of 50
     let over = flow.count;
     log(5);
     console("dns flood :%d len=%d over=%d", sport, len, over);
-    if (over >= 100) return ban("dns_flood", 300);
-    return drop("dns_rate");
+    if (over >= 100) decide ban("dns_flood", 300);
+    decide drop("dns_rate");
   }
 
   // a normal UDP DNS query is small; an oversize one is tunneling/abuse
   if (len > 512) {
     log(5);
     console("dns oversize :%d len=%d", sport, len);
-    return drop("dns_oversize");
+    decide drop("dns_oversize");
   }
-  return pass;
+  decide pass;
 }

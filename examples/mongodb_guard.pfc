@@ -24,15 +24,15 @@ fn is_recon(p) {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 27017) return pass;
-  if (is_internal()) return pass;             // trusted app tier
+  if (proto != 6) decide pass;
+  if (dport != 27017) decide pass;
+  if (is_internal()) decide pass;             // trusted app tier
 
   if (is_recon(payload)) {
     let strike = flow.count;
     console("mongo recon public strike=%d", strike);
-    if (strike >= 2) return ban("mongo_scanner", 3600);
-    return drop("mongo_probe");
+    if (strike >= 2) decide ban("mongo_scanner", 3600);
+    decide drop("mongo_probe");
   }
-  return drop("mongo_public");
+  decide drop("mongo_public");
 }

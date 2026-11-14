@@ -23,21 +23,21 @@ fn is_dangerous(p) {
 }
 
 filter {
-  if (dport != 6379) return pass;
-  if (len == 0) return pass;
+  if (dport != 6379) decide pass;
+  if (len == 0) decide pass;
 
   if (flow.state == 0) {                      // not yet authenticated on this conn
-    if (scan(payload, 128) & authcmd) { flow.state = 1 for 600; return pass; }
-    if (is_dangerous(payload)) { console("unauth redis cmd sport=%d", sport); return ban("redis_unauth", 3600); }
-    return pass;
+    if (scan(payload, 128) & authcmd) { flow.state = 1 for 600; decide pass; }
+    if (is_dangerous(payload)) { console("unauth redis cmd sport=%d", sport); decide ban("redis_unauth", 3600); }
+    decide pass;
   }
 
   if (is_dangerous(payload)) {                // authenticated, but still guarded
     let strike = flow.count;
-    if (strike >= 3) return ban("redis_repeat", 1800);
+    if (strike >= 3) decide ban("redis_repeat", 1800);
     log(1);
-    return drop("redis_dangerous");
+    decide drop("redis_dangerous");
   }
-  if (rate(200, 400)) return drop("redis_flood");
-  return pass;
+  if (rate(200, 400)) decide drop("redis_flood");
+  decide pass;
 }

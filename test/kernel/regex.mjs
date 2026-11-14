@@ -38,7 +38,7 @@ const source = `nocase;
 regex ssn = "\\d{3}-\\d{2}-\\d{4}";
 regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
 regex card = "\\d{13,16}";
-filter { if (dport != ${PORT}) return pass; if (any(scan(payload, 512), ssn, email, card)) { log(16); return rst("pii", 0); } return pass; }`;
+filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
 const CASES = [
   ["SSN -> rst", "my ssn is 123-45-6789 ok", V.RST],

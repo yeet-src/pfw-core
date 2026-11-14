@@ -4,11 +4,11 @@
  * A single host with no root can't build a veth pair, so we can't show true
  * cross-interface steering. We CAN isolate the redirect machinery on `lo`:
  *
- *   filter { if (proto != 17) return pass;
- *            if (dport != A) return pass;
+ *   filter { if (proto != 17) decide pass;
+ *            if (dport != A) decide pass;
  *            dnat("127.0.0.1", B);   // re-injected copy has dport B, so it
  *            redirect(IFX);          // passes on the second lap (no loop)
- *            return drop("redir"); } // DROP is the fallback the packet only
+ *            decide drop("redir"); } // DROP is the fallback the packet only
  *                                    // survives via a working redirect
  *
  * The verdict is DROP, so the ONLY way a datagram reaches the server on
@@ -56,7 +56,7 @@ function udpDeliver(sendPort, dstPort, msg) {
 
 const A = 59621, B = 59622;
 const prog = (ifx) =>
-  `filter { if (proto != 17) return pass; if (dport != ${A}) return pass; dnat("127.0.0.1", ${B}); redirect(${ifx}); return drop("redir"); }`;
+  `filter { if (proto != 17) decide pass; if (dport != ${A}) decide pass; dnat("127.0.0.1", ${B}); redirect(${ifx}); decide drop("redir"); }`;
 
 const CASES = [
   { name: "redirect(lo) overrides drop -> delivered to B", ifx: 1, want: true },

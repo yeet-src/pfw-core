@@ -11,13 +11,13 @@ nocase;
 pattern kw_union = "union", kw_select = "select", kw_comment = "--";
 pattern passwd = "/etc/passwd", winshell = "cmd.exe";
 filter {
-  if (dport != 80) return pass;
+  if (dport != 80) decide pass;
   mask m = scan(payload, 1460);         // one pass, reused below
 
   // Classic SQL injection: UNION ... SELECT in order, with a comment tail too.
-  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) return drop("sqli");
+  if (seq(m, kw_union, kw_select) && any(m, kw_comment)) decide drop("sqli");
 
   // Path-traversal / RCE probes: any single hit is enough to reset.
-  if (any(m, passwd, winshell)) return rst("rce_probe", 0);
-  return pass;
+  if (any(m, passwd, winshell)) decide rst("rce_probe", 0);
+  decide pass;
 }

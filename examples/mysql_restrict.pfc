@@ -13,16 +13,16 @@ fn is_internal() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 3306) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 3306) decide pass;
 
-  if (is_internal() == 0) { log(1); return drop("mysql_public"); }
+  if (is_internal() == 0) { log(1); decide drop("mysql_public"); }
 
   if (rate(10, 20)) {                         // rapid reconnect/auth churn
     let strike = flow.count;
     console("mysql auth burst internal strike=%d", strike);
-    if (strike >= 100) return ban("mysql_bruteforce", 900);
-    return drop("mysql_ratelimit");
+    if (strike >= 100) decide ban("mysql_bruteforce", 900);
+    decide drop("mysql_ratelimit");
   }
-  return pass;
+  decide pass;
 }

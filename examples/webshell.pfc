@@ -26,14 +26,14 @@ fn shell_score() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let score = shell_score();
-  if (score == 0) return pass;
+  if (score == 0) decide pass;
   console("webshell score=%d sport=%d strikes=%d", score, sport, flow.count);
   log(1);
-  if (score >= 3) return ban("webshell", 7200);          // sink + source/wrapper = a real shell
-  if (flow.count >= 2) return ban("webshell_repeat", 7200);
-  return rst("webshell_suspect", 0);
+  if (score >= 3) decide ban("webshell", 7200);          // sink + source/wrapper = a real shell
+  if (flow.count >= 2) decide ban("webshell_repeat", 7200);
+  decide rst("webshell_suspect", 0);
 }

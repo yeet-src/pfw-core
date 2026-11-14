@@ -18,15 +18,15 @@ fn is_amp_port(p) {
 }
 
 filter {
-  if (proto != 17) return pass;         // UDP
+  if (proto != 17) decide pass;         // UDP
   if (is_amp_port(sport)) {
     if (len > 512) {                     // large reply from an amplifier -> reflection
       let hits = flow.count;
       log(6);
       console("amp reflection sport=%d len=%d hits=%d", sport, len, hits);
-      if (hits >= 50) return ban("amp_flood", 300);
-      return drop("amplification");
+      if (hits >= 50) decide ban("amp_flood", 300);
+      decide drop("amplification");
     }
   }
-  return pass;
+  decide pass;
 }

@@ -6,8 +6,8 @@
  * -> one bucket. The program drops when `rate(...)` says the flow is over the
  * limit; the server records which datagrams actually arrived.
  *
- *   filter { if (proto != 17) return pass; if (dport != P) return pass;
- *            if (rate(R, B)) return drop("rl"); return pass; }
+ *   filter { if (proto != 17) decide pass; if (dport != P) decide pass;
+ *            if (rate(R, B)) decide drop("rl"); decide pass; }
  *
  * Case 1 (burst cap): rate(1, 3), fire 8 back-to-back -> only the burst (~3)
  *   arrive, not all 8. A no-limit control [rate(1e6, 1e6)] delivers all 8.
@@ -47,7 +47,7 @@ function harness() {
   return { got, ready, send, close };
 }
 
-const prog = (r, b) => `filter { if (proto != 17) return pass; if (dport != ${PORT}) return pass; if (rate(${r}, ${b})) return drop("rl"); return pass; }`;
+const prog = (r, b) => `filter { if (proto != 17) decide pass; if (dport != ${PORT}) decide pass; if (rate(${r}, ${b})) decide drop("rl"); decide pass; }`;
 
 let fail = 0, n = 0;
 const check = (name, cond, detail) => { n++; if (!cond) fail++; console.log(`  ${cond ? "ok  " : "FAIL"} ${name}${detail ? ": " + detail : ""}`); };

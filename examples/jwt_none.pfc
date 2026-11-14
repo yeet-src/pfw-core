@@ -22,15 +22,15 @@ fn jwt_alg_none(p) {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   // jump to just past "Authorization:" and judge the token, not the whole request
   ptr auth = after("authorization:");
-  if (jwt_alg_none(auth) == 0) return pass;
+  if (jwt_alg_none(auth) == 0) decide pass;
 
   console("jwt alg:none from sport=%d strikes=%d", sport, flow.count);
   log(1);
-  if (flow.count >= 1) return ban("jwt_none_repeat", 3600);  // never legitimate: ban on repeat
-  return drop("jwt_alg_none");
+  if (flow.count >= 1) decide ban("jwt_none_repeat", 3600);  // never legitimate: ban on repeat
+  decide drop("jwt_alg_none");
 }

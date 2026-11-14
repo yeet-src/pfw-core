@@ -7,8 +7,8 @@
 reassemble 8080;
 pattern funcdef = "() {", bincmd = "() { :;};", echocmd = "() { :;}; echo";
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (any(scan(payload, 1460), funcdef, bincmd, echocmd)) { log(1); return drop("shellshock"); }
-  return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (any(scan(payload, 1460), funcdef, bincmd, echocmd)) { log(1); decide drop("shellshock"); }
+  decide pass;
 }

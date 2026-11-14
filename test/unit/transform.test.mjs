@@ -51,8 +51,8 @@ yeet.test("pfw-C `decode <table>` compiles to DECODE_TRANSFORM + the table id", 
     decode rot13 8080;
     pattern bot = "GPTBot";
     filter {
-      if (scan(payload, 2048) & bot) return rst("bot", 0);
-      return pass;
+      if (scan(payload, 2048) & bot) decide rst("bot", 0);
+      decide pass;
     }`);
   if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
   if (c.program.decode !== DECODE.transform) throw new Error("decode=" + c.program.decode);

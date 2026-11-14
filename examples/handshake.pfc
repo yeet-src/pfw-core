@@ -9,10 +9,10 @@
 reassemble 8080;
 pattern hello = "HELLO";
 filter {
-  if (flow.state == 1) return pass;     // already greeted — let it through
+  if (flow.state == 1) decide pass;     // already greeted — let it through
   if (starts(payload, hello)) {
     flow.state = 1 for 300;             // remember "greeted" for 300s
-    return pass;
+    decide pass;
   }
-  return drop("no_greeting");           // spoke out of turn
+  decide drop("no_greeting");           // spoke out of turn
 }

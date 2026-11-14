@@ -14,23 +14,23 @@ const same = (a, b, m) => {
 };
 
 yeet.test("a macro expands to exactly the inline statements", () => {
-  const withMacro = `macro guard { if (proto != 6) return pass; if (dport != 80) return pass; }
-    filter { guard; return drop("x"); }`;
-  const inline = `filter { if (proto != 6) return pass; if (dport != 80) return pass; return drop("x"); }`;
+  const withMacro = `macro guard { if (proto != 6) decide pass; if (dport != 80) decide pass; }
+    filter { guard; decide drop("x"); }`;
+  const inline = `filter { if (proto != 6) decide pass; if (dport != 80) decide pass; decide drop("x"); }`;
   same(withMacro, inline, "single macro");
 });
 
 yeet.test("two macros expand independently and in order", () => {
-  const withMacros = `macro a { if (proto != 6) return pass; }
-    macro b { if (dport != 80) return pass; }
-    filter { a; b; return drop("x"); }`;
-  const inline = `filter { if (proto != 6) return pass; if (dport != 80) return pass; return drop("x"); }`;
+  const withMacros = `macro a { if (proto != 6) decide pass; }
+    macro b { if (dport != 80) decide pass; }
+    filter { a; b; decide drop("x"); }`;
+  const inline = `filter { if (proto != 6) decide pass; if (dport != 80) decide pass; decide drop("x"); }`;
   same(withMacros, inline, "two macros");
 });
 
 yeet.test("the expanded program behaves", () => {
-  const src = `macro only80 { if (dport != 80) return pass; }
-    filter { only80; return drop("blocked"); }`;
+  const src = `macro only80 { if (dport != 80) decide pass; }
+    filter { only80; decide drop("blocked"); }`;
   const prog = fromC(src);
   eq(prog.run(new Uint8Array(0), {}, { dport: 80 }).verdict, V.DROP, "on :80 the body runs");
   eq(prog.run(new Uint8Array(0), {}, { dport: 22 }).verdict, V.PASS, "off :80 the guard returns");

@@ -19,17 +19,17 @@ fn injection(p) {
 }
 
 filter {
-  if (dport != 389) return pass;
+  if (dport != 389) decide pass;
 
   if (injection(payload)) {
     let strike = flow.count;
     console("ldap injection strike=%d", strike);
-    if (strike >= 3) return ban("ldap_injection_repeat", 3600);
-    return drop("ldap_injection");
+    if (strike >= 3) decide ban("ldap_injection_repeat", 3600);
+    decide drop("ldap_injection");
   }
 
   if (scan(payload, 256) & bindreq) {
-    if (rate(5, 10)) return drop("ldap_bind_flood");
+    if (rate(5, 10)) decide drop("ldap_bind_flood");
   }
-  return pass;
+  decide pass;
 }

@@ -8,10 +8,10 @@
 // Here: trace every HTTP request's port and first bytes, and flag big ones —
 // without changing any verdict (the packets still pass).
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;                       // skip pure ACKs
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;                       // skip pure ACKs
   console("http :%d (%d bytes): %s", dport, len, payload);
   if (len > 1400) console("large request: %d bytes", len);
-  return pass;
+  decide pass;
 }

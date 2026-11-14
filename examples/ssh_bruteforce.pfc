@@ -15,15 +15,15 @@ fn offender() {
 }
 
 filter {
-  if (dport != 22) return pass;
-  if (len == 0) return pass;
+  if (dport != 22) decide pass;
+  if (len == 0) decide pass;
 
-  if (any(scan(payload, 128), libssh, paramiko, paramik2)) { log(1); return ban("ssh_tool", 3600); }
+  if (any(scan(payload, 128), libssh, paramiko, paramik2)) { log(1); decide ban("ssh_tool", 3600); }
 
   if (rate(8, 16)) {
     console("ssh flood sport=%d", sport);
-    if (offender()) return ban("ssh_bruteforce", 1800);
-    return drop("ssh_ratelimit");
+    if (offender()) decide ban("ssh_bruteforce", 1800);
+    decide drop("ssh_ratelimit");
   }
-  return pass;
+  decide pass;
 }

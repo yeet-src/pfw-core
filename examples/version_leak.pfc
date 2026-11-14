@@ -20,8 +20,8 @@ fn leaks_version() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;
 
   // redact the exact fingerprints we know, in place
   redact(php, '-');
@@ -33,5 +33,5 @@ filter {
     console("version header leaking: %s (hit %d)", after(xpow), hits);
     log(2);
   }
-  return pass;
+  decide pass;
 }

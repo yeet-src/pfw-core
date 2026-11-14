@@ -2,7 +2,7 @@
 nocase;
 pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 filter {
-  if (dport != 80) return pass;
-  if (scan(payload, 1460) & (gptbot | claudebot | bytespider)) return rst("crawler", 60);
-  return pass;
+  if (dport != 80) decide pass;
+  if (scan(payload, 1460) & (gptbot | claudebot | bytespider)) decide rst("crawler", 60);
+  decide pass;
 }

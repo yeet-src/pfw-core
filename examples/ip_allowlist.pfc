@@ -27,15 +27,15 @@ fn is_privileged_path() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
-  if (!is_privileged_path()) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  if (!is_privileged_path()) decide pass;
 
-  if (source_allowed()) { count("priv_ok"); return pass; }
+  if (source_allowed()) { count("priv_ok"); decide pass; }
 
   console("priv path from external sport=%d strikes=%d", sport, flow.count);
   log(1);
-  if (flow.count >= 3) return ban("priv_recon", 3600);
-  return rst("priv_external", 0);
+  if (flow.count >= 3) decide ban("priv_recon", 3600);
+  decide rst("priv_external", 0);
 }

@@ -8,10 +8,10 @@
 // before this program even runs.
 reassemble 8080;
 filter {
-  if (len == 0) return pass;            // pure ACKs don't count
+  if (len == 0) decide pass;            // pure ACKs don't count
   if (flow.count >= 100) {
     log(1);                             // emit an event for userspace
-    return ban("flood", 600);          // ban the source for 600 seconds
+    decide ban("flood", 600);          // ban the source for 600 seconds
   }
-  return pass;
+  decide pass;
 }

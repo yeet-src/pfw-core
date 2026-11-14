@@ -32,7 +32,7 @@ function connect() {
   });
 }
 
-const source = `fn is_port(p) { rv = 0; if (p == ${PORT}) rv = 1; } filter { if (is_port(dport)) { log(16); return rst("arg", 0); } return pass; }`;
+const source = `fn is_port(p) { rv = 0; if (p == ${PORT}) rv = 1; } filter { if (is_port(dport)) { log(16); decide rst("arg", 0); } decide pass; }`;
 
 let fail = 0, n = 0;
 const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });

@@ -22,16 +22,16 @@ fn looks_like_dump() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;
+  if (len == 0) decide pass;
 
   if (looks_like_dump()) {
     let hits = flow.count;
     console("email dump sport=%d len=%d hit=%d", sport, len, hits);
-    if (hits >= 2) return ban("email_dump", 1800);   // repeat scraper: ban the src
-    if (len > 512) return rst("email_dump_large", 0); // a big first page: cut it now
-    return rst("email_dump", 0);
+    if (hits >= 2) decide ban("email_dump", 1800);   // repeat scraper: ban the src
+    if (len > 512) decide rst("email_dump_large", 0); // a big first page: cut it now
+    decide rst("email_dump", 0);
   }
-  return pass;
+  decide pass;
 }

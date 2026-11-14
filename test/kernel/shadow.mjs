@@ -1,7 +1,7 @@
 /* Kernel shadow-mode test: the SAME program and bytecode, with the host-set
  * shadow flag flipped. The program resets every connection to PORT:
  *
- *   filter { if (dport != PORT) return pass; log(16); return rst("blk", 0); }
+ *   filter { if (dport != PORT) decide pass; log(16); decide rst("blk", 0); }
  *
  *   - live  (no --shadow)  -> the SYN is reset, the connection never completes,
  *                             the server sees no client and sends no echo.
@@ -44,7 +44,7 @@ function echo() {
   });
 }
 
-const source = `filter { if (dport != ${PORT}) return pass; log(16); return rst("blk", 0); }`;
+const source = `filter { if (dport != ${PORT}) decide pass; log(16); decide rst("blk", 0); }`;
 let fail = 0, n = 0;
 const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });
 await new Promise((r) => server.listen(PORT, "127.0.0.1", r));

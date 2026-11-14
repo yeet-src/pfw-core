@@ -39,10 +39,10 @@ function udpDeliver(sendAddr, sendPort, dstAddr, dstPort, msg) {
 const A = 59601, B = 59602;
 const CASES = [
   { name: "DNAT ip+port 127.0.0.1:A -> 127.0.0.2:B",
-    source: `filter { if (proto != 17) return pass; if (dport != ${A}) return pass; dnat("127.0.0.2", ${B}); return pass; }`,
+    source: `filter { if (proto != 17) decide pass; if (dport != ${A}) decide pass; dnat("127.0.0.2", ${B}); decide pass; }`,
     send: ["127.0.0.1", A], dst: ["127.0.0.2", B], msg: "hello dnat" },
   { name: "DNAT port-only 127.0.0.1:A -> 127.0.0.1:B",
-    source: `filter { if (proto != 17) return pass; if (dport != ${A}) return pass; dnat("127.0.0.1", ${B}); return pass; }`,
+    source: `filter { if (proto != 17) decide pass; if (dport != ${A}) decide pass; dnat("127.0.0.1", ${B}); decide pass; }`,
     send: ["127.0.0.1", A], dst: ["127.0.0.1", B], msg: "port only" },
 ];
 

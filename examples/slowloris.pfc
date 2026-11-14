@@ -11,14 +11,14 @@
 reassemble 8080;
 pattern end_hdr = "\r\n\r\n";
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
 
   // a completed request is normal traffic: clear any suspicion and pass
   if (scan(payload, 2048) & end_hdr) {
     flow.state = 0 for 1;
-    return pass;
+    decide pass;
   }
 
   // a tiny segment that doesn't finish the headers is a slowloris drip
@@ -27,8 +27,8 @@ filter {
     log(4);
     console("slowloris drip :%d len=%d drips=%d", sport, len, drips);
     flow.state = 1 for 60;
-    if (drips >= 20) return ban("slowloris", 600);
-    return pass;                    // let it dribble while we build the case
+    if (drips >= 20) decide ban("slowloris", 600);
+    decide pass;                    // let it dribble while we build the case
   }
-  return pass;
+  decide pass;
 }

@@ -11,7 +11,7 @@ const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w
 
 yeet.test("pfw-C: a regex pattern matched by scan", () => {
   const p = load(`regex ssn = "\\d{3}-\\d{2}-\\d{4}";
-    filter { if (scan(payload, 256) & ssn) return drop("ssn"); return pass; }`);
+    filter { if (scan(payload, 256) & ssn) decide drop("ssn"); decide pass; }`);
   eq(p.exec(enc("my ssn 123-45-6789 ok")).verdict, "drop", "ssn present");
   eq(p.exec(enc("id 12-345-6789")).verdict, "pass", "wrong shape");
   eq(p.exec(enc("nothing here")).verdict, "pass", "absent");
@@ -43,6 +43,6 @@ yeet.test("regex bit is independent (band on a specific regex)", () => {
 });
 
 yeet.test("a bad regex is a compile error", () => {
-  const r = compile(`regex x = "a[b"; filter { if (scan(payload,8) & x) return drop("y"); return pass; }`);
+  const r = compile(`regex x = "a[b"; filter { if (scan(payload,8) & x) decide drop("y"); decide pass; }`);
   if (r.ok) throw new Error("expected a regex compile error");
 });

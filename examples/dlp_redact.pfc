@@ -13,9 +13,9 @@ regex ssn  = "\d{3}-\d{2}-\d{4}";             // 123-45-6789  (11 bytes)
 regex card = "\d{4}-\d{4}-\d{4}-\d{4}";        // 4111-1111-1111-1111 (19 bytes)
 regex key  = "AKIA[A-Z0-9]{16}";               // an AWS access key id (20 bytes)
 filter {
-  if (proto != 6) return pass;
+  if (proto != 6) decide pass;
   redact(ssn);                                 // -> ***********
   redact(card, 'X');                            // -> XXXXXXXXXXXXXXXXXXX
   replace(key, "AKIAXXXXXXXXXXXXXXXX");         // same-length placeholder
-  return pass;
+  decide pass;
 }

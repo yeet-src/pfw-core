@@ -43,16 +43,16 @@ function roundtrip(payload) {
 
 const CASES = [
   { name: "redact fills every match", kind: "redact",
-    source: `pattern tok = "secret";\nfilter { if (dport != ${PORT}) return pass; redact(tok); return pass; }`,
+    source: `pattern tok = "secret";\nfilter { if (dport != ${PORT}) decide pass; redact(tok); decide pass; }`,
     send: "a secret b secret c", want: "a ****** b ****** c" },
   { name: "redact leaves non-matches", kind: "redact",
-    source: `pattern tok = "secret";\nfilter { if (dport != ${PORT}) return pass; redact(tok); return pass; }`,
+    source: `pattern tok = "secret";\nfilter { if (dport != ${PORT}) decide pass; redact(tok); decide pass; }`,
     send: "nothing to see here", want: "nothing to see here" },
   { name: "replace swaps same-length", kind: "replace",
-    source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; replace(bot, "NOTBOT"); return pass; }`,
+    source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; replace(bot, "NOTBOT"); decide pass; }`,
     send: "UA: GPTBot and GPTBot!", want: "UA: NOTBOT and NOTBOT!" },
   { name: "nocase redact matches any case", kind: "redact",
-    source: `nocase;\npattern tok = "secret";\nfilter { if (dport != ${PORT}) return pass; redact(tok); return pass; }`,
+    source: `nocase;\npattern tok = "secret";\nfilter { if (dport != ${PORT}) decide pass; redact(tok); decide pass; }`,
     send: "X SeCrEt Y", want: "X ****** Y" },
 ];
 

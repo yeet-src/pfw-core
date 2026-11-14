@@ -21,7 +21,7 @@ yeet.test("src in set — membership across prefixes", () => {
 });
 
 yeet.test("src in set — pfw-C compiles and the DSL matches it", () => {
-  const s = compile(`filter { if (src in set) return drop("b"); return pass; }`);
+  const s = compile(`filter { if (src in set) decide drop("b"); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   const d = C.program(C.filter(C.iff(C.inSet(C.src), C.drop("b")), C.pass()));
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");

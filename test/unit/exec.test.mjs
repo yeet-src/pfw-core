@@ -48,7 +48,7 @@ yeet.test("bytes() is the fixed-size programs value; tables() is the automaton",
 });
 
 yeet.test("load() compiles source to the same runnable Program", () => {
-  const src = `pattern bot = "GPTBot"; filter { if (scan(payload,256) & bot) return rst("x",0); return pass; }`;
+  const src = `pattern bot = "GPTBot"; filter { if (scan(payload,256) & bot) decide rst("x",0); decide pass; }`;
   eq(load(src).exec(enc("a GPTBot b"), {}).verdict, "rst", "load+exec");
 });
 

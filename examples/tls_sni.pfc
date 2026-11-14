@@ -20,16 +20,16 @@ fn blocked_sni(p) {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 443) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 443) decide pass;
 
-  if (rate(20, 40)) { log(2); return drop("tls_handshake_flood"); }
+  if (rate(20, 40)) { log(2); decide drop("tls_handshake_flood"); }
 
   if (blocked_sni(payload)) {
     let strike = flow.count;
     console("blocked SNI sport=%d strike=%d", sport, strike);
-    if (strike >= 3) return ban("sni_repeat", 3600);
-    return rst("blocked_sni", 0);
+    if (strike >= 3) decide ban("sni_repeat", 3600);
+    decide rst("blocked_sni", 0);
   }
-  return pass;
+  decide pass;
 }

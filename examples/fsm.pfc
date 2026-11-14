@@ -10,20 +10,20 @@
 reassemble 7000;
 pattern helo = "HELO", auth = "AUTH ", admin = "CONFIG";
 filter {
-  if (len == 0) return pass;                         // ignore pure ACKs
+  if (len == 0) decide pass;                         // ignore pure ACKs
   match (flow.state) {
     case 0 {                                         // new connection: must greet first
-      if (starts(payload, helo)) { flow.state = 1 for 60; return pass; }
-      return drop("no_greeting");
+      if (starts(payload, helo)) { flow.state = 1 for 60; decide pass; }
+      decide drop("no_greeting");
     }
     case 1 {                                         // greeted: must authenticate next
-      if (starts(payload, auth)) { flow.state = 2 for 300; return pass; }
-      return drop("not_authenticated");
+      if (starts(payload, auth)) { flow.state = 2 for 300; decide pass; }
+      decide drop("not_authenticated");
     }
     case 2 {                                         // authenticated: commands allowed, admin gated
-      if (starts(payload, admin)) return rst("admin_blocked", 0);
-      return pass;
+      if (starts(payload, admin)) decide rst("admin_blocked", 0);
+      decide pass;
     }
-    default { return drop("bad_state"); }
+    default { decide drop("bad_state"); }
   }
 }

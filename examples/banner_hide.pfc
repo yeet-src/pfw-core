@@ -15,8 +15,8 @@ pattern express = "X-Powered-By: Express";          // 21 bytes
 pattern srv = "server:";                            // catch-all header probe
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;
 
   // rewrite known banners to equal-length covers (recon sees a generic tier)
   replace(apache,  "Server: svc-tier-aaaa");        // 21
@@ -28,5 +28,5 @@ filter {
     console("uncovered server banner: %s", after(srv));
     log(2);
   }
-  return pass;
+  decide pass;
 }

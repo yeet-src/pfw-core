@@ -75,17 +75,17 @@ const enc = (s) => Buffer.from(s, "latin1");
 // enforcement arms carry a log(); it is a no-op in the reference interpreter, so
 // verdicts are unchanged. PASS arms don't log -> no event -> observed as PASS.
 const CASES = [
-  { name: "scan match → rst", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; if (scan(payload, 256) & bot) { log(16); return rst("bot", 0); } return pass; }`,
+  { name: "scan match → rst", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["matching", enc("hi GPTBot here")], ["clean", enc("just a normal request")]] },
-  { name: "cidr loopback → rst", source: `filter { if (proto != 6) return pass; if (dport != ${PORT}) return pass; if (src in "127.0.0.0/8") { log(16); return rst("lo", 0); } return pass; }`,
+  { name: "cidr loopback → rst", source: `filter { if (proto != 6) decide pass; if (dport != ${PORT}) decide pass; if (src in "127.0.0.0/8") { log(16); decide rst("lo", 0); } decide pass; }`,
     sends: [["from 127/8", enc("anything")]] },
-  { name: "cidr 10/8 (no match) → pass", source: `filter { if (dport != ${PORT}) return pass; if (src in "10.0.0.0/8") { log(16); return rst("rfc1918", 0); } return pass; }`,
+  { name: "cidr 10/8 (no match) → pass", source: `filter { if (dport != ${PORT}) decide pass; if (src in "10.0.0.0/8") { log(16); decide rst("rfc1918", 0); } decide pass; }`,
     sends: [["from 127, not 10/8", enc("anything")]] },
-  { name: "scan match → drop", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; if (scan(payload, 256) & bot) { log(16); return drop("bot"); } return pass; }`,
+  { name: "scan match → drop", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide drop("bot"); } decide pass; }`,
     sends: [["matching", enc("x GPTBot x")], ["clean", enc("nothing here")]] },
-  { name: "nocase scan → rst", source: `nocase;\npattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) return pass; if (scan(payload, 256) & bot) { log(16); return rst("bot", 0); } return pass; }`,
+  { name: "nocase scan → rst", source: `nocase;\npattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["lowercase gptbot", enc("x gptbot x")], ["MiXeD GpTbOt", enc("y GpTbOt y")], ["no bot", enc("plain text")]] },
-  { name: "dport guard → pass", source: `pattern bot = "GPTBot";\nfilter { if (dport != 1) return pass; if (scan(payload, 256) & bot) { log(16); return rst("bot", 0); } return pass; }`,
+  { name: "dport guard → pass", source: `pattern bot = "GPTBot";\nfilter { if (dport != 1) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["wrong-port rule", enc("GPTBot but rule targets :1")]] },
 ];
 

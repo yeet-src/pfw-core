@@ -33,8 +33,8 @@ function connect() {
 }
 
 const CASES = [
-  ["push dport; pop == PORT -> rst", `filter { if (dport != ${PORT}) return pass; push(dport); let x = pop(); if (x == ${PORT}) { log(16); return rst("stk", 0); } return pass; }`, V.RST],
-  ["LIFO: push a,b; pop,pop restores a last -> pass guard", `filter { if (dport != ${PORT}) return pass; push(dport); push(proto); let b = pop(); let a = pop(); if (a == ${PORT}) { log(16); return rst("lifo", 0); } return pass; }`, V.RST],
+  ["push dport; pop == PORT -> rst", `filter { if (dport != ${PORT}) decide pass; push(dport); let x = pop(); if (x == ${PORT}) { log(16); decide rst("stk", 0); } decide pass; }`, V.RST],
+  ["LIFO: push a,b; pop,pop restores a last -> pass guard", `filter { if (dport != ${PORT}) decide pass; push(dport); push(proto); let b = pop(); let a = pop(); if (a == ${PORT}) { log(16); decide rst("lifo", 0); } decide pass; }`, V.RST],
 ];
 
 const vname = (v) => ({ [V.PASS]: "pass", [V.RST]: "rst" }[v] ?? v);

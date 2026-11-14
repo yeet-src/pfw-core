@@ -62,27 +62,27 @@ fn score_rce() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
 
   let total = score_sqli() + score_xss() + score_traversal() + score_scanner() + score_rce();
-  if (total == 0) return pass;
+  if (total == 0) decide pass;
 
   console("waf score=%d sport=%d strikes=%d", total, sport, flow.count);
   log(1);
 
   // Critical single hit (RCE/exec) — ban the source immediately.
-  if (total >= 9) return ban("waf_critical", 3600);
+  if (total >= 9) decide ban("waf_critical", 3600);
 
   let block = argv[0] ?? 3;
   let ban_at = argv[1] ?? 2;
   if (total >= block) {
-    if (flow.count >= ban_at) return ban("waf_repeat", 1800);   // persistent attacker
-    return rst("waf_blocked", 0);                               // first offence: reset
+    if (flow.count >= ban_at) decide ban("waf_repeat", 1800);   // persistent attacker
+    decide rst("waf_blocked", 0);                               // first offence: reset
   }
 
   // Below the block threshold: suspicious but not conclusive — tally and watch.
   count("waf_suspicious");
-  return pass;
+  decide pass;
 }

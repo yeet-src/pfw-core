@@ -10,6 +10,6 @@ nocase;
 decode h2 8080;
 pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 filter {
-  if (any(scan(payload, 2048), gptbot, claudebot, bytespider)) return ban("h2_crawler", 300);
-  return pass;
+  if (any(scan(payload, 2048), gptbot, claudebot, bytespider)) decide ban("h2_crawler", 300);
+  decide pass;
 }

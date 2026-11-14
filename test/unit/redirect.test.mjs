@@ -25,7 +25,7 @@ yeet.test("redirect is a no-op in the host model (falls through to pass)", () =>
 });
 
 yeet.test("pfw-C, DSL and asm all lower redirect identically", () => {
-  const s = compile(`filter { redirect(2); return pass; }`);
+  const s = compile(`filter { redirect(2); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   const d = C.program(C.filter(C.redirect(2), C.pass()));
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");
@@ -38,7 +38,7 @@ yeet.test("pfw-C, DSL and asm all lower redirect identically", () => {
 
 yeet.test("pfw-C rejects a bad redirect ifindex", () => {
   for (const bad of [`redirect();`, `redirect(0);`, `redirect(-1);`]) {
-    const r = compile(`filter { ${bad} return pass; }`);
+    const r = compile(`filter { ${bad} decide pass; }`);
     if (r.ok) throw new Error("should have rejected: " + bad);
   }
 });

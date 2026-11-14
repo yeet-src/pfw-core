@@ -18,7 +18,7 @@ yeet.test("dport in hash — membership", () => {
 });
 
 yeet.test("x in hash — pfw-C compiles and the DSL matches it", () => {
-  const s = compile(`filter { if (dport in hash) return drop("b"); return pass; }`);
+  const s = compile(`filter { if (dport in hash) decide drop("b"); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   const d = C.program(C.filter(C.iff(C.inHash(C.dport), C.drop("b")), C.pass()));
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");
@@ -31,7 +31,7 @@ yeet.test("x in bloom — membership (modelled exact: no false negatives)", () =
   eq(p.exec(enc(""), { dport: 80, bloom }).verdict, "pass", "not inserted");
   eq(p.exec(enc(""), { dport: 31337, bloom: [] }).verdict, "pass", "empty filter");
   // DSL == source
-  const s = compile(`filter { if (dport in bloom) return drop("maybe"); return pass; }`);
+  const s = compile(`filter { if (dport in bloom) decide drop("maybe"); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   if (J(s.program.ops) !== J(C.program(C.filter(C.iff(C.inBloom(C.dport), C.drop("maybe")), C.pass())).program.ops)) throw new Error("DSL != source");
 });

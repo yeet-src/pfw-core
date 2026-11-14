@@ -20,9 +20,9 @@ fn is_record_dump() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;
+  if (len == 0) decide pass;
 
   // layer 1: always scrub fixed-shape SSNs in place (checksum fixed up for us)
   redact(ssn);
@@ -32,8 +32,8 @@ filter {
   if (is_record_dump()) {
     let hits = flow.count;
     console("pii record dump sport=%d hit=%d", sport, hits);
-    if (hits >= 2) return ban("ssn_dump", 1800);
-    return rst("ssn_dump", 0);
+    if (hits >= 2) decide ban("ssn_dump", 1800);
+    decide rst("ssn_dump", 0);
   }
-  return pass;
+  decide pass;
 }

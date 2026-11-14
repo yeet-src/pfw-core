@@ -9,12 +9,12 @@
 // locate a field by walking forward, then act on it in place.
 pattern trace = "TRACE ", options = "OPTIONS ", admin = "/admin";
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   // Methods that leak server internals: refuse them outright.
-  if (starts(payload, trace)) return drop("trace_method");
-  if (starts(payload, options)) return drop("options_method");
+  if (starts(payload, trace)) decide drop("trace_method");
+  if (starts(payload, options)) decide drop("options_method");
 
   // Advance to the path: cursor to the first space (within 16 bytes), then
   // skip the space(s) so it rests on the first byte of the path.
@@ -22,7 +22,7 @@ filter {
   skip(path, ' ');
 
   // Reset anyone probing /admin; tally every other request for metrics.
-  if (starts(path, admin)) return rst("admin_probe", 0);
+  if (starts(path, admin)) decide rst("admin_probe", 0);
   count("http_request");
-  return pass;
+  decide pass;
 }

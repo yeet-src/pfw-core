@@ -26,17 +26,17 @@ fn trace_class() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (sport != 80 && sport != 443) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 443) decide pass;
+  if (len == 0) decide pass;
 
   let klass = trace_class();
   if (klass > 0) {
     let hits = flow.count;
     console("error leak class=%d sport=%d hit=%d", klass, sport, hits);
     log(1);
-    if (hits >= 4) return ban("error_fuzzing", 600);   // active error fuzzing: ban briefly
-    return rst("error_leak", 0);                         // otherwise just cut the leak
+    if (hits >= 4) decide ban("error_fuzzing", 600);   // active error fuzzing: ban briefly
+    decide rst("error_leak", 0);                         // otherwise just cut the leak
   }
-  return pass;
+  decide pass;
 }

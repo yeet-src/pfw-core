@@ -27,20 +27,20 @@ fn sqli_score() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   // Time-based blind injection: the payload tries to stall the DB. Ban at once.
   if (any(scan(payload, 2048), sleep, benchmark, waitfor, pg_sleep)) {
     console("blind sqli from sport=%d", sport);
-    return ban("sqli_blind", 1800);
+    decide ban("sqli_blind", 1800);
   }
 
   let score = sqli_score();
-  if (score == 0) return pass;
+  if (score == 0) decide pass;
   console("sqli score=%d strikes=%d", score, flow.count);
   log(1);
-  if (score >= 3) return ban("sqli_high_confidence", 1800);
-  if (flow.count >= 3) return ban("sqli_repeat", 1800);
-  return rst("sqli", 0);
+  if (score >= 3) decide ban("sqli_high_confidence", 1800);
+  if (flow.count >= 3) decide ban("sqli_repeat", 1800);
+  decide rst("sqli", 0);
 }

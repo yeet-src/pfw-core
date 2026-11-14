@@ -4,7 +4,7 @@
 import { fromC, V } from "./helpers.mjs";
 
 const hit = (expr, opts = {}, len = 0) =>
-  fromC(`filter { if (${expr}) return drop("hit"); return pass; }`)
+  fromC(`filter { if (${expr}) decide drop("hit"); decide pass; }`)
     .run(new Uint8Array(len), {}, opts).verdict === V.DROP;
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
 
@@ -30,7 +30,7 @@ yeet.test("register vs register, and vs a scratch local", () => {
   eq(hit("len == dport", { dport: 5 }, 5), true, "reg==reg true");
   eq(hit("len == dport", { dport: 6 }, 5), false, "reg==reg false");
   // a let-local on the right-hand side
-  eq(fromC(`filter { let x = 80; if (dport == x) return drop("h"); return pass; }`)
+  eq(fromC(`filter { let x = 80; if (dport == x) decide drop("h"); decide pass; }`)
     .run(new Uint8Array(0), {}, { dport: 80 }).verdict, V.DROP, "var rhs eq");
 });
 

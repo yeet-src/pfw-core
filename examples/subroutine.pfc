@@ -18,8 +18,8 @@ fn is_scanner() {
 }
 
 filter {
-  if (dport != 80) return pass;
+  if (dport != 80) decide pass;
   is_scanner();
-  if (bp == 1) return ban("scanner", 3600);
-  return pass;
+  if (bp == 1) decide ban("scanner", 3600);
+  decide pass;
 }

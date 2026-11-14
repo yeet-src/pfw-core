@@ -28,18 +28,18 @@ fn command_present() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
 
   // A metacharacter alone is noise; a metacharacter PLUS a real command is the attack.
-  if (!metachar_present()) return pass;
+  if (!metachar_present()) decide pass;
   let cmd = command_present();
-  if (cmd == 0) return pass;
+  if (cmd == 0) decide pass;
 
   console("cmdinj cmd_score=%d sport=%d strikes=%d", cmd, sport, flow.count);
   log(1);
-  if (cmd >= 3) return ban("cmdinj_shell", 3600);            // reverse shell -> ban
-  if (flow.count >= 3) return ban("cmdinj_repeat", 1800);
-  return rst("cmdinj", 0);
+  if (cmd >= 3) decide ban("cmdinj_shell", 3600);            // reverse shell -> ban
+  if (flow.count >= 3) decide ban("cmdinj_repeat", 1800);
+  decide rst("cmdinj", 0);
 }

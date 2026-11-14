@@ -21,10 +21,10 @@ yeet.test("guard + a reusable closure fragment == source", () => {
     C.filter(guard(C.ne(C.dport, 80), C.pass()), blockUA("gptbot", C.rst("crawler", 60)), blockUA("claudebot", C.rst("crawler", 60)), C.pass()),
   );
   same("blockUA", p, `nocase; pattern gptbot="GPTBot",claudebot="ClaudeBot";
-    filter { if (dport!=80) return pass;
-      if (scan(payload,1460)&gptbot) return rst("crawler",60);
-      if (scan(payload,1460)&claudebot) return rst("crawler",60);
-      return pass; }`);
+    filter { if (dport!=80) decide pass;
+      if (scan(payload,1460)&gptbot) decide rst("crawler",60);
+      if (scan(payload,1460)&claudebot) decide rst("crawler",60);
+      decide pass; }`);
 });
 
 yeet.test("when(...) curried + allOf + match == source", () => {
@@ -33,8 +33,8 @@ yeet.test("when(...) curried + allOf + match == source", () => {
     C.pass(),
   ));
   same("when/allOf/match", p, `pattern bot="GPTBot"; filter {
-    if (proto==6 && dport==80) { log(16); if (scan(payload,256)&bot) return rst("b",0); }
-    return pass; }`);
+    if (proto==6 && dport==80) { log(16); if (scan(payload,256)&bot) decide rst("b",0); }
+    decide pass; }`);
 });
 
 yeet.test("unless / anyOf / none compose the expected conditions", () => {
@@ -44,9 +44,9 @@ yeet.test("unless / anyOf / none compose the expected conditions", () => {
     C.pass(),
   ));
   same("unless/anyOf/none", p, `filter {
-    if (!(dport==80 || dport==443)) { return drop("odd"); }
-    if (!(proto==6)) return pass;
-    return pass; }`);
+    if (!(dport==80 || dport==443)) { decide drop("odd"); }
+    if (!(proto==6)) decide pass;
+    decide pass; }`);
 });
 
 yeet.test("fragments generated from a list (closure map) behave", () => {

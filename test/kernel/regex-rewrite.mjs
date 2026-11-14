@@ -36,16 +36,16 @@ function roundtrip(payload) {
   });
 }
 
-const guard = `if (dport != ${PORT}) return pass;`;
+const guard = `if (dport != ${PORT}) decide pass;`;
 const CASES = [
   { name: "redact SSN (regex, 11 bytes)",
-    source: String.raw`regex ssn = "\d{3}-\d{2}-\d{4}";` + `\nfilter { ${guard} redact(ssn); return pass; }`,
+    source: String.raw`regex ssn = "\d{3}-\d{2}-\d{4}";` + `\nfilter { ${guard} redact(ssn); decide pass; }`,
     send: "ssn 123-45-6789 and 987-65-4321 x", want: "ssn *********** and *********** x" },
   { name: "replace card (regex, 19 bytes) with same-length mask",
-    source: String.raw`regex card = "\d{4}-\d{4}-\d{4}-\d{4}";` + `\nfilter { ${guard} replace(card, "XXXX-XXXX-XXXX-XXXX"); return pass; }`,
+    source: String.raw`regex card = "\d{4}-\d{4}-\d{4}-\d{4}";` + `\nfilter { ${guard} replace(card, "XXXX-XXXX-XXXX-XXXX"); decide pass; }`,
     send: "pan 4111-1111-1111-1111 ok", want: "pan XXXX-XXXX-XXXX-XXXX ok" },
   { name: "regex redact leaves non-matches",
-    source: String.raw`regex ssn = "\d{3}-\d{2}-\d{4}";` + `\nfilter { ${guard} redact(ssn); return pass; }`,
+    source: String.raw`regex ssn = "\d{3}-\d{2}-\d{4}";` + `\nfilter { ${guard} redact(ssn); decide pass; }`,
     send: "no pii here 12-34-5", want: "no pii here 12-34-5" },
 ];
 

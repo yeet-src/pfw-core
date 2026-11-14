@@ -9,9 +9,9 @@
 // let/arithmetic, flow.count escalation, console(), and drop/ban.
 reassemble 8080;
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
-  if (len == 0) return pass;              // pure ACKs cost nothing
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;              // pure ACKs cost nothing
 
   ring.push(len);
   let recent = ring.get(0) + ring.get(1) + ring.get(2);  // bytes in the last 3 requests
@@ -20,8 +20,8 @@ filter {
     let over = flow.count;
     log(2);
     console("http flood :%d over=%d recent=%d", sport, over, recent);
-    if (over >= 50) return ban("http_flood", 600);
-    return drop("too_fast");
+    if (over >= 50) decide ban("http_flood", 600);
+    decide drop("too_fast");
   }
-  return pass;
+  decide pass;
 }

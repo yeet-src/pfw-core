@@ -2,8 +2,8 @@
  * host sets at load time — the SAME compiled bytecode, no recompile. The program
  * resets connections to whatever port argv[0] names (default 1):
  *
- *   filter { if (dport != argv[0] ?? 1) return pass;
- *            log(16); return rst("port_arg", 0); }
+ *   filter { if (dport != argv[0] ?? 1) decide pass;
+ *            log(16); decide rst("port_arg", 0); }
  *
  *   - loaded with no args  -> argv[0] defaults to 1, so :PORT passes (no event)
  *   - loaded with --argv PORT -> argv[0] = PORT, so :PORT is reset (RST event)
@@ -42,7 +42,7 @@ function connect() {
   });
 }
 
-const source = `filter { if (dport != argv[0] ?? 1) return pass; log(16); return rst("port_arg", 0); }`;
+const source = `filter { if (dport != argv[0] ?? 1) decide pass; log(16); decide rst("port_arg", 0); }`;
 const CASES = [
   { name: "no args: argv[0] defaults to 1, :PORT passes", argv: null, want: V.PASS },
   { name: `--argv ${PORT}: argv[0] steers the reset to :PORT`, argv: String(PORT), want: V.RST },

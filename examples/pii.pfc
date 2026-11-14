@@ -8,7 +8,7 @@ regex ssn   = "\d{3}-\d{2}-\d{4}";
 regex email = "[a-z0-9._]+@[a-z0-9.]+\.[a-z]+";
 regex card  = "\d{13,16}";
 filter {
-  if (dport != 80) return pass;
-  if (any(scan(payload, 1460), ssn, email, card)) return rst("pii", 0);
-  return pass;
+  if (dport != 80) decide pass;
+  if (any(scan(payload, 1460), ssn, email, card)) decide rst("pii", 0);
+  decide pass;
 }

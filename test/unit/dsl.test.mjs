@@ -20,9 +20,9 @@ yeet.test("crawler rule (nocase, patterns, scan, any, rst)", () => {
     `nocase;
      pattern gptbot = "GPTBot", claudebot = "ClaudeBot";
      filter {
-       if (dport != 80) return pass;
-       if (scan(payload, 1460) & (gptbot | claudebot)) return rst("crawler", 60);
-       return pass;
+       if (dport != 80) decide pass;
+       if (scan(payload, 1460) & (gptbot | claudebot)) decide rst("crawler", 60);
+       decide pass;
      }`,
     C.program(
       C.nocase(),
@@ -39,10 +39,10 @@ yeet.test("crawler rule (nocase, patterns, scan, any, rst)", () => {
 yeet.test("cidr allow/deny", () => {
   sameProgram("cidr",
     `filter {
-       if (proto != 6) return pass;
-       if (src in "10.0.0.0/8") return pass;
-       if (src in "203.0.113.0/24") return drop("blocklist");
-       return pass;
+       if (proto != 6) decide pass;
+       if (src in "10.0.0.0/8") decide pass;
+       if (src in "203.0.113.0/24") decide drop("blocklist");
+       decide pass;
      }`,
     C.program(C.filter(
       C.iff(C.ne(C.proto, 6), C.pass()),
@@ -56,7 +56,7 @@ yeet.test("if/else, and, let arithmetic", () => {
   sameProgram("mix",
     `filter {
        let n = len + 2;
-       if (dport == 80 && n > 10) { return drop("big"); } else { return pass; }
+       if (dport == 80 && n > 10) { decide drop("big"); } else { decide pass; }
      }`,
     C.program(C.filter(
       C.let_("n", C.add(C.len, 2)),
@@ -68,10 +68,10 @@ yeet.test("ring over a reassembled flow", () => {
   sameProgram("ring",
     `reassemble 8080;
      filter {
-       if (len == 0) return pass;
+       if (len == 0) decide pass;
        ring.push(len);
-       if (ring.len >= 8) return rst("too_many", 0);
-       return pass;
+       if (ring.len >= 8) decide rst("too_many", 0);
+       decide pass;
      }`,
     C.program(C.reassemble(8080), C.filter(
       C.iff(C.eq(C.len, 0), C.pass()),
@@ -85,13 +85,13 @@ yeet.test("frame walk with type gating", () => {
   sameProgram("frame",
     `pattern bot = "GPTBot";
      filter {
-       if (proto != 6) return pass;
+       if (proto != 6) decide pass;
        frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
          if (frame.type == 1) {
-           if (scan(frame.data, 1024) & bot) return rst("h2_bot", 0);
+           if (scan(frame.data, 1024) & bot) decide rst("h2_bot", 0);
          }
        }
-       return pass;
+       decide pass;
      }`,
     C.program(C.pattern("bot", "GPTBot"), C.filter(
       C.iff(C.ne(C.proto, 6), C.pass()),
@@ -104,11 +104,11 @@ yeet.test("frame walk with type gating", () => {
 
 yeet.test("decode directives set the right program fields", () => {
   sameProgram("huffman",
-    `decode huffman 8080; pattern bot = "GPTBot"; filter { if (scan(payload,2048) & bot) return rst("x",0); return pass; }`,
+    `decode huffman 8080; pattern bot = "GPTBot"; filter { if (scan(payload,2048) & bot) decide rst("x",0); decide pass; }`,
     C.program(C.decode("huffman", 8080), C.pattern("bot", "GPTBot"),
       C.filter(C.iff(C.band(C.scan(C.payload, 2048), "bot"), C.rst("x", 0)), C.pass())));
   sameProgram("transform",
-    `decode unshift1 8080; pattern bot = "GPTBot"; filter { if (scan(payload,2048) & bot) return rst("x",0); return pass; }`,
+    `decode unshift1 8080; pattern bot = "GPTBot"; filter { if (scan(payload,2048) & bot) decide rst("x",0); decide pass; }`,
     C.program(C.decode("unshift1", 8080), C.pattern("bot", "GPTBot"),
       C.filter(C.iff(C.band(C.scan(C.payload, 2048), "bot"), C.rst("x", 0)), C.pass())));
 });

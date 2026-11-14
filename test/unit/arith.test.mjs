@@ -6,7 +6,7 @@ import { fromC, V } from "./helpers.mjs";
 /* Compute `expr` into x and drop("hit") iff x == want; so a pass means the
  * arithmetic produced something other than `want`. len comes from frame length. */
 const isVal = (expr, want, len = 0, opts = {}) =>
-  fromC(`filter { let x = ${expr}; if (x == ${want}) return drop("hit"); return pass; }`)
+  fromC(`filter { let x = ${expr}; if (x == ${want}) decide drop("hit"); decide pass; }`)
     .run(new Uint8Array(len), {}, opts).verdict === V.DROP;
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
 
@@ -27,12 +27,12 @@ yeet.test("arithmetic on a register operand (len)", () => {
 
 yeet.test("register + register", () => {
   // len(4) + dport(80) == 84
-  eq(fromC(`filter { let x = len + dport; if (x == 84) return drop("h"); return pass; }`)
+  eq(fromC(`filter { let x = len + dport; if (x == 84) decide drop("h"); decide pass; }`)
     .run(new Uint8Array(4), {}, { dport: 80 }).verdict, V.DROP, "reg+reg");
 });
 
 yeet.test("assign updates an existing local", () => {
-  const s = `filter { let x = 1; x = x + 10; x = x << 1; if (x == 22) return drop("h"); return pass; }`;
+  const s = `filter { let x = 1; x = x + 10; x = x << 1; if (x == 22) decide drop("h"); decide pass; }`;
   eq(fromC(s).run(new Uint8Array(0), {}, {}).verdict, V.DROP, "(1+10)<<1 == 22");
 });
 
@@ -40,6 +40,6 @@ yeet.test("many locals with non-overlapping live ranges reuse registers", () => 
   // Ten named locals (> 8 registers) but each dies before the next is needed.
   let body = "let acc = 0;";
   for (let i = 1; i <= 10; i++) body += ` let t${i} = ${i}; acc = acc + t${i};`;
-  const s = `filter { ${body} if (acc == 55) return drop("h"); return pass; }`;
+  const s = `filter { ${body} if (acc == 55) decide drop("h"); decide pass; }`;
   eq(fromC(s).run(new Uint8Array(0), {}, {}).verdict, V.DROP, "sum 1..10 == 55");
 });

@@ -7,12 +7,12 @@ pattern bot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 
 // Shared preamble: drop out of anything that isn't inbound HTTP.
 macro only_http {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 }
 
 filter {
   only_http;                            // expands to the two guards above
-  if (scan(payload, 1460) & (bot | claudebot | bytespider)) return rst("crawler", 60);
-  return pass;
+  if (scan(payload, 1460) & (bot | claudebot | bytespider)) decide rst("crawler", 60);
+  decide pass;
 }

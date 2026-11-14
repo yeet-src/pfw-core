@@ -15,8 +15,8 @@
 reassemble 8080;
 
 filter {
-  if (proto != 6) return pass;
-  if (len == 0) return pass;                 // pure ACKs don't count
+  if (proto != 6) decide pass;
+  if (len == 0) decide pass;                 // pure ACKs don't count
 
   ring.push(len);
   let recent = ring.get(0) + ring.get(1) + ring.get(2) + ring.get(3);
@@ -24,21 +24,21 @@ filter {
   // 1) request-rate ceiling (token bucket). rate() args are compile-time.
   if (rate(20, 40)) {
     console("rate exceeded sport=%d recent=%d", sport, recent);
-    if (flow.count >= 50) return ban("flood_repeat", 600);
-    return rst("rate_exceeded", 0);
+    if (flow.count >= 50) decide ban("flood_repeat", 600);
+    decide rst("rate_exceeded", 0);
   }
 
   // 2) cumulative segments — a connection that just won't stop.
   if (flow.count >= argv[2] ?? 500) {
     log(1);
-    return ban("too_many_segments", 600);
+    decide ban("too_many_segments", 600);
   }
 
   // 3) single oversize request (argv-tuned).
-  if (len > argv[3] ?? 65536) return rst("oversize_request", 0);
+  if (len > argv[3] ?? 65536) decide rst("oversize_request", 0);
 
   // 4) sudden bulk burst across the last four segments.
-  if (recent > 1000000) { console("burst sport=%d bytes=%d", sport, recent); return rst("burst", 0); }
+  if (recent > 1000000) { console("burst sport=%d bytes=%d", sport, recent); decide rst("burst", 0); }
 
-  return pass;
+  decide pass;
 }

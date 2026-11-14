@@ -35,7 +35,7 @@ function send() {
   });
 }
 
-const source = `filter { if (dport != ${PORT}) return pass; if (src6 in set6) { log(16); return rst("v6_blocked", 0); } return pass; }`;
+const source = `filter { if (dport != ${PORT}) decide pass; if (src6 in set6) { log(16); decide rst("v6_blocked", 0); } decide pass; }`;
 const CASES = [
   ["::1 in ::1/128 -> rst", "::1/128", V.RST],
   ["::1 in ::/0 -> rst", "::/0", V.RST],

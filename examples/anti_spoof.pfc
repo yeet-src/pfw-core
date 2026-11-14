@@ -24,12 +24,12 @@ fn bogon_class() {
 
 filter {
   let cls = bogon_class();
-  if (cls == 0) return pass;
+  if (cls == 0) decide pass;
 
   // A source that keeps spoofing is not a fluke — escalate to an hour-long ban
   // after a handful of forged packets; log every decision for correlation.
   console("spoof class=%d sport=%d strikes=%d", cls, sport, flow.count);
   log(1);
-  if (flow.count >= 4) return ban("spoof_repeat", 3600);
-  return drop("bogon_source");
+  if (flow.count >= 4) decide ban("spoof_repeat", 3600);
+  decide drop("bogon_source");
 }

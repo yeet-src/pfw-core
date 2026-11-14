@@ -10,11 +10,11 @@ nocase;
 reassemble 8080;
 pattern sqlmap = "sqlmap";
 filter {
-  if (dport != 80) return pass;
+  if (dport != 80) decide pass;
   if (scan(payload, 1460) & sqlmap) {
     printk("pfw: scanner from sport %d -> reset", sport);
-    return rst("scanner", 0);
+    decide rst("scanner", 0);
   }
   printk("pfw: allow :%d len %d", dport, len);
-  return pass;
+  decide pass;
 }

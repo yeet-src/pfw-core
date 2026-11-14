@@ -10,16 +10,16 @@
 nocase;
 decode h2 8080;
 filter {
-  if (proto != 6) return pass;
-  if (len == 0) return pass;
+  if (proto != 6) decide pass;
+  if (len == 0) decide pass;
 
   // >100 h2 messages/sec on one connection is stream churn, not real use
   if (rate(100, 200)) {
     let strikes = flow.count;
     log(5);
     console("h2 rapid-reset :%d strikes=%d", sport, strikes);
-    if (strikes >= 10) return ban("rapid_reset", 300);
-    return drop("h2_stream_flood");
+    if (strikes >= 10) decide ban("rapid_reset", 300);
+    decide drop("h2_stream_flood");
   }
-  return pass;
+  decide pass;
 }

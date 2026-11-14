@@ -401,17 +401,21 @@ function parse(toks) {
       return { kind: "switch", scrut, entries, line: t.line };
     }
     if (isKw("break")) { next(); eat("punct", ";"); return { kind: "break", line: t.line }; }
-    if (isKw("return")) {
+    if (isKw("decide")) {
+      // terminal verdict: decide pass|drop|count|ban|rst [ (...) ] ;
       next();
-      // verdict form: return pass|drop|count|ban|rst [ (...) ] ;
-      if (peek().type === "ident" && VERDICTS.has(peek().value)) {
-        const name = next().value;
-        let args = [];
-        if (isP("(")) args = parseCall(name, t.line).args;
-        eat("punct", ";");
-        return { kind: "return", verdict: name, args, line: t.line };
-      }
-      // value form (in a subroutine): return <expr>;  -> rv = expr, then ret
+      const name = eat("ident").value;
+      if (!VERDICTS.has(name)) err(`\`${name}\` is not a verdict (pass, drop, count, ban, rst)`);
+      let args = [];
+      if (isP("(")) args = parseCall(name, t.line).args;
+      eat("punct", ";");
+      return { kind: "return", verdict: name, args, line: t.line };
+    }
+    if (isKw("return")) {
+      // value return from a subroutine: return <expr>;  -> rv = expr, then ret
+      next();
+      if (peek().type === "ident" && VERDICTS.has(peek().value))
+        err(`verdicts use \`decide\` now — write \`decide ${peek().value}${peek().value === "pass" ? "" : "(...)"};\` (\`return\` is for a subroutine's value)`);
       const value = parseArith();
       eat("punct", ";");
       return { kind: "freturn", value, line: t.line };

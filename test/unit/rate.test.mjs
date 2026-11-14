@@ -13,7 +13,7 @@ const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
 const J = (ops) => JSON.stringify(ops, (_, v) => (typeof v === "bigint" ? "0x" + v.toString(16) : v));
 
-/* `if (rate(r,b)) return drop; return pass;` — pass = allowed, drop = limited. */
+/* `if (rate(r,b)) decide drop; decide pass;` — pass = allowed, drop = limited. */
 const limiter = (r, b) => C.program(C.filter(C.iff(C.rate(r, b), C.drop("rl")), C.pass()));
 const S = 1_000_000_000; // one second in ns
 
@@ -48,7 +48,7 @@ yeet.test("the bucket refills over time", () => {
 });
 
 yeet.test("pfw-C, DSL and asm all lower rate identically", () => {
-  const s = compile(`filter { if (rate(5, 10)) return drop("rl"); return pass; }`);
+  const s = compile(`filter { if (rate(5, 10)) decide drop("rl"); decide pass; }`);
   if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
   const d = limiter(5, 10);
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");
@@ -61,7 +61,7 @@ yeet.test("pfw-C, DSL and asm all lower rate identically", () => {
 
 yeet.test("pfw-C rejects bad rate arguments", () => {
   for (const bad of [`rate(10)`, `rate(0, 5)`, `rate(5, 0)`, `rate(1, 2, 3)`]) {
-    const r = compile(`filter { if (${bad}) return drop("x"); return pass; }`);
+    const r = compile(`filter { if (${bad}) decide drop("x"); decide pass; }`);
     if (r.ok) throw new Error("should have rejected: " + bad);
   }
 });

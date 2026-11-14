@@ -36,7 +36,7 @@ yeet.test("replace swaps a same-length string", () => {
 });
 
 yeet.test("replace rejects a different-length replacement at compile time", () => {
-  const r = compile(`pattern bot = "GPTBot"; filter { replace(bot, "NO"); return pass; }`);
+  const r = compile(`pattern bot = "GPTBot"; filter { replace(bot, "NO"); decide pass; }`);
   if (r.ok) throw new Error("expected a same-length error");
   if (!JSON.stringify(r.errors).includes("same-length")) throw new Error("wrong error: " + JSON.stringify(r.errors));
 });

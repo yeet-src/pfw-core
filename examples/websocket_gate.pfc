@@ -12,18 +12,18 @@ reassemble 80;
 pattern ws = "upgrade: websocket", conn_up = "connection: upgrade", key = "sec-websocket-key:", ok_path = "GET /ws/";
 
 filter {
-  if (dport != 80) return pass;
-  if (flow.state == 1) return pass;              // already-approved tunnel
+  if (dport != 80) decide pass;
+  if (flow.state == 1) decide pass;              // already-approved tunnel
 
   mask m = scan(payload, 1460);
   if (any(m, ws)) {                              // this request claims a WS upgrade
     if (all(m, ws, conn_up, key) && starts(payload, ok_path)) {
-      if (rate(5, 10)) { log(1); return drop("ws_flood"); }
+      if (rate(5, 10)) { log(1); decide drop("ws_flood"); }
       flow.state = 1 for 300;                     // approve for 5 minutes
-      return pass;
+      decide pass;
     }
     log(1);
-    return rst("ws_reject", 0);                   // malformed or off-path upgrade
+    decide rst("ws_reject", 0);                   // malformed or off-path upgrade
   }
-  return pass;
+  decide pass;
 }

@@ -14,17 +14,17 @@
 //  Op parameters like rate()/redirect()/dnat() still take compile-time literals.)
 pattern probe = "sqlmap", nikto = "nikto";
 filter {
-  if (proto != 6) return pass;
-  if (dport != argv[0] ?? 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != argv[0] ?? 80) decide pass;
 
   // Known scanners are always reset, regardless of configuration.
-  if (any(scan(payload, 1024), probe, nikto)) return rst("scanner", 0);
+  if (any(scan(payload, 1024), probe, nikto)) decide rst("scanner", 0);
 
   // Oversize requests: in strict mode reset them, otherwise just tally.
   if (len > argv[1] ?? 8192) {
     log(1);
-    if (argv[2] ?? 0 == 1) return rst("oversize", 0);
+    if (argv[2] ?? 0 == 1) decide rst("oversize", 0);
     count("oversize_seen");
   }
-  return pass;
+  decide pass;
 }

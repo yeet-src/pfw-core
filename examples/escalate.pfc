@@ -8,14 +8,14 @@
 // and per-flow state read + write with a TTL.
 reassemble 8080;
 filter {
-  if (len == 0) return pass;                 // ignore pure ACKs
+  if (len == 0) decide pass;                 // ignore pure ACKs
   ring.push(len);
 
   let recent = ring.get(0) + ring.get(1) + ring.get(2);
   if (recent > 3000) {
-    if (flow.state == 1) return rst("bulk_exfil", 0);   // second big burst: cut it
+    if (flow.state == 1) decide rst("bulk_exfil", 0);   // second big burst: cut it
     flow.state = 1 for 60;                               // first: arm for 60s
     log(1);
   }
-  return pass;
+  decide pass;
 }

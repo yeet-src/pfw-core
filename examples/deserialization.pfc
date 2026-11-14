@@ -29,14 +29,14 @@ fn deser_score() {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   let score = deser_score();
-  if (score < 2) return pass;
+  if (score < 2) decide pass;
   console("deser score=%d sport=%d strikes=%d", score, sport, flow.count);
   log(1);
-  if (score >= 3) return ban("deserialization_rce", 7200);   // native magic / gadget chain
-  if (flow.count >= 2) return ban("deser_repeat", 7200);
-  return drop("deserialization");
+  if (score >= 3) decide ban("deserialization_rce", 7200);   // native magic / gadget chain
+  if (flow.count >= 2) decide ban("deser_repeat", 7200);
+  decide drop("deserialization");
 }

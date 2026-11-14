@@ -11,7 +11,7 @@ const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${JSON.stringi
 const J = (ops) => JSON.stringify(ops, (_, v) => (typeof v === "bigint" ? "0x" + v.toString(16) : v));
 
 yeet.test("printk lowers to farg(s) + OP_PRINTK and stores the format", () => {
-  const c = compile(`filter { printk("drop port %d proto %d", dport, proto); return pass; }`);
+  const c = compile(`filter { printk("drop port %d proto %d", dport, proto); decide pass; }`);
   if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
   eq(c.printkFormats[0], "drop port %d proto %d", "format stored in the program");
   const op = c.program.ops.find((o) => o.code === OP.PRINTK);
@@ -26,7 +26,7 @@ yeet.test("printk is a no-op in the host model", () => {
 });
 
 yeet.test("pfw-C, DSL and asm agree on printk lowering", () => {
-  const s = compile(`filter { printk("p %d", dport); return pass; }`);
+  const s = compile(`filter { printk("p %d", dport); decide pass; }`);
   const d = C.program(C.filter(C.printk("p %d", C.ref("dport")), C.pass()));
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");
   const a = assemble(`        mov     %dport, %cur\n        farg\n        printk  $0\n        pass`);
@@ -40,7 +40,7 @@ yeet.test("printk validates args and rejects %s", () => {
     [`printk("%d %d", dport)`, "conversion"],
     [`printk("%d %d %d %d", dport, dport, dport, dport)`, "at most 3"],
   ]) {
-    const r = compile(`filter { ${src}; return pass; }`);
+    const r = compile(`filter { ${src}; decide pass; }`);
     if (r.ok) throw new Error("should reject: " + src);
     if (!JSON.stringify(r.errors).includes(needle)) throw new Error(`wrong error for ${src}: ${JSON.stringify(r.errors)}`);
   }

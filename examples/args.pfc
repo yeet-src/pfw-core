@@ -2,7 +2,7 @@
 //   - args go in %a0..%a6 (up to 7); a param name aliases its arg register,
 //   - a routine returns a value with `return <expr>;` (it lands in %rv), so a call
 //     is usable as a value (`let r = f(x);`, `if (f(x)) ...`, `if (f(x) == k) ...`);
-//     `return <verdict>` (return drop(...), return pass) still means the verdict,
+//     verdicts use `decide` (decide drop(...), decide pass) and are terminal anywhere,
 //   - routines are caller-saved over a0..a6/rv and share the data stack, so keep
 //     the stack balanced across a call and save anything you need past a nested call.
 //
@@ -21,8 +21,8 @@ fn has_scanner(ptr) {           // ptr: a packet pointer to scan from
 }
 
 filter {
-  if (dport != 80) return pass;
-  if (has_scanner(payload)) return ban("scanner_body", 3600);    // scan the request
-  if (has_scanner(after(host))) return ban("scanner_host", 3600); // scan just past Host:
-  return pass;
+  if (dport != 80) decide pass;
+  if (has_scanner(payload)) decide ban("scanner_body", 3600);    // scan the request
+  if (has_scanner(after(host))) decide ban("scanner_host", 3600); // scan just past Host:
+  decide pass;
 }

@@ -25,16 +25,16 @@ fn offsite_redirect(p) {
 }
 
 filter {
-  if (proto != 6) return pass;
-  if (dport != 80) return pass;
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
 
   ptr path = find(payload, ' ', 16);
   skip(path, ' ');
 
   let score = offsite_redirect(path);
-  if (score < 3) return pass;                 // need a param AND an external target
+  if (score < 3) decide pass;                 // need a param AND an external target
   console("open_redirect score=%d sport=%d", score, sport);
   log(1);
-  if (flow.count >= 3) return ban("open_redirect_repeat", 1800);
-  return drop("open_redirect");
+  if (flow.count >= 3) decide ban("open_redirect_repeat", 1800);
+  decide drop("open_redirect");
 }
