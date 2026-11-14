@@ -1,5 +1,5 @@
 /* pfw-C codegen: AST -> program ops, via the shared Builder. */
-import { Builder } from "#/builder.js";
+import { Builder } from "#/builder";
 import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { fixedLength } from "#/regex.js";

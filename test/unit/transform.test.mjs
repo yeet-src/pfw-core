@@ -4,7 +4,7 @@
  * into tt_cells, and a pfw-C `decode <table>` program compiles to the right
  * program fields. The kernel's acceptance of the loaded table is proven
  * separately by scripts/verify-load.mjs (the verifier can't run in this sandbox). */
-import { huffDecode } from "#/huffman.js";
+import { huffDecode } from "#/huffman";
 import { buildByteMap, TRANSFORM_TABLES, transformCells, TT_CELLS } from "#/transform.js";
 import { compile } from "#/clang";
 import { DECODE } from "#/isa.js";

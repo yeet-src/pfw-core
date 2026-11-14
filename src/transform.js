@@ -12,7 +12,7 @@
  *
  * huffDecode() in huffman.js runs ANY of these cell tables, so it doubles as the
  * reference model for every loaded table. */
-import { TT_CELL, buildHuffman } from "#/huffman.js";
+import { TT_CELL, buildHuffman } from "#/huffman";
 
 const TT_STATES = 256;
 export const TT_CELLS = TT_STATES * 16;

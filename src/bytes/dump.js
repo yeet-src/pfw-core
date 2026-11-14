@@ -1,54 +1,9 @@
-/* The compiled program as the bytes that actually go into the kernel
- * maps: the `programs` value serialized exactly as `struct pfw_prog`
- * (bpf/include/pfw.h), plus the Aho-Corasick entries for the ac_* maps.
- *
- * Layout (little-endian, x86 BPF), total 5392 bytes:
- *   u32 nops, npats, nocase, gen, reasm, _pad             @0   24 bytes
- *   struct pfw_op  ops[64]   { u32 code; u32 reg; u64 imm } @24  1024 bytes
- *   struct pfw_pat pats[64]  { u32 len; u8 bytes[64] }      @1048 4352 bytes
+/* Coloured / xxd-style dumps of the program bytes + the Aho-Corasick entries,
+ * for the editor's Bytes tab. mapModel() is structured; mapDump() is text.
  */
 import { build } from "#/ac.js";
 import { compile } from "#/clang";
-import { LIMITS } from "#/isa.js";
-
-const OPS = LIMITS.MAX_OPS; // 64
-const PATS = LIMITS.MAX_PATS; // 64
-const PATCAP = LIMITS.PAT_CAP; // 64
-const OP_SIZE = 16;
-const PAT_SIZE = 4 + PATCAP; // 68
-const OPS_AT = 32; // after nops,npats,nocase,gen,reasm,reasm_dport,decode,_pad
-const PATS_AT = OPS_AT + OPS * OP_SIZE; // 1048
-const TOTAL = PATS_AT + PATS * PAT_SIZE; // 5392
-
-/** Serialize a compiled program into its `struct pfw_prog` bytes. */
-export function serializeProgram(program, gen = 0) {
-  const buf = new Uint8Array(TOTAL);
-  const dv = new DataView(buf.buffer);
-  dv.setUint32(0, program.nops >>> 0, true);
-  dv.setUint32(4, program.npats >>> 0, true);
-  dv.setUint32(8, program.nocase >>> 0, true);
-  dv.setUint32(12, gen >>> 0, true);
-  dv.setUint32(16, (program.reasm ?? 0) >>> 0, true);
-  dv.setUint32(20, (program.reasm_dport ?? 0) >>> 0, true); // reasm_dport
-  dv.setUint32(24, (program.decode ?? 0) >>> 0, true); // decode
-  dv.setUint32(28, (program.transform_table ?? 0) >>> 0, true); // transform_table (DECODE_TRANSFORM)
-  for (let i = 0; i < OPS; i++) {
-    const op = program.ops[i];
-    const b = OPS_AT + i * OP_SIZE;
-    if (!op) continue;
-    dv.setUint32(b, op.code >>> 0, true);
-    dv.setUint32(b + 4, op.reg >>> 0, true);
-    dv.setBigUint64(b + 8, BigInt(op.imm ?? 0), true);
-  }
-  for (let i = 0; i < PATS; i++) {
-    const p = program.pats[i];
-    const b = PATS_AT + i * PAT_SIZE;
-    if (!p) continue;
-    dv.setUint32(b, p.len >>> 0, true);
-    for (let j = 0; j < PATCAP; j++) buf[b + 4 + j] = (p.bytes[j] ?? 0) & 0xff;
-  }
-  return buf;
-}
+import { serializeProgram, OPS_AT, PATS_AT, PAT_SIZE, OP_SIZE, TOTAL } from "#/bytes/serialize.js";
 
 /* xxd-style, with repeated 16-byte rows collapsed to `*`. */
 function hexdump(bytes, start = 0) {

@@ -1,185 +1,25 @@
 /* The pfw assembler: AT&T syntax (src, dst), `$imm`, `D(%reg)`, labels,
  * `.pat` / `.nocase` directives. docs/isa.md is the reference. It parses text and
  * drives the shared Builder (builder.js) — the same op-constructor the pfw-C
- * compiler uses — so there is one definition of how an op is built.
+ * compiler uses. `#/asm` (or pfw-core/asm) resolves here.
  *
- * assemble(source) → { ok, errors, program, patterns, rules, listing }
- *   program   the `programs` map value: { nops, npats, nocase, gen, ops, pats }
- *   patterns  [{ id, name, bytes, text }]       bit `id` of %m
- *   rules     [{ id, name }]                     counters[id]
- *   listing   [{ pc, text, line }]               one entry per emitted op
+ * assemble(source) -> { ok, errors, program, patterns, rules, listing }
  *
- * Immediates are BigInt in `ops[].imm`; the probe converts for the map.
+ * Split by concern under this directory: errors.js (AsmError/fail), lex.js
+ * (lexLine), operands.js (literal + operand parsing), index.js (the assembler).
  */
 import { DECODE, LIMITS, LOAD_BE, OP, REG } from "#/isa.js";
-import { Builder, BuildError, opText } from "#/builder.js";
+import { Builder, BuildError, opText } from "#/builder";
+import { AsmError, fail } from "#/asm/errors.js";
+import { lexLine } from "#/asm/lex.js";
+import { unescape, parseNumber, parseCidr, parseOperand, isWritable, isCur } from "#/asm/operands.js";
 
 export { opText };
 
 /* Opcodes whose `reg` field names a register (so the Builder may allocate it). */
 const REG_OPS = new Set([OP.MOV_RC, OP.MOV_CR, OP.ADD_R, OP.SUB_R, OP.CMP_R]);
-
 const SIZE_SUFFIX = { b: 1, w: 2, l: 4, q: 8 };
 const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF, call: OP.CALL };
-
-class AsmError extends Error {}
-const fail = (msg) => {
-  throw new AsmError(msg);
-};
-
-/* ---- lexing one line ----------------------------------------------------- */
-
-/* Split a line into label(s), mnemonic and operands, honouring quotes
- * and parentheses, and dropping a `;` or `#` comment. */
-function lexLine(raw) {
-  const out = { labels: [], mnem: null, operands: [] };
-  let i = 0;
-  const s = raw;
-  const n = s.length;
-  const isWs = (c) => c === " " || c === "\t";
-  const skipWs = () => {
-    while (i < n && isWs(s[i])) i++;
-  };
-  const isIdent = (c) => /[A-Za-z0-9_.]/.test(c);
-
-  for (;;) {
-    skipWs();
-    if (i >= n || s[i] === ";" || s[i] === "#") return out;
-    let j = i;
-    while (j < n && isIdent(s[j])) j++;
-    const word = s.slice(i, j);
-    let k = j;
-    while (k < n && isWs(s[k])) k++;
-    if (word && s[k] === ":") {
-      out.labels.push(word);
-      i = k + 1;
-      continue;
-    }
-    if (!word) fail(`unexpected \`${s[i]}\``);
-    out.mnem = word;
-    i = j;
-    break;
-  }
-  /* operands: comma separated at depth 0, strings kept whole */
-  let depth = 0;
-  let cur = "";
-  let inStr = false;
-  for (; i < n; i++) {
-    const c = s[i];
-    if (inStr) {
-      cur += c;
-      if (c === "\\" && i + 1 < n) {
-        cur += s[++i];
-        continue;
-      }
-      if (c === '"') inStr = false;
-      continue;
-    }
-    if (c === '"') {
-      inStr = true;
-      cur += c;
-      continue;
-    }
-    if (c === "'" && i + 2 < n) {
-      let j = i + 1;
-      let lit = "'";
-      if (s[j] === "\\") {
-        lit += s[j] + s[j + 1];
-        j += 2;
-      } else {
-        lit += s[j];
-        j += 1;
-      }
-      if (s[j] !== "'") fail("unterminated char literal");
-      cur += lit + "'";
-      i = j;
-      continue;
-    }
-    if ((c === ";" || c === "#") && depth === 0) break;
-    if (c === "(") depth++;
-    if (c === ")") depth--;
-    if (c === "," && depth === 0) {
-      out.operands.push(cur.trim());
-      cur = "";
-      continue;
-    }
-    cur += c;
-  }
-  if (inStr) fail("unterminated string");
-  if (cur.trim()) out.operands.push(cur.trim());
-  return out;
-}
-
-/* ---- literals ------------------------------------------------------------ */
-
-const ESC = { n: 10, r: 13, t: 9, 0: 0, "\\": 92, '"': 34, "'": 39 };
-
-function unescape(body) {
-  const out = [];
-  for (let i = 0; i < body.length; i++) {
-    const c = body[i];
-    if (c !== "\\") {
-      out.push(c.charCodeAt(0) & 0xff);
-      continue;
-    }
-    const e = body[++i];
-    if (e === "x") {
-      const hex = body.slice(i + 1, i + 3);
-      if (!/^[0-9a-fA-F]{2}$/.test(hex)) fail(`bad \\x escape`);
-      out.push(parseInt(hex, 16));
-      i += 2;
-    } else if (e in ESC) out.push(ESC[e]);
-    else fail(`unknown escape \\${e}`);
-  }
-  return out;
-}
-
-function parseNumber(tok) {
-  if (/^-?0x[0-9a-fA-F]+$/.test(tok)) return BigInt(tok.replace("-", "")) * (tok.startsWith("-") ? -1n : 1n);
-  if (/^-?\d+$/.test(tok)) return BigInt(tok);
-  if (/^'(\\.|[^'\\])'$/.test(tok)) return BigInt(unescape(tok.slice(1, -1))[0]);
-  return null;
-}
-
-/* "A.B.C.D/PREFIX" → the OP_CIDR immediate: net in the low 32 bits (host
- * order, as %saddr is), prefix length in bits 32..39. */
-function parseCidr(text) {
-  const m = text.replace(/^\$/, "").match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
-  if (!m) fail(`bad CIDR \`${text}\` (want A.B.C.D/PREFIX)`);
-  const oct = m.slice(1, 5).map(Number);
-  const prefix = Number(m[5]);
-  if (oct.some((x) => x > 255)) fail("CIDR octet 0–255");
-  if (prefix > 32) fail("CIDR prefix 0–32");
-  const net = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
-  return (BigInt(prefix) << 32n) | BigInt(net);
-}
-
-/* ---- operands ------------------------------------------------------------ */
-
-/* {kind:"imm", text} | {kind:"reg", name, idx} | {kind:"mem", disp, base} | {kind:"label", name} */
-function parseOperand(tok) {
-  if (tok.startsWith("$")) return { kind: "imm", text: tok.slice(1) };
-  if (tok.startsWith("%")) {
-    const name = tok.slice(1).toLowerCase();
-    if (!(name in REG)) fail(`no register \`%${name}\``);
-    return { kind: "reg", name, idx: REG[name] };
-  }
-  const m = tok.match(/^(-?(?:0x[0-9a-fA-F]+|\d+))?\((%\w+)\)$/);
-  if (m) {
-    const base = parseOperand(m[2]);
-    const disp = m[1] ? parseNumber(m[1]) : 0n;
-    return { kind: "mem", disp, base };
-  }
-  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(tok)) return { kind: "label", name: tok };
-  fail(`bad operand \`${tok}\``);
-}
-
-const isCur = (o) => o?.kind === "reg" && o.name === "cur";
-/* %end is writable so `frame` can shrink the readable window to one record;
- * it only ever narrows reads (window/load clamp to it), so it stays safe. */
-const isWritable = (o) => o?.kind === "reg" && /^(s[0-7]|m|end)$/.test(o.name);
-
-/* ---- the assembler ------------------------------------------------------- */
 
 export function assemble(source) {
   const errors = [];

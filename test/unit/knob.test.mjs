@@ -4,7 +4,7 @@
  * compiler assigns each name a slot (program.knobs[slot] === name); exec takes
  * the current values as { name: value }. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 import * as C from "#/dsl.js";
 
 const enc = (s) => new TextEncoder().encode(s);

@@ -2,7 +2,7 @@
  * (stack pointer) and %bp (base pointer) registers. push stores %cur and bumps
  * %sp; pop lowers %sp and loads %cur; %bp lets a program save/restore %sp. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

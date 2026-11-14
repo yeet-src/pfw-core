@@ -4,7 +4,7 @@
  * and the language have drifted. Also covers the Program wrapper the DSL returns. */
 import { compile } from "#/clang";
 import * as C from "#/dsl.js";
-import { Program } from "#/program.js";
+import { Program } from "#/program";
 
 const J = (x) => JSON.stringify(x, (_, val) => (typeof val === "bigint" ? "0x" + val.toString(16) : val));
 const sameProgram = (name, source, prog) => {

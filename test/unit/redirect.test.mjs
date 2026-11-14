@@ -5,7 +5,7 @@
  * (pfw-C, DSL, asm) produce the same bytecode. */
 import * as C from "#/dsl.js";
 import { compile } from "#/clang";
-import { assemble } from "#/asm.js";
+import { assemble } from "#/asm";
 import { OP } from "#/isa.js";
 
 const enc = (s) => new TextEncoder().encode(s);

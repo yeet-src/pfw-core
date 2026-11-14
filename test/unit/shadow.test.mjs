@@ -3,7 +3,7 @@
  * would-be verdict is surfaced in `would`, so you can see what a rule WOULD block
  * before enforcing it. Also readable in-program as `%shadow`. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

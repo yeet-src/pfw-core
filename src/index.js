@@ -16,19 +16,19 @@
 export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE } from "#/isa.js";
 
 // Assembler: AT&T-syntax text -> program.
-export { assemble } from "#/asm.js";
+export { assemble } from "#/asm";
 
 // The op Builder: emit ops programmatically (both front-ends target it); opText
 // disassembles one op.
-export { Builder, opText } from "#/builder.js";
+export { Builder, opText } from "#/builder";
 
 // pfw-C compiler: source -> Builder -> program.
 export { compile, compileAst, compileToAsm } from "#/clang";
 
 // A compiled program as a runnable object (.exec(frame, opts), .bytes(), .tables()).
-export { Program } from "#/program.js";
+export { Program } from "#/program";
 import { compile as _compile } from "#/clang";
-import { Program as _Program } from "#/program.js";
+import { Program as _Program } from "#/program";
 /** Compile pfw-C source straight to a runnable Program (throws on error). */
 export function load(source) {
   const c = _compile(source);
@@ -37,14 +37,14 @@ export function load(source) {
 }
 
 // Bytecode: the `programs` map value, and coloured map dumps.
-export { serializeProgram, mapModel, mapDump } from "#/bytes.js";
+export { serializeProgram, mapModel, mapDump } from "#/bytes";
 
 // Aho-Corasick: patterns -> the ac_goto / ac_fail / ac_accept tables.
 export { build } from "#/ac.js";
 
 // HPACK Huffman (P2): build the decode table from RFC 7541, decode, emit the
 // kernel's const header.
-export { buildHuffman, huffDecode, codes, headerText, TT_CELL } from "#/huffman.js";
+export { buildHuffman, huffDecode, codes, headerText, TT_CELL } from "#/huffman";
 
 // Loadable transform tables (general P2): build a table, the name→id registry,
 // and the flat cells the host loads into the tt_cells map.

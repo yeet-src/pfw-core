@@ -4,7 +4,7 @@
  * reference implementation there is no differential oracle on the host, so these
  * are properties, not golden outputs; they catch crashes, non-determinism and
  * out-of-range results across the whole op space, which the fixed tests can't. */
-import { assemble } from "#/asm.js";
+import { assemble } from "#/asm";
 import { build } from "#/ac.js";
 import { machine, V } from "#/interp.js";
 

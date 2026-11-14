@@ -3,7 +3,7 @@
  * Routines share the register file and the stack with the caller, so they pass
  * values through registers or push/pop. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

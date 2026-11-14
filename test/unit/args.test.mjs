@@ -3,7 +3,7 @@
  * comes back in %a0 (so `let r = name(x)` works). Up to 4 args. Routines are
  * caller-saved over a0..a3 — a nested call reuses them. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

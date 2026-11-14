@@ -3,7 +3,7 @@
  * is C-style: `case V:` statement lists that fall through until `break;`. Both
  * evaluate the scrutinee once; no new opcodes (compare + forward jumps). */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

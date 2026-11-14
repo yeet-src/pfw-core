@@ -5,7 +5,7 @@
  * tested, not just compiled. (Primitive end-to-end behavior is in the other
  * files; this pins each op.) Every opcode in isa.js is exercised at least once;
  * the "coverage" case at the end fails if one is missed. */
-import { assemble } from "#/asm.js";
+import { assemble } from "#/asm";
 import { build } from "#/ac.js";
 import { machine, V } from "#/interp.js";
 import { OP } from "#/isa.js";

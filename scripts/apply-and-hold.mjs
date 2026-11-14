@@ -11,7 +11,7 @@ import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } 
 import { compile } from "#/clang";
 import { build } from "#/ac.js";
 import { LIMITS } from "#/isa.js";
-import { formatMsg } from "#/program.js";
+import { formatMsg } from "#/program";
 import { transformCells } from "#/transform.js";
 
 const argv = yeet.args ?? {};

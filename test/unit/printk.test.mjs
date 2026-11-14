@@ -4,7 +4,7 @@
  * lowering, the stored format, and the validation. */
 import * as C from "#/dsl.js";
 import { compile } from "#/clang";
-import { assemble } from "#/asm.js";
+import { assemble } from "#/asm";
 import { OP } from "#/isa.js";
 
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${JSON.stringify(g)}, want ${JSON.stringify(w)}`); };

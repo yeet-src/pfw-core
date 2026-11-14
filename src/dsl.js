@@ -18,7 +18,7 @@
  *   // prog === compile(sourceText) for the equivalent program
  */
 import { compileAst } from "#/clang";
-import { Program } from "#/program.js";
+import { Program } from "#/program";
 
 /* ---- expressions --------------------------------------------------------- */
 

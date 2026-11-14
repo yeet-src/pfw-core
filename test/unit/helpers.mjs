@@ -1,7 +1,7 @@
 /* Shared helpers for the behavioral (yeet) tests: compile/assemble a program and
  * get a `run(frame, flow, opts)` over the reference interpreter, plus a few
  * conveniences. Not a test module itself (no `.test.` suffix), just imported. */
-import { assemble } from "#/asm.js";
+import { assemble } from "#/asm";
 import { compile } from "#/clang";
 import { build } from "#/ac.js";
 import { machine, V } from "#/interp.js";

@@ -4,12 +4,22 @@
   "description": "The programmable-firewall VM: ISA, pfw-C compiler, bytecode, and a reference interpreter, with an eBPF/XDP backend.",
   "type": "module",
   "imports": {
+    "#/asm": "./src/asm/index.js",
+    "#/builder": "./src/builder/index.js",
+    "#/bytes": "./src/bytes/index.js",
     "#/clang": "./src/clang/index.js",
+    "#/huffman": "./src/huffman/index.js",
+    "#/program": "./src/program/index.js",
     "#/*": "./src/*"
   },
   "exports": {
     ".": "./src/index.js",
+    "./asm": "./src/asm/index.js",
+    "./builder": "./src/builder/index.js",
+    "./bytes": "./src/bytes/index.js",
     "./clang": "./src/clang/index.js",
+    "./huffman": "./src/huffman/index.js",
+    "./program": "./src/program/index.js",
     "./*": "./src/*"
   },
   "scripts": {
@@ -18,7 +28,7 @@
     "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs",
     "test:verify": "yeet run scripts/verify-load.mjs",
     "test:kernel": "node test/kernel/diff.mjs",
-    "gen:huff": "node src/huffman.js",
+    "gen:huff": "node src/huffman/index.js",
     "bpf": "make bpf",
     "test:rewrite": "node test/kernel/rewrite.mjs",
     "test:dnat": "node test/kernel/dnat.mjs",

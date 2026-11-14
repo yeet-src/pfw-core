@@ -6,7 +6,7 @@
  * reload. The compiler assigns each name a slot (program.knobStrs[slot] === name);
  * exec takes the current strings as { name: "needle" }. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };

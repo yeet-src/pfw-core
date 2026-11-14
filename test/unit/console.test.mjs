@@ -3,8 +3,8 @@
  * pointer. The reference interpreter formats them (same formatter the loader
  * uses) and exec() returns them in `console`, and calls opts.onConsole if given. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
-import { formatMsg } from "#/program.js";
+import { toProgram } from "#/program";
+import { formatMsg } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${JSON.stringify(g)}, want ${JSON.stringify(w)}`); };

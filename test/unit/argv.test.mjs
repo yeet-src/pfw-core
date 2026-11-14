@@ -6,8 +6,8 @@
  * all three front-ends agree. */
 import * as C from "#/dsl.js";
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
-import { assemble } from "#/asm.js";
+import { toProgram } from "#/program";
+import { assemble } from "#/asm";
 import { OP } from "#/isa.js";
 
 const prog = (src) => toProgram(compile(src));

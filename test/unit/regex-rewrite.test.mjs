@@ -4,7 +4,7 @@
  * pattern is rejected at compile time. The reference interpreter rewrites the
  * frame buffer, so these assert on the bytes after exec. */
 import { compile } from "#/clang";
-import { toProgram } from "#/program.js";
+import { toProgram } from "#/program";
 
 const enc = (s) => new TextEncoder().encode(s);
 const dec = (u) => String.fromCharCode(...u);

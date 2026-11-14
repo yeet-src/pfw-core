@@ -1,7 +1,7 @@
 /* HPACK Huffman table (P2) built by src/huffman.js, validated against RFC 7541's
  * worked examples and by a full encode->decode round-trip of all 256 bytes. This
  * is what makes the baked bpf/include/huff_table.h trustworthy. */
-import { buildHuffman, huffDecode, codes } from "#/huffman.js";
+import { buildHuffman, huffDecode, codes } from "#/huffman";
 
 const T = buildHuffman();
 const fromHex = (s) => Uint8Array.from(s.match(/../g).map((b) => parseInt(b, 16)));
