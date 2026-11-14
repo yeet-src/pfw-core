@@ -50,3 +50,27 @@ yeet.test("break outside a switch/match is a compile error", () => {
   if (r.ok) throw new Error("expected a break-outside error");
   if (!JSON.stringify(r.errors).includes("break")) throw new Error("wrong error: " + JSON.stringify(r.errors));
 });
+
+/* within(ptr, n): the fresh scan. scan() ORs into the one match mask, so a second
+ * scan over a narrower window still reports what the first one saw anywhere;
+ * within() starts from an empty mask and automaton, so its result is exactly the
+ * patterns inside its window. */
+yeet.test("scan accumulates across scans; within reports only its own window", async () => {
+  const { load } = await import("#/index.js");
+  const req = new TextEncoder().encode("GET /blog/gptbot-news HTTP/1.1\r\nUser-Agent: Mozilla/5.0\r\nAccept: */*\r\n\r\n");
+  const bot = new TextEncoder().encode("GET /index.html HTTP/1.1\r\nUser-Agent: Mozilla/5.0 (compatible; GPTBot/1.2)\r\nAccept: */*\r\n\r\n");
+  const prog = (fn) => load(`nocase; pattern ua = "user-agent: ", gptbot = "gptbot";
+    filter { if (!(scan(payload, 1024) & ua)) decide pass; ptr agent = after(ua); if (${fn}(agent, 128) & gptbot) decide drop("bot"); decide pass; }`);
+  const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
+  eq(prog("scan").exec(req, {}).verdict, "drop", "scan: the bot name in the PATH leaks into the 'anchored' test");
+  eq(prog("within").exec(req, {}).verdict, "pass", "within: a bot name in the path is not in the user-agent");
+  eq(prog("within").exec(bot, {}).verdict, "drop", "within: a bot name in the user-agent is caught");
+});
+
+yeet.test("within does not complete a match begun before its window", async () => {
+  const { load } = await import("#/index.js");
+  /* "EVIL" ends exactly where the window starts: the tail "PAYLOAD" alone is not the pattern. */
+  const p = load(`pattern sig = "EVILPAYLOAD", mark = "|"; filter { if (!(scan(payload, 4) & mark)) decide pass; ptr q = after(mark); if (within(q, 64) & sig) decide drop("sig"); decide pass; }`);
+  const r = p.exec(new TextEncoder().encode("EVI|PAYLOAD..."), {});
+  if (r.verdict !== "pass") throw new Error("a fresh scan must restart the automaton: got " + r.verdict);
+});

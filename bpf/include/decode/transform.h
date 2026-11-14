@@ -82,16 +82,16 @@ static long __attribute__((unused)) tf_map_step(__u32 i, void *ctx_)
     return 0;
 }
 
-/* Copy the decoded output from st->dec back into the flow buffer, which the
- * matcher reads in reasm mode. (Decode can't write the flow buffer in place:
- * output runs ahead of the read cursor, so it would clobber unread input.) */
+/* Copy the decoded output from st->dec into st->view, the buffer the matcher
+ * reads after a decode stage. The flow's reassembled stream is left untouched,
+ * so the next segment still lands in the stream it belongs to. */
 struct cp_ctx { struct flow *f; struct pfw_state *st; __u32 n; };
 static long cp_step(__u32 i, void *ctx_)
 {
     struct cp_ctx *c = ctx_;
     if (i >= c->n)
         return 1;
-    c->f->reasm[PFW_MASK(i, REASM_CAP)] = c->st->dec[PFW_MASK(i, REASM_CAP)];
+    c->st->view[PFW_MASK(i, REASM_CAP)] = c->st->dec[PFW_MASK(i, REASM_CAP)];
     return 0;
 }
 

@@ -25,6 +25,10 @@
 #define PFW_KNOBSTRS 16   /* live host-set string knobs (OP_KNOBHAS / the `knob_strs` map) */
 #define KNOBSTR_CAP  64   /* bytes per string knob (the needle) */
 #define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
+#define NAT_MAX      16384 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
+#define SRC_MAX      65536 /* sources tracked for per-source state (the `sources` map, LRU) */
+#define SCOPE_FLOW   0    /* state ops act on this connection (flow.state / flow.count / rate) */
+#define SCOPE_SRC    1    /* ...or on the source address (src.state / src.count / src.rate) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -66,7 +70,18 @@
 #define TT_SYM_SHIFT 16               /* cell bits 16..23: the emitted byte */
 #define H2_PREFACE   "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define H2_PREFACE_LEN 24
-#define H2_MAX_FRAMES 8    /* frames walked per decode pass */
+#define H2_MAX_FRAMES 256  /* frames walked per decode pass (a full window of 9-byte frames is 227) */
+#define H2_CAP        4096 /* h2 work buffers: the header block, its intermediate, the decoded view */
+#define H2_DYN_SLOTS  64   /* HPACK dynamic-table entries kept per connection (the newest) */
+#define H2_ENT_CAP    256  /* bytes kept per dynamic-table entry (name + value, truncated past it) */
+#define H2_CONNS      1024 /* h2 connections with a live dynamic table (the `h2conns` map, LRU) */
+#define H2_RST_LINES  8    /* max ":frame: rst_stream" marker lines emitted per packet */
+#define REASM_KEEP    PFW_PAT_CAP /* bytes of the old window kept when the reassembly window slides,
+                                   * so a pattern that straddles the edge is still seen whole */
+/* flow.h2_mode: what a `decode h2` connection turned out to carry. */
+#define H2_MODE_UNKNOWN 0  /* fewer than 24 bytes seen: no verdict on the preface yet */
+#define H2_MODE_H2      1  /* client preface seen: frames are parsed, headers decoded */
+#define H2_MODE_RAW     2  /* not HTTP/2 (e.g. HTTP/1.1 on the same port): matched as a plain stream */
 #define DECIDE_BUCKETS 16 /* decision-time histogram buckets; a power of two */
 /* Upper bounds (ns, exclusive) of the first DECIDE_BUCKETS - 1 buckets,
  * the last bucket being +inf: log-spaced at a ratio of 2^(2/3) from 63 ns
@@ -122,7 +137,7 @@ enum pfw_opcode {
     OP_JMP,     /* pc = imm (forward only) */
     OP_JE, OP_JNE, OP_JB, OP_JAE, OP_JA, OP_JBE,
     OP_JF,      /* jump if the fault flag is set */
-    OP_SCAN,    /* run the automaton over imm bytes at cur */
+    OP_SCAN,    /* run the automaton over imm bytes at cur; reg bit 0 = fresh (clear %m and the automaton first) */
     OP_MPOS,    /* cur = offset past the first match of pattern reg; fault if none */
     OP_CMPSTR,  /* ZF = bytes at cur equal pattern reg */
     OP_FINDB,   /* cur = offset of byte reg within imm bytes; fault if none */
@@ -131,13 +146,13 @@ enum pfw_opcode {
     OP_DROP,    /* rule = reg */
     OP_COUNT,   /* rule = reg */
     OP_LOG,     /* imm bytes at cur into the event */
-    OP_BAN,     /* rule = reg, ttl seconds = imm: mark the flow, drop */
+    OP_BAN,     /* rule = reg, ttl seconds = imm: ban the SOURCE address (and mark the flow), drop */
     OP_RST,     /* rule = reg, ttl seconds = imm: mark the flow, answer with a RST */
     OP_FLOW,    /* cur = the flow's mark */
     OP_MARK,    /* mark = reg, ttl seconds = imm */
-    OP_SLOAD,   /* cur = this flow's user state */
-    OP_SSTORE,  /* this flow's user state = imm */
-    OP_BUMP,    /* cur = ++this flow's hit counter (per-connection rate limiting) */
+    OP_SLOAD,   /* cur = user state; reg = scope (SCOPE_FLOW this connection, SCOPE_SRC the source) */
+    OP_SSTORE,  /* user state = imm low 32; reg = ttl seconds; imm bit 32 = scope */
+    OP_BUMP,    /* cur = ++hit counter; reg = scope (flow.count / src.count) */
     OP_OR_I,    /* cur |= imm */
     OP_SHL_I,   /* cur <<= imm */
     OP_SHR_I,   /* cur >>= imm */
@@ -153,7 +168,7 @@ enum pfw_opcode {
     OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
     OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
     OP_REDIRECT,/* forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path */
-    OP_RATE,    /* token-bucket rate limit on the flow: imm = rate/sec (low 32) | burst (high 32); ZF = over the limit */
+    OP_RATE,    /* token-bucket rate limit: imm = rate/sec (low 32) | burst (high 32); reg = scope; ZF = over the limit */
     OP_ARG,     /* cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) | default (low 32) */
     OP_ARGC,    /* cur = argc (number of runtime args the host set) */
     OP_FARG,    /* push cur as the next numeric format argument (for console/printk) */
@@ -243,9 +258,71 @@ struct flow {
     __u32 reasm_len;     /* contiguous bytes from base (the inspectable prefix) */
     __u64 reasm_total;   /* lifetime bytes placed (0 = nothing seen yet) */
     __u8  synned;        /* saw this flow's SYN: it is tracked from the start */
-    __u8  _fpad[7];
+    __u8  h2_mode;       /* decode h2: H2_MODE_* */
+    __u8  h2_new;        /* decode h2: a new connection — its dynamic table must start empty */
+    __u8  reasm_resync;  /* the last segment was larger than the window: restart at reasm_resync_seq */
+    __u32 h2_skip;       /* decode h2: stream bytes left of a frame body being skipped (DATA, ...) */
+    __u32 h2_ins;        /* decode h2: dynamic-table insertions so far (must match the h2conns entry) */
+    __u32 reasm_resync_seq;
+    __u32 _fpad;
     __u8  reasm[REASM_CAP];
     __u8  filled[REASM_CAP / 8]; /* 1 bit per buffered byte, for gap tracking */
+};
+
+/* Per-SOURCE state, keyed on the source address alone (not the 4-tuple), so it
+ * survives a reconnect from a new port: the source ban (`ban`), and the
+ * source-scoped twins of the per-flow state — src.state, src.count, src.rate. */
+struct src_key {
+    __u8 addr[16];   /* IPv4 in the first 4 bytes (rest zero), or IPv6 */
+    __u8 family;
+    __u8 _pad[3];
+};
+
+struct source {
+    __u32 mark;          /* MARK_DROP while the source is banned */
+    __u32 rule;          /* the rule that banned it */
+    __u64 expires;       /* ktime ns the ban lifts (0 = never) */
+    __u32 user_state;    /* src.state */
+    __u32 hits;          /* src.count */
+    __u64 state_expires; /* ktime ns when user_state reverts to 0 (0 = never) */
+    __u64 rl_tokens;     /* src.rate token bucket (x RL_SCALE) */
+    __u64 rl_ts;         /* src.rate last-refill ktime ns */
+};
+
+/* The reply path of a `dnat`: key = the reply's tuple as it appears on the wire
+ * (from the new destination, to the client), value = the original destination to
+ * put back as the reply's source. All fields in network byte order. */
+struct nat_key {
+    __be32 saddr, daddr;
+    __be16 sport, dport;
+    __u8 proto;
+    __u8 _pad[3];
+};
+
+struct nat_val {
+    __be32 ip;
+    __be16 port;
+    __u16 _pad;
+};
+
+/* One HTTP/2 connection's HPACK dynamic table (the request direction), in the
+ * `h2conns` map keyed like the flow. A ring of the newest H2_DYN_SLOTS entries:
+ * HPACK index 62 is the most recent insertion, 63 the one before, and so on. The
+ * encoder evicts by byte size, but it never references an entry it evicted, so
+ * keeping "the newest N" resolves every reference a compliant client can make
+ * as long as its table holds at most N entries. Each entry is name then value,
+ * concatenated in data[] (nlen bytes of name, vlen of value, truncated at cap). */
+struct h2ent {
+    __u16 nlen, vlen;
+    __u8 data[H2_ENT_CAP];
+};
+
+struct h2conn {
+    __u32 head;   /* next slot to write (mod H2_DYN_SLOTS) */
+    __u32 count;  /* live entries, saturating at H2_DYN_SLOTS */
+    __u32 ins;    /* total insertions (checked against flow.h2_ins to catch a lost table) */
+    __u32 _pad;
+    struct h2ent ent[H2_DYN_SLOTS];
 };
 
 struct pfw_event {

@@ -77,17 +77,21 @@ export class Program {
   exec(frame, opts = {}) {
     this._run ??= machine({ asm: { program: this.program }, tables: this.tables(), regex: this.regex });
     const { payload = 0, proto = 6, dport = 80, flow = {} } = opts;
+    /* A standing source ban is enforced at the kernel entry, before the program
+     * runs: every later packet from that address is dropped, whatever it holds. */
+    if (opts.source?.banned && !opts.shadow)
+      return { verdict: "drop", code: V.DROP, rule: 0, ruleName: undefined, banned: true, flow, source: opts.source, console: [] };
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
     const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
-    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
+    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, sport: opts.sport ?? 0, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
-      bucket: opts.bucket, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
+      bucket: opts.bucket, source: opts.source ?? null, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
       knobs: this.knobs.map((name, slot) => opts.knobs?.[name] ?? this.knobDefaults[slot] ?? 0),
       knobStrs: this.knobStrs.map((name) => opts.knobStrs?.[name] ?? "") });
     const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));
     if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
-    return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, console: consoleOut };
+    return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
   }
 }
 

@@ -37,7 +37,10 @@ static __always_inline void console_emit(struct xdp_md *ctx, struct pfw_state *s
     bpf_ringbuf_submit(e, 0);
 }
 
-static __always_inline void emit(struct xdp_md *ctx, struct pkt *p, struct pfw_state *st, __u32 verdict)
+/* `rsrc` is the buffer the program was reading when it is not the packet (the
+ * reassembled stream, or a decoded view): log() offsets are relative to it, so
+ * that is where the logged bytes must come from. NULL = the packet. */
+static __always_inline void emit(struct xdp_md *ctx, struct pkt *p, struct pfw_state *st, __u32 verdict, __u8 *rsrc)
 {
     struct pfw_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
     if (!e) {
@@ -69,7 +72,12 @@ static __always_inline void emit(struct xdp_md *ctx, struct pkt *p, struct pfw_s
     if (len) {
         barrier_var(len);
         len = ((len - 1) & (LOG_CAP - 1)) + 1;
-        if (bpf_xdp_load_bytes(ctx, (__u32) off, e->data, len) == 0)
+        if (rsrc) {
+            /* off + len <= R_END <= REASM_CAP, checked above: the read stays inside
+             * the buffer. probe_read copies a variable length without a loop. */
+            if (bpf_probe_read_kernel(e->data, len, rsrc + PFW_MASK((__u32) off, REASM_CAP)) == 0)
+                e->len = len;
+        } else if (bpf_xdp_load_bytes(ctx, (__u32) off, e->data, len) == 0)
             e->len = len;
     }
     logged++;

@@ -94,7 +94,7 @@ export function codegen(ast) {
     const args = e.args;
     if (!args.length) die(`${e.name}(...) needs a scan or mask, then patterns`, e.line);
     const first = args[0];
-    if (first.kind === "call" && first.name === "scan") doScan(first);
+    if (isScan(first)) doScan(first);
     else if (!(first.kind === "ref" && masks.has(first.name))) die(`first argument of ${e.name}(...) must be scan(...) or a mask variable`, e.line);
     const pats = args.slice(1).map((a) => patArg(a));
     if (pats.length < min) die(`${e.name}(...) needs at least ${min} pattern${min > 1 ? "s" : ""}`, e.line);
@@ -123,7 +123,12 @@ export function codegen(ast) {
     if (e.kind === "call" && e.name === "find") { if (e.args.length !== 3) die("find(ptr, 'c', len)", e.line); loadPtr(e.args[0]); return bld.findb(Number(immVal(e.args[1])), immVal(e.args[2])); }
     die("expected a pointer (payload, a ptr variable, after(...), find(...))", e.line);
   };
-  const doScan = (e) => { if (e.args.length !== 2) die("scan(ptr, len)", e.line); loadPtr(e.args[0]); bld.scan(immVal(e.args[1])); };
+  /* scan(ptr, len) ORs what it finds into the one match mask, which also carries
+   * every earlier scan (and, per-packet, earlier segments of the connection).
+   * within(ptr, len) is the fresh form: the mask and the automaton start empty,
+   * so the result is exactly the patterns inside [ptr, ptr+len). */
+  const isScan = (e) => e.kind === "call" && (e.name === "scan" || e.name === "within");
+  const doScan = (e) => { if (e.args.length !== 2) die(`${e.name}(ptr, len)`, e.line); loadPtr(e.args[0]); bld.scan(immVal(e.args[1]), e.name === "within"); };
 
   /* Frame header field → the Builder ops that leave its value in %cur. */
   const FIELD_LOAD = {
@@ -202,8 +207,8 @@ export function codegen(ast) {
   };
 
   const value = (e) => {
-    if (e.kind === "flowstate") return bld.sload();
-    if (e.kind === "flowcount") return bld.bump();
+    if (e.kind === "flowstate") return bld.sload(e.scope ?? 0);
+    if (e.kind === "flowcount") return bld.bump(e.scope ?? 0);
     if (e.kind === "ringlen") return bld.rlen();
     if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
@@ -268,7 +273,7 @@ export function codegen(ast) {
   };
 
   const bandTest = (e) => {
-    if (e.a.kind === "call" && e.a.name === "scan") doScan(e.a);
+    if (isScan(e.a)) doScan(e.a);
     else if (!(e.a.kind === "ref" && masks.has(e.a.name))) die("left of & must be scan(...) or a mask variable", e.line);
     bld.test(maskBits(e.b));
   };
@@ -288,7 +293,7 @@ export function codegen(ast) {
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.je(L); } // false when the routine returned 0
         if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.jne(L); } // false when the host string isn't present
-        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.jne(L); }
+        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b, e.scope ?? 0); return bld.jne(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
         if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
         if (e.name === "seq") {
@@ -326,7 +331,7 @@ export function codegen(ast) {
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.jne(L); } // true when the routine returned nonzero
         if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.je(L); } // true when the host string is present
-        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.je(L); }
+        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b, e.scope ?? 0); return bld.je(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
         if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
         if (e.name === "starts") { loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.je(L); }
@@ -397,7 +402,7 @@ export function codegen(ast) {
         expanding.add(s.name); m.stmts.forEach(stmt); expanding.delete(s.name);
         return;
       }
-      case "setstate": return bld.sstore(immVal(s.value), s.ttl ? immVal(s.ttl) : 0n);
+      case "setstate": return bld.sstore(immVal(s.value), s.ttl ? immVal(s.ttl) : 0n, s.scope ?? 0);
       case "ringpush": materialize(s.value); return bld.rpush();
       case "let": {
         if (REGISTERS.has(s.name) || declared.has(s.name) || masks.has(s.name)) die(`\`${s.name}\` is already a register, pattern, or mask`, s.line);
@@ -417,7 +422,7 @@ export function codegen(ast) {
       }
       case "frame": return frameLower(s);
       case "decl": {
-        if (s.type === "mask") { if (!(s.init.kind === "call" && s.init.name === "scan")) die("a mask is assigned from scan(...)", s.line); doScan(s.init); masks.add(s.name); }
+        if (s.type === "mask") { if (!isScan(s.init)) die("a mask is assigned from scan(...) or within(...)", s.line); doScan(s.init); masks.add(s.name); }
         else { const reg = allocScratch(s.name, s.line); loadPtr(s.init); bld.movFromCur(reg); }
         return;
       }
@@ -544,11 +549,13 @@ export function codegen(ast) {
    * control never falls into them). A call jumps here; ret pops back. */
   for (const fn of ast.functions ?? []) {
     bld.label(fn.name);
+    const fnStart = bld.ops.length;
     const saved = []; // bind each param to its arg register for the body, then restore
     (fn.params ?? []).forEach((p, i) => { saved.push([p, scratch.get(p)]); scratch.set(p, REG[ARGREGS[i]]); });
     fn.stmts.forEach(stmt);
     for (const [p, prev] of saved) { if (prev === undefined) scratch.delete(p); else scratch.set(p, prev); }
     bld.ret();
+    bld.fnRegion(fnStart, bld.ops.length); // tells the register allocator where a callee's locals live
   }
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;

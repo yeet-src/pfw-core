@@ -13,6 +13,7 @@
 #include "match/interp.h"
 #include "action/event.h"
 #include "action/rst.h"
+#include "core/source.h"
 
 /* Issue the redirect in its own (__noinline) frame so the bpf_redirect() helper
  * call doesn't force register spills into match_half's already-maxed inlined
@@ -30,16 +31,18 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
                                        struct pfw_prog *prog, struct flow *f,
                                        struct pfw_state *st, __u32 gen, __u64 now,
                                        struct flow_key *keyp, int keyed,
-                                       __u32 use_reasm, __u32 use_decode)
+                                       __u32 use_reasm, __u8 *rsrc)
 {
-    struct pkt p = *pp;
+    /* pp is used through the pointer: a by-value copy here cost ~60 bytes of the
+     * entry's stack frame, which is at the 512-byte limit. */
     struct pfw_ctx c = {
         .xdp = ctx, .st = st, .prog = prog,
         .nops = prog->nops > PFW_MAX_OPS ? PFW_MAX_OPS : prog->nops,
         .gen = gen, .mark = f ? f->mark : 0,
         .user_state = (f && (!f->state_expires || f->state_expires > now)) ? f->user_state : 0,
-        .reasm = use_reasm, .now = now, .flow = f,
+        .reasm = use_reasm, .now = now, .flow = f, .rsrc = rsrc,
     };
+    src_load(pp, st, now);
     ran++;
     __u64 t0 = bpf_ktime_get_ns();
     bpf_loop(PFW_MAX_OPS, pfw_step, &c, 0);
@@ -56,22 +59,33 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;
 
-    if (keyed && (p.proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl)) {
-        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || p.end > p.payload)) {
+    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl)) {
+        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || pp->end > pp->payload)) {
             bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
             f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
         }
         if (f) {
-            if (p.proto == IPPROTO_TCP) { f->ac_state = st->ac_state; f->mask = st->r[R_M]; f->gen = prog->gen; }
+            if (pp->proto == IPPROTO_TCP) { f->ac_state = st->ac_state; f->mask = st->r[R_M]; f->gen = prog->gen; }
             if (st->set_state) { f->user_state = st->new_state; f->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
             if (st->set_rl) { f->rl_tokens = st->rl_tokens; f->rl_ts = st->rl_ts; }
             if (st->set_hits) f->hits = st->hits;
             if (st->set_mark) { f->mark = st->set_mark; f->rule = st->rule; f->expires = st->ttl ? now + (__u64) st->ttl * 1000000000ULL : 0; }
+            /* On a reassembled stream a `drop` must hold for the connection, not
+             * the packet: TCP retransmits the dropped segment, and by then its
+             * bytes have been consumed (decode) or the window has slid past
+             * them, so the retransmission would be judged clean and delivered.
+             * The connection is dead to the server from the first dropped
+             * segment anyway; marking it keeps it that way. */
+            else if (use_reasm && verdict == V_DROP) { f->mark = MARK_DROP; f->rule = st->rule; f->expires = 0; }
         }
     }
 
-    if (st->log_len) emit(ctx, &p, st, verdict);
+    /* Source write-back. `ban` is a SOURCE ban: the mark lands on the source
+     * entry, so a reconnect from another port is still dropped at the entry. */
+    src_store(pp, st, now, verdict);
+
+    if (st->log_len) emit(ctx, pp, st, verdict, use_reasm ? rsrc : NULL);
 
     /* Shadow mode: an enforcement verdict is counted and logged (above), and its
      * flow mark is written, but the packet is let through — a dry run that shows
@@ -91,8 +105,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     case V_BAN: count_rule(st->rule); bans++; dropped++; return XDP_DROP;
     case V_RST:
         count_rule(st->rule); bans++;
-        if (p.family == AF_INET && p.proto == IPPROTO_TCP) {
-            int v = send_rst(ctx, p.l2);
+        if (pp->family == AF_INET && pp->proto == IPPROTO_TCP) {
+            int v = send_rst(ctx, pp->l2);
             if (v == XDP_TX) { rsts++; return v; }
         }
         dropped++; return XDP_DROP;

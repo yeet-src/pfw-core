@@ -84,7 +84,7 @@ export class Builder {
   jf(l) { return this.op(OP.JF, 0, 0n, { label: l }); }
 
   // ---- patterns ----
-  scan(len) { return this.op(OP.SCAN, 0, len); } // runs AC (literals) + the regex DFA, both into %m
+  scan(len, fresh = false) { return this.op(OP.SCAN, fresh ? 1 : 0, len); } // runs AC (literals) + the regex DFA, both into %m; fresh (reg = 1) clears %m and the automaton first
   mpos(pat) { return this.op(OP.MPOS, pat); }
   cmpstr(pat) { return this.op(OP.CMPSTR, pat); }
   findb(byte, len) { return this.op(OP.FINDB, byte & 0xff, len); }
@@ -101,9 +101,9 @@ export class Builder {
   // ---- per-flow state ----
   flow() { return this.op(OP.FLOW); }
   mark(v, ttl) { return this.op(OP.MARK, v, ttl); }
-  sload() { return this.op(OP.SLOAD); }
-  sstore(state, ttl) { return this.op(OP.SSTORE, Number(ttl), state); } // reg = ttl, imm = state
-  bump() { return this.op(OP.BUMP); }
+  sload(scope = 0) { return this.op(OP.SLOAD, scope); } // reg = scope: 0 this flow, 1 the source address
+  sstore(state, ttl, scope = 0) { return this.op(OP.SSTORE, Number(ttl), (BigInt(state) & 0xffffffffn) | (BigInt(scope & 1) << 32n)); } // reg = ttl, imm = state | scope<<32
+  bump(scope = 0) { return this.op(OP.BUMP, scope); } // reg = scope
   rpush() { return this.op(OP.RPUSH); }
   rget() { return this.op(OP.RGET); }
   rlen() { return this.op(OP.RLEN); }
@@ -118,7 +118,7 @@ export class Builder {
   bloom() { return this.op(OP.BLOOM); } // ZF = %cur is (probably) in the bloom filter
   lpm6() { return this.op(OP.LPM6); } // ZF = the IPv6 source is in the lpm6 CIDR set
   redirect(ifindex) { return this.op(OP.REDIRECT, 0, BigInt(ifindex >>> 0)); } // forward the packet out ifindex (XDP_REDIRECT)
-  rate(perSec, burst) { return this.op(OP.RATE, 0, (BigInt(perSec >>> 0) & 0xffffffffn) | (BigInt(burst >>> 0) << 32n)); } // ZF = over the token-bucket limit
+  rate(perSec, burst, scope = 0) { return this.op(OP.RATE, scope, (BigInt(perSec >>> 0) & 0xffffffffn) | (BigInt(burst >>> 0) << 32n)); } // ZF = over the token-bucket limit
   arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
   argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
   knob(slot) { return this.op(OP.KNOB, 0, BigInt(slot)); } // cur = knobs[slot] (live host-set control)
@@ -199,28 +199,65 @@ export class Builder {
     return { ok: errors.length === 0, errors, program, patterns: this.patterns, rules: this.rules, listing, nocase: !!this.nocase, reasm: !!this.reasm };
   }
 
+  /* Mark [from, to) as a subroutine body (the compiler calls this around each
+   * `fn`). The allocator needs it: see _allocate. */
+  fnRegion(from, to) { (this.fnRegions ??= []).push([from, to]); return this; }
+
   /* Linear-scan allocation of virtual registers onto the 8 scratch registers, by
-   * live range (forward-only ISA ⇒ a vreg is live from first to last mention). */
+   * live range (forward-only ISA ⇒ a vreg is live from first to last mention).
+   *
+   * A live range is a span of op INDICES, and a subroutine's body sits elsewhere
+   * in the program than its call site. So a caller's local that is live across a
+   * `call` does not overlap the callee's locals by index, yet both are live at
+   * once at run time — sharing a register lets the callee overwrite the caller.
+   * Two passes keep them apart: subroutine locals that do not themselves span a
+   * call are placed first; then every vreg that IS live across a call is kept
+   * off every register those used. */
   _allocate(errors) {
     const first = new Map(), last = new Map();
     this.ops.forEach((op, i) => {
       if (op.regSlot && op.reg >= VREG_BASE) { if (!first.has(op.reg)) first.set(op.reg, i); last.set(op.reg, i); }
     });
+    const calls = [];
+    this.ops.forEach((op, i) => { if (op.code === OP.CALL) calls.push(i); });
+    const regions = this.fnRegions ?? [];
+    const inFn = (i) => regions.some(([a, b]) => i >= a && i < b);
+    const crosses = (iv) => calls.some((c) => iv.start < c && c < iv.end);
     const intervals = [...first.keys()].map((v) => ({ v, start: first.get(v), end: last.get(v) })).sort((a, b) => a.start - b.start || a.end - b.end);
-    let free = SCRATCH.map((_, i) => i);
-    const active = [], phys = new Map();
-    for (const iv of intervals) {
-      for (let i = active.length - 1; i >= 0; i--) if (active[i].end < iv.start) { free.push(phys.get(active[i].v)); active.splice(i, 1); }
-      if (!free.length) {
-        const who = this.vregs[iv.v - VREG_BASE];
-        const held = active.map((a) => this.vregs[a.v - VREG_BASE].name).filter((n) => n && !n.startsWith("__"));
-        errors.push({ line: who?.line ?? 0, text: `too many locals live at once: ${who?.name ? `\`${who.name}\`` : "a temporary"} needs a register but all ${SCRATCH.length} are held${held.length ? ` (by ${held.map((n) => `\`${n}\``).join(", ")})` : ""}` });
-        phys.set(iv.v, 0); active.push(iv); continue;
+    const phys = new Map();
+    const scan = (ivs, banned) => {
+      let free = SCRATCH.map((_, i) => i);
+      const active = [];
+      for (const iv of ivs) {
+        for (let i = active.length - 1; i >= 0; i--) if (active[i].end < iv.start) { free.push(phys.get(active[i].v)); active.splice(i, 1); }
+        free.sort((a, b) => a - b);
+        const k = free.findIndex((r) => !(iv.cross && banned.has(r)));
+        if (k < 0) {
+          const who = this.vregs[iv.v - VREG_BASE];
+          const held = active.map((a) => this.vregs[a.v - VREG_BASE].name).filter((n) => n && !n.startsWith("__"));
+          const why = iv.cross && banned.size ? ` (it is live across a subroutine call, so it cannot share the ${banned.size} register(s) subroutines use)` : "";
+          errors.push({ line: who?.line ?? 0, text: `too many locals live at once: ${who?.name ? `\`${who.name}\`` : "a temporary"} needs a register but all ${SCRATCH.length} are held${held.length ? ` by ${held.join(", ")}` : ""}${why}` });
+          phys.set(iv.v, 0); active.push(iv); continue;
+        }
+        phys.set(iv.v, free.splice(k, 1)[0]);
+        active.push(iv);
       }
-      free.sort((a, b) => a - b);
-      phys.set(iv.v, free.shift());
-      active.push(iv);
-    }
+    };
+    const regionOf = (i) => regions.findIndex(([a, b]) => i >= a && i < b); // -1 = the filter body
+    for (const iv of intervals) { iv.cross = crosses(iv); iv.region = regionOf(iv.start); iv.callee = iv.region >= 0 && !iv.cross; }
+    scan(intervals.filter((iv) => iv.callee), new Set());
+    const taken = new Set(intervals.filter((iv) => iv.callee).map((iv) => phys.get(iv.v)));
+    /* Call-spanning locals of different bodies can be live together too (outer's
+     * local while inner runs, the filter's while outer runs), and their index
+     * ranges never overlap either — so each body's set is kept off all the
+     * registers taken so far. The filter body goes last, with its ordinary
+     * locals, which only compete among themselves. */
+    regions.forEach((_, r) => {
+      const ivs = intervals.filter((iv) => iv.region === r && iv.cross);
+      scan(ivs, taken);
+      for (const iv of ivs) taken.add(phys.get(iv.v));
+    });
+    scan(intervals.filter((iv) => iv.region < 0), taken);
     for (const op of this.ops) if (op.regSlot && op.reg >= VREG_BASE) op.reg = SCRATCH[phys.get(op.reg)];
   }
 }

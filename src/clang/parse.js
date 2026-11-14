@@ -100,6 +100,16 @@ export function parse(toks) {
           err(`flow has no member \`${member}\` (only \`state\` and \`count\`)`);
         return { kind: member === "count" ? "flowcount" : "flowstate", line: t.line };
       }
+      /* src.state / src.count / src.rate(r, b): the per-flow members, scoped to
+       * the SOURCE ADDRESS instead of the connection. Bare `src` is the address. */
+      if (name === "src" && isP(".")) {
+        next();
+        const member = eat("ident").value;
+        if (member === "rate") { const call = parseCall("rate", t.line); return { ...call, scope: 1 }; }
+        if (member !== "state" && member !== "count")
+          err(`src has no member \`${member}\` (only \`state\`, \`count\` and \`rate(per_second, burst)\`)`);
+        return { kind: member === "count" ? "flowcount" : "flowstate", scope: 1, line: t.line };
+      }
       if (name === "frame" && isP(".")) {
         next();
         const member = eat("ident").value;
@@ -367,12 +377,13 @@ export function parse(toks) {
       eat("punct", ";");
       return { kind: "ringpush", value, line: t.line };
     }
-    /* flow.state = N; — set this connection's state */
-    if (t.type === "ident" && t.value === "flow") {
+    /* flow.state = N; — set this connection's state (src.state = N; — the source's) */
+    if (t.type === "ident" && (t.value === "flow" || t.value === "src")) {
+      const scope = t.value === "src" ? 1 : 0;
       next();
       eat("punct", ".");
       const member = eat("ident").value;
-      if (member !== "state") err(`flow has no member \`${member}\` (assignable: state)`);
+      if (member !== "state") err(`${t.value} has no member \`${member}\` (assignable: state)`);
       eat("punct", "=");
       const value = parseExpr();
       let ttl = null;
@@ -381,7 +392,7 @@ export function parse(toks) {
         ttl = parseExpr();
       }
       eat("punct", ";");
-      return { kind: "setstate", value, ttl, line: t.line };
+      return { kind: "setstate", value, ttl, scope, line: t.line };
     }
     /* a bare call statement: log(...), skip(...) — or `name = EXPR;` */
     if (t.type === "ident") {

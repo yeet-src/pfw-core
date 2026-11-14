@@ -29,7 +29,7 @@ export function opText(op, patterns = [], rules = []) {
       return `dnat ${(ip >>> 24) & 255}.${(ip >>> 16) & 255}.${(ip >>> 8) & 255}.${ip & 255}:${port}`;
     }
     case OP.REDIRECT: return `redirect ${op.imm}`;
-    case OP.RATE: return `rate ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
+    case OP.RATE: return `${op.reg ? "srcrate" : "rate"} ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
     case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
     case OP.ARGC: return `argc`;
     case OP.KNOB: return `knob ${op.imm}`;
@@ -42,9 +42,11 @@ export function opText(op, patterns = [], rules = []) {
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;
     case OP.MARK: return `mark ${op.reg} ${op.imm}s`;
-    case OP.SSTORE: return op.reg ? `sstore ${op.imm}, ${op.reg}s` : `sstore ${op.imm}`;
+    case OP.SSTORE: { const m = (op.imm >> 32n) & 1n ? "srcstore" : "sstore", v = op.imm & 0xffffffffn; return op.reg ? `${m} ${v}, ${op.reg}s` : `${m} ${v}`; }
+    case OP.SLOAD: return op.reg ? "srcload" : "sload";
+    case OP.BUMP: return op.reg ? "srcbump" : "bump";
     case OP.CALL: return `call ${op.imm}`;
-    case OP.PASS: case OP.FLOW: case OP.SLOAD: case OP.BUMP: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.HASH: case OP.BLOOM: case OP.LPM6: case OP.PUSH: case OP.POP: case OP.RET: case OP.END:
+    case OP.PASS: case OP.FLOW: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.HASH: case OP.BLOOM: case OP.LPM6: case OP.PUSH: case OP.POP: case OP.RET: case OP.END:
       return name;
     default: return op.imm ? `${name} ${op.imm}` : name;
   }

@@ -12,6 +12,7 @@
  * Matching is unanchored (finds the pattern anywhere in the window) via an
  * implicit `.*` prefix, the same "match anywhere" semantics as scan.
  */
+import { LIMITS } from "#/isa.js";
 
 /* ---- parse: regex string -> AST ----------------------------------------- */
 /* AST nodes: {t:"char",set:Set<byte>|null(any)} {t:"cat",a,b} {t:"alt",a,b}
@@ -22,8 +23,22 @@ const WORD = (s) => { for (let c = 48; c <= 57; c++) s.add(c); for (let c = 65; 
 const SPACE = (s) => { for (const c of [32, 9, 10, 13, 11, 12]) s.add(c); };
 const negate = (set) => { const n = new Set(); for (let c = 0; c < 256; c++) if (!set.has(c)) n.add(c); return n; };
 
-function parse(src) {
+/* Under `nocase` the matcher folds every INPUT byte to lower case before it
+ * steps the DFA (interp.js / the kernel's fold()), so the regex itself has to be
+ * case-insensitive too or an upper-case literal or class (`AKIA[A-Z0-9]{16}`)
+ * could never match. Each literal and each class member is closed over ASCII
+ * case here, BEFORE a `[^...]` is negated — so `[^a-z]` excludes both cases. */
+const caseClose = (set) => {
+  for (const c of [...set]) {
+    if (c >= 65 && c <= 90) set.add(c + 32);
+    else if (c >= 97 && c <= 122) set.add(c - 32);
+  }
+  return set;
+};
+
+function parse(src, nocase = false) {
   const bytes = [...new TextEncoder().encode(src)];
+  const cc = (set) => (nocase ? caseClose(set) : set);
   let i = 0;
   const peek = () => bytes[i];
   const eof = () => i >= bytes.length;
@@ -55,6 +70,7 @@ function parse(src) {
       } else set.add(lo);
     }
     if (peek() === 93) i++; else throw new Error("unterminated [");
+    cc(set);
     return neg ? negate(set) : set;
   };
 
@@ -63,9 +79,9 @@ function parse(src) {
     if (c === 40) { i++; const e = parseAlt(); if (peek() === 41) i++; else throw new Error("unterminated ("); return e; } // ( )
     if (c === 91) { i++; return { t: "char", set: parseClass() }; } // [ ]
     if (c === 46) { i++; return { t: "char", set: null }; } // .  (any)
-    if (c === 92) { i++; const e = classEscape(peek()); if (e) { i++; return { t: "char", set: e }; } return { t: "char", set: new Set([escChar(bytes[i++])]) }; }
+    if (c === 92) { i++; const e = classEscape(peek()); if (e) { i++; return { t: "char", set: e }; } return { t: "char", set: cc(new Set([escChar(bytes[i++])])) }; }
     if (c === 124 || c === 41 || c === undefined) return { t: "empty" };
-    i++; return { t: "char", set: new Set([c]) };
+    i++; return { t: "char", set: cc(new Set([c])) };
   };
 
   const parseQuant = () => {
@@ -153,17 +169,18 @@ function buildNFA(ast) {
 }
 
 /* ---- combine regexes + subset-construct to a DFA ------------------------- */
-/* regexes: [{ src, bit }]. Returns { nstates, trans:[Uint16Array(256)], accept:[BigInt] }.
+/* regexes: [{ src, bit }]; `nocase` builds a case-insensitive DFA (see parse).
+ * Returns { nstates, trans:[Uint16Array(256)], accept:[BigInt] }.
  * Unanchored: a start state loops on any byte (implicit .*) and also enters each
  * regex; a DFA state's accept mask ORs the bits of the regex-accepts it contains. */
-export function compileRegexes(regexes) {
+export function compileRegexes(regexes, nocase = false) {
   const states = []; // merged NFA
   const mk = () => (states.push({ eps: [], edges: [] }), states.length - 1);
   const start = mk();
   states[start].edges.push({ set: null, to: start }); // .* self-loop (match anywhere)
   const acceptBit = new Map(); // nfa accept state -> bit
   for (const { src, bit } of regexes) {
-    const nfa = buildNFA(parse(src));
+    const nfa = buildNFA(parse(src, nocase));
     const base = states.length;
     for (const st of nfa.states) states.push({ eps: st.eps.map((e) => e + base), edges: st.edges.map((e) => ({ set: e.set, to: e.to + base })) });
     states[start].eps.push(nfa.start + base);
@@ -187,7 +204,7 @@ export function compileRegexes(regexes) {
       for (const s of nfaSet) for (const e of states[s].edges) if (e.set === null || e.set.has(b)) move.push(e.to);
       trans[id][b] = move.length ? intern(closure(move)) : 0; // 0 = start (which has the .* loop) — keeps matching anywhere
     }
-    if (order.length > 4096) throw new Error("regex DFA too large (>4096 states)");
+    if (order.length > LIMITS.RE_STATES) throw new Error(`regex DFA too large: more than ${LIMITS.RE_STATES} states (the kernel table's size) — narrow a class or shorten a counted repeat`);
   }
   return { nstates: order.length, trans, accept };
 }

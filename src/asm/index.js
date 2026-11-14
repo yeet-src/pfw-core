@@ -213,13 +213,14 @@ export function assemble(source) {
         want(2);
         if (a.kind !== "imm" || !(b.kind === "reg" && b.name === "m")) fail("test is `test $MASK, %m`");
         emit(OP.TEST, 0, maskOf(a.text));
-      } else if (m === "scan") {
-        if (o.length < 1 || o.length > 2) fail("scan is `scan $LEN[, (%cur)]`");
+      } else if (m === "scan" || m === "fscan") {
+        /* fscan is the fresh scan: %m and the automaton are cleared first. */
+        if (o.length < 1 || o.length > 2) fail(`${m} is \`${m} $LEN[, (%cur)]\``);
         if (a.kind !== "imm") fail("scan wants $LEN");
         if (b && !(b.kind === "mem" && isCur(b.base) && b.disp === 0n)) fail("scan reads at (%cur)");
         const n = numberOf(a.text);
         if (n < 1n || n > BigInt(LIMITS.SCAN_CAP)) fail(`scan length 1–${LIMITS.SCAN_CAP}`);
-        emit(OP.SCAN, 0, n);
+        emit(OP.SCAN, m === "fscan" ? 1 : 0, n);
       } else if (m === "mpos") {
         want(2);
         if (a.kind !== "imm" || !isCur(b)) fail("mpos is `mpos $PAT, %cur`");
@@ -258,12 +259,12 @@ export function assemble(source) {
       } else if (m === "ret") {
         want(0);
         emit(OP.RET);
-      } else if (m === "rate") {
+      } else if (m === "rate" || m === "srcrate") {
         want(2);
-        if (a.kind !== "imm" || b.kind !== "imm") fail("rate is `rate $PER_SECOND, $BURST`");
+        if (a.kind !== "imm" || b.kind !== "imm") fail(`${m} is \`${m} $PER_SECOND, $BURST\``);
         const r = numberOf(a.text, "per_second"), bu = numberOf(b.text, "burst");
         if (r < 1n || r > 0xffffffffn || bu < 1n || bu > 0xffffffffn) fail("rate args must be positive u32");
-        emit(OP.RATE, 0, (r & 0xffffffffn) | (bu << 32n));
+        emit(OP.RATE, m === "srcrate" ? 1 : 0, (r & 0xffffffffn) | (bu << 32n));
       } else if (m === "arg") {
         if (o.length < 1 || o.length > 2) fail("arg is `arg $IDX[, $DEFAULT]`");
         if (a.kind !== "imm" || (b && b.kind !== "imm")) fail("arg is `arg $IDX[, $DEFAULT]`");
@@ -337,19 +338,20 @@ export function assemble(source) {
         const v = numberOf(a.text);
         if (v < 16n) fail("user marks start at 16");
         emit(OP.MARK, Number(v & 0xffffffffn), b ? numberOf(b.text, "ttl") : 0n);
-      } else if (m === "sload") {
+      } else if (m === "sload" || m === "srcload") {
+        /* The src* forms are the same ops scoped to the source address. */
         want(1);
-        if (!isCur(a)) fail("sload is `sload %cur`");
-        emit(OP.SLOAD);
-      } else if (m === "sstore") {
-        if (o.length < 1 || o.length > 2) fail("sstore is `sstore $STATE[, $TTL_SECONDS]`");
-        if (a.kind !== "imm") fail("sstore wants $STATE");
+        if (!isCur(a)) fail(`${m} is \`${m} %cur\``);
+        emit(OP.SLOAD, m === "srcload" ? 1 : 0);
+      } else if (m === "sstore" || m === "srcstore") {
+        if (o.length < 1 || o.length > 2) fail(`${m} is \`${m} $STATE[, $TTL_SECONDS]\``);
+        if (a.kind !== "imm") fail(`${m} wants $STATE`);
         const ttl = b ? Number(numberOf(b.text, "ttl") & 0xffffffffn) : 0;
-        emit(OP.SSTORE, ttl, numberOf(a.text, "state"));
-      } else if (m === "bump") {
+        emit(OP.SSTORE, ttl, (numberOf(a.text, "state") & 0xffffffffn) | (m === "srcstore" ? 1n << 32n : 0n));
+      } else if (m === "bump" || m === "srcbump") {
         want(1);
-        if (!isCur(a)) fail("bump is `bump %cur`");
-        emit(OP.BUMP);
+        if (!isCur(a)) fail(`${m} is \`${m} %cur\``);
+        emit(OP.BUMP, m === "srcbump" ? 1 : 0);
       } else if (m === "rpush" || m === "rget" || m === "rlen") {
         want(1);
         if (!isCur(a)) fail(`${m} is \`${m} %cur\``);
