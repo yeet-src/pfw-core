@@ -296,6 +296,15 @@ export function assemble(source) {
         emit(OP.CIDR, 0, parseCidr(operands[0]));
         continue;
       }
+      if (m === "dnat") {
+        const mm = operands.length === 1 && operands[0].match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/);
+        if (!mm) fail("dnat is `dnat A.B.C.D:PORT`");
+        const oct = mm.slice(1, 5).map(Number), port = Number(mm[5]);
+        if (oct.some((x) => x > 255) || port > 65535) fail("bad dnat target");
+        const ip = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
+        emit(OP.DNAT, 0, (BigInt(ip) & 0xffffffffn) | (BigInt(port) << 32n));
+        continue;
+      }
 
       const o = operands.map(parseOperand);
       const [a, b] = o;

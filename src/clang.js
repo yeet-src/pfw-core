@@ -857,6 +857,17 @@ function codegen(ast) {
           if (mlen !== rlen) die(`replace needs a same-length replacement (pattern is ${mlen} bytes, replacement is ${rlen})`, s.line);
           return bld.replace(mid, rid);
         }
+        if (c.name === "dnat") {
+          if (c.args.length !== 2 || c.args[0].kind !== "string") die('dnat("A.B.C.D", port)', s.line);
+          const m = c.args[0].text.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+          if (!m) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
+          const oct = m.slice(1, 5).map(Number);
+          if (oct.some((x) => x > 255)) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
+          const ip = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
+          const port = Number(immVal(c.args[1]));
+          if (port < 0 || port > 65535) die("dnat port 0–65535", s.line);
+          return bld.dnat(ip, port);
+        }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }

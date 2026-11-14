@@ -94,6 +94,8 @@ export const skip = (ptrName, ch) => ({ kind: "exprstmt", call: { kind: "call", 
 export const redact = (patName, fill = "*") => ({ kind: "exprstmt", call: { kind: "call", name: "redact", args: fill == null ? [ref(patName)] : [ref(patName), chr(fill)] } });
 /** replace(patName, "repl"): overwrite every match with a same-length replacement string. */
 export const replace = (patName, repl) => ({ kind: "exprstmt", call: { kind: "call", name: "replace", args: [ref(patName), { kind: "string", text: repl }] } });
+/** dnat("A.B.C.D", port): rewrite the packet's destination IPv4 + port and forward. */
+export const dnat = (ip, port) => ({ kind: "exprstmt", call: { kind: "call", name: "dnat", args: [{ kind: "string", text: ip }, num(port)] } });
 
 /* frameWalk({ at?, len:{type,off}, type?:{type,off}, head, up }, ...body) */
 export const frameWalk = (spec, ...body) => ({

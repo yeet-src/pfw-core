@@ -186,6 +186,7 @@ export function machine({ asm, tables }) {
         case OP.DROP: verdict = V.DROP; rule = reg; break;
         case OP.BAN: verdict = V.BAN; rule = reg; break;
         case OP.RST: verdict = V.RST; rule = reg; break;
+        case OP.DNAT: break; /* kernel-only: rewrites packet headers, which the host frame model (payload-only) has not got */
         default: throw new Error("op not modelled: " + code);
       }
       r[REG.cur] = cur;

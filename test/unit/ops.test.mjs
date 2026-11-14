@@ -134,6 +134,15 @@ yeet.test("redact / replace rewrite the frame", () => {
   if (String.fromCharCode(...f2) !== "x HH y") throw new Error("replace: " + String.fromCharCode(...f2));
 });
 
+/* ---- dnat (kernel-only rewrite; here just for op coverage) ---- */
+yeet.test("dnat assembles and runs (no-op in the host model)", () => {
+  const a = assemble(`        dnat    127.0.0.2:8080\n        pass`);
+  if (!a.ok) throw new Error("assemble dnat: " + JSON.stringify(a.errors));
+  note(a);
+  const r = machine({ asm: a, tables: build(a.patterns, a.nocase) })(new Uint8Array(64), 0, { ac: 0, mask: 0n }, {});
+  if (r.verdict !== V.PASS) throw new Error("dnat should fall through to pass in the host model: " + r.verdict);
+});
+
 /* ---- coverage gate ---- */
 yeet.test("every opcode was exercised", () => {
   const miss = Object.entries(OP).filter(([, v]) => !used.has(v)).map(([k]) => k);

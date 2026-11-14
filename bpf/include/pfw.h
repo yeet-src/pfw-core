@@ -124,6 +124,7 @@ enum pfw_opcode {
     OP_RLEN,    /* cur = this flow's ring length */
     OP_REDACT,  /* overwrite every match of pattern reg in [cur, end) with fill byte imm */
     OP_REPLACE, /* overwrite every match of pattern reg in [cur, end) with pattern imm (same length) */
+    OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums */
     OP_COUNT_OPCODES,
 };
 

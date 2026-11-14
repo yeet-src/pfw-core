@@ -18,7 +18,8 @@
     "test:kernel": "node test/kernel/diff.mjs",
     "gen:huff": "node src/huffman.js",
     "bpf": "make bpf",
-    "test:rewrite": "node test/kernel/rewrite.mjs"
+    "test:rewrite": "node test/kernel/rewrite.mjs",
+    "test:dnat": "node test/kernel/dnat.mjs"
   },
   "files": [
     "src",

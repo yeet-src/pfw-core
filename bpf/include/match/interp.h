@@ -10,6 +10,43 @@
 #include "io/read.h"
 #include "match/scan.h"
 
+/* DNAT: rewrite the destination (IPv4 + port) and fix the IP + L4 checksums.
+ * __noinline so its locals get their own stack frame (pfw_step is already large).
+ * Per-packet, IPv4 TCP/UDP; no loop, so it's cheap. imm = ip(low32) | port<<32. */
+static __noinline void do_dnat(struct xdp_md *xdp, struct pfw_state *st, __u64 imm)
+{
+    __u32 proto = (__u32) st->r[R_PROTO];
+    if (proto != IPPROTO_TCP && proto != IPPROTO_UDP)
+        return;
+    __u32 l3 = (__u32) st->r[R_L3], l4 = (__u32) st->r[R_L4];
+    __u8 ver = 0;
+    if (bpf_xdp_load_bytes(xdp, l3, &ver, 1) || (ver >> 4) != 4)
+        return;                                      /* IPv4 only */
+    __be32 oldip = 0, newip = bpf_htonl((__u32) imm);
+    __be16 oldport = 0, newport = bpf_htons((__u16) (imm >> 32));
+    if (bpf_xdp_load_bytes(xdp, l3 + 16, &oldip, 4) || bpf_xdp_load_bytes(xdp, l4 + 2, &oldport, 2))
+        return;
+    bpf_xdp_store_bytes(xdp, l3 + 16, &newip, 4);        /* dst IPv4 */
+    bpf_xdp_store_bytes(xdp, l4 + 2, &newport, 2);       /* dst port */
+    __wsum dip = bpf_csum_diff(&oldip, 4, &newip, 4, 0);
+    __u16 ipck = 0;                                      /* IP header checksum */
+    if (bpf_xdp_load_bytes(xdp, l3 + 10, &ipck, 2) == 0) {
+        __u32 s = (__u16) ~ipck;
+        s += dip; s = (s & 0xffff) + (s >> 16); s = (s & 0xffff) + (s >> 16);
+        ipck = (__u16) ~s;
+        bpf_xdp_store_bytes(xdp, l3 + 10, &ipck, 2);
+    }
+    __u32 coff = proto == IPPROTO_TCP ? l4 + 16 : l4 + 6; /* L4 checksum */
+    __u16 l4ck = 0;
+    if (bpf_xdp_load_bytes(xdp, coff, &l4ck, 2) == 0 && (proto == IPPROTO_TCP || l4ck != 0)) {
+        __wsum d = bpf_csum_diff((__be32 *) &oldport, 2, (__be32 *) &newport, 2, dip); /* dst IP (pseudo) + port */
+        __u32 s = (__u16) ~l4ck;
+        s += d; s = (s & 0xffff) + (s >> 16); s = (s & 0xffff) + (s >> 16);
+        l4ck = (__u16) ~s;
+        bpf_xdp_store_bytes(xdp, coff, &l4ck, 2);
+    }
+}
+
 static long pfw_step(__u32 i, void *pctx)
 {
     struct pfw_ctx *c = pctx;
@@ -283,6 +320,13 @@ static long pfw_step(__u32 i, void *pctx)
             st->rw[k].woff = (__u32) st->r[R_PAYLOAD]; /* whole payload, not cursor */
             st->rw_n++;
         }
+        break;
+    case OP_DNAT:
+        /* Rewrite dst IPv4 + port and fix both checksums, then the program
+         * forwards (PASS) and the stack routes the rewritten packet. In its own
+         * (__noinline) frame so its locals don't bloat pfw_step's stack. */
+        if (!c->reasm)
+            do_dnat(c->xdp, st, imm);
         break;
     default:
         st->verdict = V_PASS;
