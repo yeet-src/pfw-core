@@ -1,0 +1,25 @@
+// HTTP/2 Rapid Reset (CVE-2023-44487). A client opens a stream (HEADERS) and
+// immediately cancels it (RST_STREAM), over and over — cheap for the client,
+// expensive for the server, which does the request setup each time. The HPACK
+// decode front-end normalizes the HTTP/2 stream, and since stream churn shows up
+// as a very high per-connection message cadence, we rate-limit it and escalate:
+// a connection sustaining the churn is banned.
+//
+// Combines: the h2 decode stage (implies reassembly), the token bucket (rate) as
+// a cadence guard, flow.count escalation, console(), and drop/ban.
+nocase;
+decode h2 8080;
+filter {
+  if (proto != 6) return pass;
+  if (len == 0) return pass;
+
+  // >100 h2 messages/sec on one connection is stream churn, not real use
+  if (rate(100, 200)) {
+    let strikes = flow.count;
+    log(5);
+    console("h2 rapid-reset :%d strikes=%d", sport, strikes);
+    if (strikes >= 10) return ban("rapid_reset", 300);
+    return drop("h2_stream_flood");
+  }
+  return pass;
+}

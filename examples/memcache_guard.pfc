@@ -1,0 +1,34 @@
+// Protect memcached (:11211), which has no authentication. Over UDP it is a massive
+// reflection/amplification DDoS vector — a tiny `stats`/`get` yields a huge reply —
+// so dangerous verbs over UDP are dropped outright. Over TCP, admin verbs are
+// blocked and command floods throttled with per-connection escalation.
+//
+// Combines: a command-classification subroutine, a proto split (UDP vs TCP),
+// reassembly (TCP), rate(), flow.count escalation, and log().
+nocase;
+reassemble 11211;
+pattern flush = "flush_all", stats = "stats", slabs = "slabs", lru = "lru_crawler";
+
+fn admin_cmd(p) {
+  mask m = scan(p, 256);
+  if (any(m, flush)) return 1;                 // wipes the cache
+  if (any(m, stats, slabs, lru)) return 1;     // amplification levers
+  return 0;
+}
+
+filter {
+  if (dport != 11211) return pass;
+
+  if (proto == 17) {                            // UDP memcached = amplification
+    if (admin_cmd(payload)) { log(2); return drop("memcache_udp_amp"); }
+    return pass;
+  }
+
+  if (admin_cmd(payload)) { log(1); return drop("memcache_admin"); }
+  if (rate(500, 1000)) {
+    let n = flow.count;
+    if (n >= 50) return ban("memcache_flood", 900);
+    return drop("memcache_ratelimit");
+  }
+  return pass;
+}

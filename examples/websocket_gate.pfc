@@ -1,0 +1,29 @@
+// Control WebSocket upgrades with a per-connection state machine. A WebSocket turns
+// a short HTTP request into a long-lived bidirectional tunnel (a favourite for C2
+// and SSRF pivots), so the upgrade is allowed ONLY when it is well-formed (Upgrade
+// + Connection headers AND a Sec-WebSocket-Key) and lands on a sanctioned path.
+// Approved connections are remembered (flow.state) so their framed traffic flows;
+// malformed or off-path upgrades are reset, and upgrade floods are dropped.
+//
+// Combines: reassembly, a reused scan mask with all()/any(), `starts()` request-line
+// parsing, a flow.state machine, rate(), and log().
+nocase;
+reassemble 80;
+pattern ws = "upgrade: websocket", conn_up = "connection: upgrade", key = "sec-websocket-key:", ok_path = "GET /ws/";
+
+filter {
+  if (dport != 80) return pass;
+  if (flow.state == 1) return pass;              // already-approved tunnel
+
+  mask m = scan(payload, 1460);
+  if (any(m, ws)) {                              // this request claims a WS upgrade
+    if (all(m, ws, conn_up, key) && starts(payload, ok_path)) {
+      if (rate(5, 10)) { log(1); return drop("ws_flood"); }
+      flow.state = 1 for 300;                     // approve for 5 minutes
+      return pass;
+    }
+    log(1);
+    return rst("ws_reject", 0);                   // malformed or off-path upgrade
+  }
+  return pass;
+}

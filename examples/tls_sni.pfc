@@ -1,0 +1,35 @@
+// Block TLS connections by SNI, with per-source escalation and handshake-flood
+// throttling. The Server Name Indication in a ClientHello is CLEARTEXT, so a scan
+// over the reassembled handshake catches a client reaching for malware C2, an
+// exfil endpoint, a .onion front or a DGA/punycode label — before the encrypted
+// session exists. A subroutine factors the SNI check; repeat offenders on a flow
+// graduate from reset to a source ban.
+//
+// Combines: reassembly, a fn with a pointer arg + return, multi-pattern any(),
+// rate(), per-connection flow.count escalation, and console()/log().
+nocase;
+reassemble 443;
+pattern c2 = "c2.evil.example", exfil = "exfil.badhost.net", onion = ".onion", dga = "xn--d";
+
+fn blocked_sni(p) {
+  mask m = scan(p, 1024);
+  if (any(m, c2, exfil)) return 1;        // known-bad destinations
+  if (any(m, onion)) return 1;            // tor / hidden-service fronting
+  if (any(m, dga)) return 1;              // punycode / DGA-looking label
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 443) return pass;
+
+  if (rate(20, 40)) { log(2); return drop("tls_handshake_flood"); }
+
+  if (blocked_sni(payload)) {
+    let strike = flow.count;
+    console("blocked SNI sport=%d strike=%d", sport, strike);
+    if (strike >= 3) return ban("sni_repeat", 3600);
+    return rst("blocked_sni", 0);
+  }
+  return pass;
+}

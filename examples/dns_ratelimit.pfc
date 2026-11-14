@@ -1,0 +1,28 @@
+// Per-client DNS query-rate limit. An open resolver (or an authoritative server)
+// is a favorite reflection/DoS lever: a client floods queries, or sends oversize
+// queries to probe for amplification. We keep a token bucket per client 5-tuple,
+// drop queries over the rate, flag oversize queries, and ban a client that keeps
+// hammering after it has already been throttled.
+//
+// Combines: UDP matching, the token bucket (rate) per client, a size guard with
+// arithmetic, flow.count escalation, console(), and drop/ban.
+filter {
+  if (proto != 17) return pass;         // UDP
+  if (dport != 53) return pass;         // DNS
+
+  if (rate(20, 50)) {                    // >20 queries/s past a burst of 50
+    let over = flow.count;
+    log(5);
+    console("dns flood :%d len=%d over=%d", sport, len, over);
+    if (over >= 100) return ban("dns_flood", 300);
+    return drop("dns_rate");
+  }
+
+  // a normal UDP DNS query is small; an oversize one is tunneling/abuse
+  if (len > 512) {
+    log(5);
+    console("dns oversize :%d len=%d", sport, len);
+    return drop("dns_oversize");
+  }
+  return pass;
+}

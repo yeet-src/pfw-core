@@ -1,0 +1,42 @@
+// Tarpit/honeypot diversion. Rather than just dropping attackers (which tells them
+// nothing and frees them to move on), confirmed tooling and persistent probers are
+// transparently steered to a sandbox box: dnat() rewrites the destination to the
+// honeypot and redirect() forwards the packet out the sandbox interface, so the
+// attacker keeps "working" a fake target while we watch. First-time soft probes are
+// just reset; divert kicks in on a named tool or after a few strikes.
+//
+// Combines: reassembly, a subroutine triaging severity over one scan, cursor
+// parsing (after Host:), per-connection strikes (flow.count), dnat()+redirect()
+// steering, console(), and rst escalation.
+nocase;
+reassemble 8080;
+pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap scripting engine";
+pattern p_env = "/.env", p_git = "/.git/", p_login = "/wp-login";
+pattern host = "host:";
+
+// 2 = named tool, 1 = soft probe
+fn triage() {
+  mask m = scan(payload, 1460);
+  if (any(m, sqlmap, nikto, nmap)) return 2;
+  if (any(m, p_env, p_git, p_login)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  let sev = triage();
+  if (sev == 0) return pass;
+
+  let strikes = flow.count;
+  log(7);
+  console("honeypot sev=%d strikes=%d sport=%d", sev, strikes, sport);
+
+  // confirmed tool, or a prober past 3 strikes: divert to the sandbox
+  if (sev == 2 || strikes >= 3) {
+    dnat("10.99.0.2", 8080);     // the honeypot listener
+    redirect(5);                  // out the sandbox veth (terminal)
+  }
+  return rst("probe", 0);         // early soft probes just get reset
+}

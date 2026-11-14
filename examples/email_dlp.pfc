@@ -1,0 +1,37 @@
+// Bulk-email exfil detection: one email address in a response is a contact page;
+// hundreds with CSV/list structure is a mailing-list or user-table export. This
+// distinguishes the two by correlating the email pattern with export structure
+// (a CSV header, or both comma AND semicolon separators), weights it by response
+// size, and escalates per flow — so a scraper pulling list after list gets banned.
+//
+// Combines: a variable-length regex (detect, not rewrite), structural correlation
+// (any && all), a size signal (len), per-flow escalation, console() telemetry, and
+// a detector subroutine. Response side on a gateway (sport 80/443).
+nocase;
+regex email = "[a-z0-9._]+@[a-z0-9.]+\.[a-z]+";
+pattern csvh = "email,", csvh2 = "name,email", csvh3 = "\"email\"";
+pattern comma = ",", semi = ";";
+
+// emails + export structure => a dump; emails alone => ignore (ordinary page)
+fn looks_like_dump() {
+  mask m = scan(payload, 1460);
+  if (!any(m, email)) return 0;
+  if (any(m, csvh, csvh2, csvh3)) return 1;      // explicit CSV header
+  if (all(m, comma, semi)) return 1;             // delimited record structure
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (sport != 80 && sport != 443) return pass;
+  if (len == 0) return pass;
+
+  if (looks_like_dump()) {
+    let hits = flow.count;
+    console("email dump sport=%d len=%d hit=%d", sport, len, hits);
+    if (hits >= 2) return ban("email_dump", 1800);   // repeat scraper: ban the src
+    if (len > 512) return rst("email_dump_large", 0); // a big first page: cut it now
+    return rst("email_dump", 0);
+  }
+  return pass;
+}

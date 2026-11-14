@@ -1,0 +1,46 @@
+// SQL injection: a multi-signal scorer with blind-SQLi fast-path and per-connection
+// escalation. One scan feeds several questions — UNION...SELECT in order, boolean
+// tautologies (`or 1=1`, `' or '`), stacked-query comment terminators — and
+// regexes absorb the whitespace tricks (`union/**/select`) that beat fixed strings.
+// Time-based blind attempts (sleep/benchmark/waitfor) are banned immediately; other
+// hits are scored, reset, and escalated to a ban on repeat.
+//
+// Combines: reassembly, nocase, a reused mask, seq()/any(), \s regexes, a scoring
+// subroutine with a return value, arithmetic, flow.count escalation, console/log.
+nocase;
+reassemble 8080;
+pattern kw_union = "union", kw_select = "select", kw_from = "from";
+pattern kw_comment = "--", kw_block = "/*", kw_semi = ";";
+pattern sleep = "sleep(", benchmark = "benchmark(", waitfor = "waitfor delay", pg_sleep = "pg_sleep(";
+regex union_select = "union\s+select";
+regex or_true = "or\s+[0-9]+\s*=\s*[0-9]+";
+regex quote_or = "'\s*or\s*'";
+
+fn sqli_score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (seq(m, kw_union, kw_select)) s = s + 2;
+  if (seq(m, kw_select, kw_from) && any(m, kw_comment, kw_block, kw_semi)) s = s + 1;
+  if (any(m, kw_comment, kw_block)) s = s + 1;
+  if (any(scan(payload, 2048), union_select, or_true, quote_or)) s = s + 2;
+  return s;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  // Time-based blind injection: the payload tries to stall the DB. Ban at once.
+  if (any(scan(payload, 2048), sleep, benchmark, waitfor, pg_sleep)) {
+    console("blind sqli from sport=%d", sport);
+    return ban("sqli_blind", 1800);
+  }
+
+  let score = sqli_score();
+  if (score == 0) return pass;
+  console("sqli score=%d strikes=%d", score, flow.count);
+  log(1);
+  if (score >= 3) return ban("sqli_high_confidence", 1800);
+  if (flow.count >= 3) return ban("sqli_repeat", 1800);
+  return rst("sqli", 0);
+}

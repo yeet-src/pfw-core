@@ -1,0 +1,32 @@
+// Drop UDP reflection/amplification. In a reflection DDoS, the attacker spoofs
+// the victim's address and sends small queries to exposed UDP services, which
+// reply with much larger packets aimed at the victim. If those replies are hitting
+// us FROM the classic amplifier source ports (memcached, NTP, SSDP, chargen, DNS,
+// SNMP) and they're large, they're almost certainly reflection — drop them, and
+// ban a source that keeps blasting.
+//
+// Combines: UDP matching, a subroutine (fn with an arg + return) classifying the
+// source port, a size heuristic, flow.count escalation, and console().
+fn is_amp_port(p) {
+  if (p == 11211) return 1;   // memcached
+  if (p == 123) return 1;     // NTP
+  if (p == 1900) return 1;    // SSDP / UPnP
+  if (p == 19) return 1;      // chargen
+  if (p == 53) return 1;      // DNS
+  if (p == 161) return 1;     // SNMP
+  return 0;
+}
+
+filter {
+  if (proto != 17) return pass;         // UDP
+  if (is_amp_port(sport)) {
+    if (len > 512) {                     // large reply from an amplifier -> reflection
+      let hits = flow.count;
+      log(6);
+      console("amp reflection sport=%d len=%d hits=%d", sport, len, hits);
+      if (hits >= 50) return ban("amp_flood", 300);
+      return drop("amplification");
+    }
+  }
+  return pass;
+}

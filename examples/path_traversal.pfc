@@ -1,0 +1,38 @@
+// Directory traversal / LFI: locate the request's path with the cursor, then judge
+// only that region — so a legitimate `../` inside a POST body or a referrer query
+// doesn't trip the rule, but one in the URL does. A subroutine scans a pointer it
+// is handed and returns whether a traversal shape or a known file target appears;
+// the filter calls it on the path and escalates per connection.
+//
+// Combines: request-line parsing (find/skip to the path), a subroutine taking a
+// POINTER argument + returning a value, regex over the dot-dot encodings, literal
+// file targets, per-connection escalation, and console() observability.
+nocase;
+reassemble 8080;
+pattern passwd = "/etc/passwd", shadow = "/etc/shadow", environ = "/proc/self/environ";
+pattern win = "/windows/system32", boot = "/boot.ini";
+regex dotdot = "\.\.[/\\]";                       // ../  ..\
+regex enc_dotdot = "\.\.(%2f|%5c|%252f)";         // ..%2f  ..%5c  ..%252f
+
+// Does the region at `p` carry a traversal shape or a sensitive file target?
+fn is_traversal(p) {
+  if (any(scan(p, 512), dotdot, enc_dotdot)) return 1;
+  mask t = scan(p, 512);
+  if (any(t, passwd, shadow, environ, win, boot)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  // GET /path?query HTTP/1.1 — walk past the method to the path.
+  ptr path = find(payload, ' ', 16);
+  skip(path, ' ');
+
+  if (is_traversal(path) == 0) return pass;
+  console("traversal on path from sport=%d strikes=%d", sport, flow.count);
+  log(1);
+  if (flow.count >= 2) return ban("traversal_repeat", 3600);
+  return drop("path_traversal");
+}

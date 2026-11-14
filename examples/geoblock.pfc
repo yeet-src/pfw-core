@@ -1,0 +1,41 @@
+// Geo-blocking with a grace policy and rate backstop. The host loads a country
+// CIDR trie into `set` (e.g. prefixes for regions you don't serve) out of band
+// and refreshes it live. Instead of a blunt drop, blocked regions are allowed a
+// tiny, rate-limited trickle to the login path (so a mislabeled CIDR doesn't hard-
+// fail a real user) while everything else from them is reset — and a source that
+// hammers the limit gets banned.
+//
+// Combines: host-loaded `set` (LPM), a subroutine returning a decision, an inline
+// allowlist override, token-bucket rate limiting, per-connection escalation, and
+// console() tracing. Set and overrides are populated by the host.
+nocase;
+reassemble 8080;
+pattern login = "/login";
+
+// Is this source in a served region (or an explicit allowlist override)?
+fn allowed_region() {
+  if (src in "10.0.0.0/8") return 1;        // internal is always fine
+  if (src in set) return 0;                 // in the geo-block trie
+  return 1;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+  if (allowed_region()) return pass;
+
+  // Blocked region: permit a slow trickle to /login only, reset the rest.
+  if (len > 0) {
+    if (starts(payload, login)) {
+      if (rate(1, 3)) {                      // 1 req/s, burst 3, per connection
+        console("geo trickle exhausted sport=%d", sport);
+        if (flow.count >= 10) return ban("geo_abuse", 1800);
+        return drop("geo_ratelimited");
+      }
+      return pass;                           // within the grace trickle
+    }
+    log(1);
+    return rst("geo_blocked", 0);
+  }
+  return rst("geo_blocked", 0);
+}

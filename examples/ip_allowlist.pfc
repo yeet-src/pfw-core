@@ -1,0 +1,41 @@
+// Protect privileged endpoints by source. /admin, /metrics, /debug and /actuator
+// must only be reachable from internal networks (or a host-loaded allowlist
+// `set`); from anywhere else they don't just 403 at the app — they're reset at the
+// NIC and the prober is escalated. External hits to these paths are almost always
+// recon, so a source that keeps trying earns a ban.
+//
+// Combines: request-line parsing with the cursor (find/skip/after), path
+// classification, inline + host-loaded source allowlists, a subroutine returning
+// a decision, per-source escalation, and console() tracing.
+nocase;
+reassemble 8080;
+pattern m_admin = "/admin", m_metrics = "/metrics", m_debug = "/debug", m_actuator = "/actuator";
+
+fn source_allowed() {
+  if (src in "10.0.0.0/8") return 1;
+  if (src in "192.168.0.0/16") return 1;
+  if (src in set) return 1;                 // host-loaded ops/VPN allowlist
+  return 0;
+}
+
+fn is_privileged_path() {
+  // jump the cursor past "METHOD " to the path, then scan a short window
+  ptr path = find(payload, ' ', 8);
+  skip(path, ' ');
+  if (any(scan(path, 64), m_admin, m_metrics, m_debug, m_actuator)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+  if (len == 0) return pass;
+  if (!is_privileged_path()) return pass;
+
+  if (source_allowed()) { count("priv_ok"); return pass; }
+
+  console("priv path from external sport=%d strikes=%d", sport, flow.count);
+  log(1);
+  if (flow.count >= 3) return ban("priv_recon", 3600);
+  return rst("priv_external", 0);
+}

@@ -1,0 +1,44 @@
+// Per-connection abuse caps — several limits on one flow at once, a shape stateless
+// ACLs can't express. On each data segment it enforces: a request-rate ceiling
+// (token bucket), a cumulative-segment cap (a connection that never stops talking),
+// a single oversize-request guard, and a sliding "recent burst" measure from the
+// per-flow ring. Crossing any limit escalates the connection: reset first, then a
+// source ban once it has misbehaved repeatedly.
+//
+// Combines: reassembly, token-bucket rate(), flow.count, the per-flow ring
+// (push/get) with arithmetic, a size guard, argv-tuned thresholds, escalation, and
+// console(). Thresholds are deploy-time args.
+//   argv[0] = requests/sec   (default 20)
+//   argv[1] = burst          (default 40)
+//   argv[2] = max segments   (default 500)
+//   argv[3] = max bytes/req  (default 65536)
+reassemble 8080;
+
+filter {
+  if (proto != 6) return pass;
+  if (len == 0) return pass;                 // pure ACKs don't count
+
+  ring.push(len);
+  let recent = ring.get(0) + ring.get(1) + ring.get(2) + ring.get(3);
+
+  // 1) request-rate ceiling (token bucket). rate() args are compile-time.
+  if (rate(20, 40)) {
+    console("rate exceeded sport=%d recent=%d", sport, recent);
+    if (flow.count >= 50) return ban("flood_repeat", 600);
+    return rst("rate_exceeded", 0);
+  }
+
+  // 2) cumulative segments — a connection that just won't stop.
+  if (flow.count >= argv[2] ?? 500) {
+    log(1);
+    return ban("too_many_segments", 600);
+  }
+
+  // 3) single oversize request (argv-tuned).
+  if (len > argv[3] ?? 65536) return rst("oversize_request", 0);
+
+  // 4) sudden bulk burst across the last four segments.
+  if (recent > 1000000) { console("burst sport=%d bytes=%d", sport, recent); return rst("burst", 0); }
+
+  return pass;
+}

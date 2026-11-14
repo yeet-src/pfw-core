@@ -1,0 +1,28 @@
+// MySQL (:3306) must never face the public internet. A subroutine answers "is this
+// source on the trusted app tier?"; anything else is dropped before it reaches
+// mysqld. Even internally, connection/auth churn is throttled — credential brute
+// force shows up as a storm of short sessions — with per-flow escalation to a ban.
+//
+// Combines: a CIDR-membership subroutine (src in "..."), call-as-value, rate(),
+// flow.count escalation, and console()/log().
+fn is_internal() {
+  if (src in "10.0.0.0/8") return 1;
+  if (src in "172.16.0.0/12") return 1;
+  if (src in "192.168.0.0/16") return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 3306) return pass;
+
+  if (is_internal() == 0) { log(1); return drop("mysql_public"); }
+
+  if (rate(10, 20)) {                         // rapid reconnect/auth churn
+    let strike = flow.count;
+    console("mysql auth burst internal strike=%d", strike);
+    if (strike >= 100) return ban("mysql_bruteforce", 900);
+    return drop("mysql_ratelimit");
+  }
+  return pass;
+}

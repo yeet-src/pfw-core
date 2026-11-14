@@ -1,0 +1,39 @@
+// Server-Side Template Injection (SSTI): user input reaching a template engine
+// (Jinja2, Twig, Freemarker, ERB, Velocity, ...) turns into code execution. The
+// delimiters alone are noisy, so a subroutine scores the engine markers together
+// with the exploitation tells: arithmetic inside the delimiters (`{{7*7}}` — the
+// canonical probe), or sandbox-escape gadgets (__class__, getRuntime, freemarker's
+// Execute). High score = an active exploit attempt, not a stray brace.
+//
+// Combines: reassembly, nocase, a reused mask, any()/seq(), a regex for the
+// arithmetic probe, a scoring subroutine, arithmetic, flow.count escalation, console.
+nocase;
+reassemble 8080;
+pattern d_jinja = "{{", d_jinja_end = "}}", d_dollar = "${", d_erb = "<%=", d_hash = "#{", d_velocity = "#set(";
+pattern g_class = "__class__", g_subclasses = "__subclasses__", g_globals = "__globals__", g_mro = "__mro__";
+pattern g_runtime = "getruntime", g_exec = "freemarker.template.utility.execute", g_popen = "popen(";
+regex math_probe = "\{\{\s*[0-9]+\s*[-+*]\s*[0-9]+\s*\}\}";   // {{7*7}} , ${ 9 + 9 }
+
+fn ssti_score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (seq(m, d_jinja, d_jinja_end)) s = s + 1;                 // balanced {{ ... }}
+  if (any(m, d_dollar, d_erb, d_hash, d_velocity)) s = s + 1;  // other engines
+  if (any(scan(payload, 2048), math_probe)) s = s + 2;         // the {{7*7}} probe
+  if (any(m, g_class, g_subclasses, g_globals, g_mro)) s = s + 2; // python sandbox escape
+  if (any(m, g_runtime, g_exec, g_popen)) s = s + 2;          // java/exec gadgets
+  return s;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  let score = ssti_score();
+  if (score < 2) return pass;
+  console("ssti score=%d sport=%d strikes=%d", score, sport, flow.count);
+  log(1);
+  if (score >= 3) return ban("ssti_rce", 3600);
+  if (flow.count >= 2) return ban("ssti_repeat", 3600);
+  return rst("ssti", 0);
+}

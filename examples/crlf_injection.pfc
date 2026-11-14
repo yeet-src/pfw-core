@@ -1,0 +1,43 @@
+// CRLF injection / HTTP response splitting: a CR-LF smuggled into a value that the
+// app reflects into a response header lets an attacker inject their own headers
+// (Set-Cookie, Location) or split the response. We isolate the request line + query
+// (where the tainted value usually rides) with the cursor, then a subroutine scores
+// encoded CRLF sequences and, more damning, a CRLF immediately followed by a header
+// an attacker would plant. The paired form is an outright ban.
+//
+// Combines: reassembly, nocase, cursor parsing (path/query region), a subroutine
+// over a POINTER returning a score, regex for the encodings, seq() for CRLF+header,
+// arithmetic, flow.count escalation, console/log.
+nocase;
+reassemble 8080;
+pattern enc_cookie = "set-cookie", enc_location = "location:", enc_ctype = "content-type:";
+regex enc_crlf = "%0d%0a";
+regex enc_crlf_up = "%0D%0A";
+regex enc_crlf_double = "%250d%250a";             // double-encoded
+regex raw_crlf_hdr = "[\r\n](set-cookie|location):";  // literal CRLF then a planted header
+
+fn crlf_score(p) {
+  let s = 0;
+  if (any(scan(p, 1024), enc_crlf, enc_crlf_up, enc_crlf_double)) s = s + 1;
+  if (any(scan(p, 1024), raw_crlf_hdr)) s = s + 3;         // actual header smuggling
+  mask m = scan(p, 1024);
+  if (any(m, enc_cookie, enc_location, enc_ctype)) s = s + 1;
+  return s;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  // inspect from the path onward (method name itself never carries the payload)
+  ptr path = find(payload, ' ', 16);
+  skip(path, ' ');
+
+  let score = crlf_score(path);
+  if (score == 0) return pass;
+  console("crlf score=%d sport=%d", score, sport);
+  log(1);
+  if (score >= 3) return ban("response_splitting", 3600);
+  if (flow.count >= 2) return ban("crlf_repeat", 3600);
+  return drop("crlf_injection");
+}

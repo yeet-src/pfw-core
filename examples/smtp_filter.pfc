@@ -1,0 +1,31 @@
+// SMTP (:25) hygiene as a protocol state machine. VRFY/EXPN (mailbox enumeration)
+// are refused outright. A connection must greet (HELO/EHLO) before it may send mail
+// — speaking MAIL/RCPT first is dropped. Once greeting, a storm of RCPT TO on one
+// session is a dictionary/spam run and escalates to a source ban.
+//
+// Combines: reassembly, a reused scan mask with any(), a flow.state greeting gate,
+// flow.count escalation, and console()/log().
+nocase;
+reassemble 25;
+pattern helo = "helo", ehlo = "ehlo", mailfrom = "mail from:", rcptto = "rcpt to:";
+pattern vrfy = "vrfy ", expn = "expn ";
+
+filter {
+  if (dport != 25) return pass;
+  if (len == 0) return pass;
+  mask m = scan(payload, 512);
+
+  if (any(m, vrfy, expn)) { log(1); return drop("smtp_enum"); }
+
+  if (flow.state == 0) {                      // not greeted yet
+    if (any(m, helo, ehlo)) { flow.state = 1 for 120; return pass; }
+    if (any(m, mailfrom, rcptto)) return drop("smtp_no_greeting");
+    return pass;
+  }
+
+  if (any(m, rcptto)) {                        // count recipients this session
+    let n = flow.count;
+    if (n >= 20) { console("smtp rcpt flood n=%d", n); return ban("smtp_dict_spam", 1800); }
+  }
+  return pass;
+}

@@ -1,0 +1,41 @@
+// Cross-site scripting (XSS): a scoring WAF, not a single blocklist hit. A
+// subroutine weighs several independent signals over the reassembled request —
+// tag injection, tag+event-handler pairs in order, dangerous URI schemes, the
+// general on<event>= family — into a confidence score. The filter then escalates:
+// a high-confidence single request is banned, a lower-confidence one is reset and
+// counted, and a connection that keeps probing is banned for repeat offending.
+//
+// Combines: reassembly, nocase, a reused scan mask, any()/seq(), a regex handler
+// family, a subroutine with a return value, arithmetic scoring, per-connection
+// escalation (flow.count), and console()/log() observability.
+nocase;
+reassemble 8080;
+pattern s_open = "<script", s_close = "</script", iframe = "<iframe", svg = "<svg", img = "<img";
+pattern onerror = "onerror=", onload = "onload=", js = "javascript:", data_js = "data:text/html", evl = "eval(";
+regex on_handler = "on[a-z]{3,12}=";          // onmouseover= onfocus= onclick= ...
+
+// Weigh the XSS signals present; higher = more certainly an attack.
+fn xss_score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, s_open, s_close, iframe)) s = s + 2;                 // raw tag injection
+  if (seq(m, svg, onload) || seq(m, img, onerror)) s = s + 2;     // tag then handler, in order
+  if (any(m, js, data_js)) s = s + 1;                             // scheme payloads
+  if (any(m, onerror, onload, evl)) s = s + 1;
+  if (any(scan(payload, 2048), on_handler)) s = s + 1;            // generic event handler
+  return s;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != 80) return pass;
+
+  let score = xss_score();
+  if (score == 0) return pass;
+  console("xss score=%d sport=%d strikes=%d", score, sport, flow.count);
+  log(1);
+
+  if (score >= 3) return ban("xss_high_confidence", 1800);   // one strong request: cut the source
+  if (flow.count >= 3) return ban("xss_repeat", 1800);       // persistent prober
+  return rst("xss", 0);                                       // first low-confidence hit: reset
+}

@@ -1,0 +1,62 @@
+// One firewall image, many tenants. The SAME compiled bytecode is deployed per
+// customer and tuned entirely with load-time args (no recompile): which port to
+// guard, the max request size, a strict-vs-permissive mode, and how many strikes
+// before a ban. Each concern is a subroutine, so the policy reads as a pipeline
+// and the knobs are all in one place.
+//
+// Combines: argv-driven thresholds in comparisons (NOT as op args), subroutines
+// with args + return values, request classification, mode-dependent escalation,
+// and console() tracing keyed by tenant behaviour.
+//   argv[0] = port to guard         (default 80)
+//   argv[1] = max request bytes     (default 8192)
+//   argv[2] = strict mode 1/0       (default 0)
+//   argv[3] = strikes before ban    (default 5)
+nocase;
+reassemble 8080;
+pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap", masscan = "masscan";
+pattern sqli_a = "union select", sqli_b = "' or '1'='1", trav = "../";
+
+// A known scanner user-agent / tool fingerprint anywhere in the request.
+fn is_scanner(ptr) {
+  if (any(scan(ptr, 1024), sqlmap, nikto, nmap, masscan)) return 1;
+  return 0;
+}
+
+// A generic attack signature (SQLi / traversal) in the request.
+fn is_attack(ptr) {
+  if (any(scan(ptr, 1024), sqli_a, sqli_b, trav)) return 1;
+  return 0;
+}
+
+// Oversize relative to this tenant's configured ceiling.
+fn too_big(limit) { if (len > limit) return 1; return 0; }
+
+filter {
+  if (proto != 6) return pass;
+  if (dport != argv[0] ?? 80) return pass;      // tenant's port
+  if (len == 0) return pass;
+
+  let strict = argv[2] ?? 0;
+  let ban_at = argv[3] ?? 5;
+
+  // Scanners: always banned, every tenant.
+  if (is_scanner(payload)) {
+    console("tenant scanner port=%d sport=%d", dport, sport);
+    return ban("scanner", 3600);
+  }
+
+  // Attacks: reset, and escalate a persistent attacker to a ban.
+  if (is_attack(payload)) {
+    log(1);
+    if (flow.count >= ban_at) return ban("attack_repeat", 1800);
+    return rst("attack", 0);
+  }
+
+  // Oversize: strict tenants reset, permissive tenants only tally.
+  if (too_big(argv[1] ?? 8192)) {
+    console("tenant oversize port=%d len=%d strict=%d", dport, len, strict);
+    if (strict == 1) return rst("oversize", 0);
+    count("oversize_seen");
+  }
+  return pass;
+}

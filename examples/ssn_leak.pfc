@@ -1,0 +1,39 @@
+// SSN egress DLP with two layers: scrub fixed-shape SSNs out of every response in
+// place (so a stray number never leaves), AND block outright when a response looks
+// like a bulk record dump (PII context + many emails = someone exfiltrating a
+// table, not one number in a form). Repeat offenders get the source banned.
+//
+// Combines: fixed-length regex redact() in place + variable-signal detection to
+// block, a correlation subroutine (emails && SSN context), per-flow escalation,
+// and console() observability. Response side (sport 80/443) on a gateway.
+nocase;
+regex ssn   = "\d{3}-\d{2}-\d{4}";                  // 123-45-6789 (fixed 11 -> redact)
+regex ssn9  = "\d{9}";                               // bare 9-digit (fixed 9 -> redact)
+regex email = "[a-z0-9._]+@[a-z0-9.]+\.[a-z]+";      // variable -> detect only
+pattern ctx = "ssn", ctx2 = "social", ctx3 = "dob";
+
+// a response pairing PII context with emails is a record export, not a stray field
+fn is_record_dump() {
+  mask m = scan(payload, 1460);
+  if (any(m, email) && any(m, ctx, ctx2, ctx3)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) return pass;
+  if (sport != 80 && sport != 443) return pass;
+  if (len == 0) return pass;
+
+  // layer 1: always scrub fixed-shape SSNs in place (checksum fixed up for us)
+  redact(ssn);
+  redact(ssn9, 'X');
+
+  // layer 2: a bulk dump is exfil — block, and ban a source that keeps doing it
+  if (is_record_dump()) {
+    let hits = flow.count;
+    console("pii record dump sport=%d hit=%d", sport, hits);
+    if (hits >= 2) return ban("ssn_dump", 1800);
+    return rst("ssn_dump", 0);
+  }
+  return pass;
+}

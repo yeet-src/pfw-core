@@ -1,0 +1,32 @@
+// Anti-reconnaissance: rewrite the version banners a web/app tier leaks in its
+// response headers, in place, to equal-length neutral strings — so a scanner
+// fingerprinting "Apache/2.4.49" (and picking a matching exploit) sees nothing
+// useful. replace() needs the replacement to match the pattern length exactly, so
+// each banner maps to a same-length cover. Anything we don't have a cover for is
+// logged (via console with the live banner) so you can add it to the list.
+//
+// Combines: multiple in-place replace() rewrites (fixed-length literals), a
+// catch-all detector with after() to surface the leaked value as %s, and log().
+// Response side on a gateway (sport 80/443). The L4 checksum is fixed up for us.
+nocase;
+pattern apache  = "Server: Apache/2.4.49";         // 21 bytes
+pattern nginx   = "Server: nginx/1.14.0";          // 20 bytes
+pattern express = "X-Powered-By: Express";          // 21 bytes
+pattern srv = "server:";                            // catch-all header probe
+
+filter {
+  if (proto != 6) return pass;
+  if (sport != 80 && sport != 443) return pass;
+
+  // rewrite known banners to equal-length covers (recon sees a generic tier)
+  replace(apache,  "Server: svc-tier-aaaa");        // 21
+  replace(nginx,   "Server: svc-tier-aaa");         // 20
+  replace(express, "X-Powered-By: -------");         // 21
+
+  // still leaking a Server: header we don't cover? log it so the list can grow
+  if (any(scan(payload, 512), srv)) {
+    console("uncovered server banner: %s", after(srv));
+    log(2);
+  }
+  return pass;
+}
