@@ -15,6 +15,7 @@ Each construct lowers to ISA ops through the `Builder`; op names below are the
 | `a in "cidr"` / `set` / `hash` / `bloom` / `set6` | `CIDR` / `LPM` / `HASH` / `BLOOM` / `LPM6` |
 | `rate` | `RATE` |
 | `flow.state` / `= N for` | `SLOAD` / `SSTORE`; `flow.count` → `BUMP` |
+| `src.state` / `src.count` / `src.rate(r, b)` | the same ops (`SLOAD`/`SSTORE`/`BUMP`/`RATE`) with the source scope set |
 | `ring.push/get/len` | `RPUSH` / `RGET` / `RLEN` |
 | `decide pass/drop/count/ban/rst`, `log` | `PASS` / `DROP` / `COUNT` / `BAN` / `RST`, `LOG` |
 | `redact` / `replace` / `dnat` / `redirect` | `REDACT` / `REPLACE` / `DNAT` / `REDIRECT` |

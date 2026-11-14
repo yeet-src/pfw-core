@@ -83,9 +83,15 @@ are written back to the flow in `finish()`.
   checksum** (`l3+10`) and the **L4 checksum** (TCP `l4+16`, UDP `l4+6`)
   incrementally with `bpf_csum_diff`. Runs only when `!c->reasm`. The program
   then forwards (a PASS verdict) and the stack routes the rewritten packet.
+  It also records the **reply tuple** in the `nat` map (from the new destination,
+  to this packet's source → the original destination). At the entry,
+  `nat_reverse` matches every IPv4 TCP/UDP packet against that map and, on a hit,
+  restores the reply's source address and port (fixing both checksums) and
+  passes it without running the program — so the client sees replies from the
+  address it dialled, and a TCP connection diverted from its SYN completes.
 - **Operation (host):** kernel-only — a no-op in `interp.js` (the host frame
   model is payload-only and has no L3/L4 headers to rewrite).
-- **Flags:** none. **Maps:** none (writes the packet).
+- **Flags:** none. **Maps:** `nat` (writes the packet too).
 - **Example:** `dnat("10.0.0.2", 8080);`
 - **Notes:** the port/ip are compile-time constants — `argv` cannot feed `dnat`.
   Pairs with `redirect` to steer a rewritten packet out another interface.
@@ -113,8 +119,10 @@ are written back to the flow in `finish()`.
 
 ### 51 — `OP_RATE` (`rate $PER_SECOND, $BURST`)
 
-- **Assembler:** `rate $5, $20` (both positive u32).
-- **Encoding:** `code = 51`, `reg = 0`. `imm` = tokens/second in the **low 32
+- **Assembler:** `rate $5, $20` (both positive u32); `srcrate $5, $20` for the
+  source scope — **pfw-C:** `rate(5, 20)` / `src.rate(5, 20)`.
+- **Encoding:** `code = 51`, `reg` = scope (0 = one bucket per connection, 1 = one
+  bucket per source address, shared by all its connections). `imm` = tokens/second in the **low 32
   bits** `|` burst (bucket capacity) in the **high 32 bits**.
 - **Operation (kernel):** `do_rate` (a `__noinline` helper) — a token bucket kept
   per flow in `st->rl_tokens` / `st->rl_ts` (loaded from the flow at entry,

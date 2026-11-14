@@ -17,7 +17,7 @@ inside value arithmetic it is **bitwise-or**.
 
 - literals (number, char, string), register reads, local reads;
 - `(expr)`, `!primary`;
-- `flow.state`, `flow.count` (§6), `ring.len`, `ring.get(i)` (§6),
+- `flow.state`, `flow.count`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
 - calls: `scan(...)`, `after(...)`, `find(...)`, `starts(...)`, `any/all/seq(...)`,
@@ -36,6 +36,12 @@ if (len > 1400) decide drop("too_big");
 
 `scan(ptr, N)` runs the Aho-Corasick automaton over `N` bytes from `ptr`,
 producing a mask. **`N` must be a compile-time constant.** Query the mask:
+
+`within(ptr, N)` is the same scan started fresh: the match mask and the
+automaton are cleared first, so the result is exactly the patterns inside
+`[ptr, ptr+N)`. Use it to anchor a test to a region you located with the cursor
+(`after`, `find`, `frame.data`) — a second `scan` would still report whatever an
+earlier scan saw elsewhere.
 
 - `scan(...) & pat` or `mask & (p1 | p2)` — true if any listed pattern matched;
 - `any(scan|mask, p1, p2, …)` — at least one matched;

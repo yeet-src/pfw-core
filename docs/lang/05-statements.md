@@ -50,7 +50,7 @@ subroutine values, §7):
 | `decide pass;` | allow the packet |
 | `decide drop("rule");` | drop it (`XDP_DROP`) |
 | `decide rst("rule", ttl);` | send a TCP reset (IPv4 TCP; else drop) |
-| `decide ban("rule", ttl);` | blocklist the source for `ttl` seconds (future packets dropped before the program runs), and drop this one |
+| `decide ban("rule", ttl);` | ban the **source address** for `ttl` seconds — every later packet from it, on any port or connection, is dropped before the program runs — and drop this one |
 | `decide count("rule");` | tally the rule — **non-terminal**, execution continues |
 
 `drop`/`ban`/`rst`/`count` take a rule name (bareword or `"string"`) that labels
@@ -91,6 +91,10 @@ replace(key, "AKIAXXXXXXXXXXXXXXXX"); // same length as the match
 ### Packet steering
 
 - `dnat("a.b.c.d", port);` — rewrite the destination IPv4 + port and forward.
+  Two-way: the kernel records the connection and translates the replies back, so
+  TCP works. It cannot move an established connection — call it on every packet
+  of the connections to divert, from the first one (typically gated on
+  `src.state`).
 - `redirect(ifindex);` — forward the packet out another interface
   (`XDP_REDIRECT`); terminal on the forward path.
 
@@ -101,6 +105,9 @@ Both take compile-time constants.
 - `flow.state = N;` or `flow.state = N for SECONDS;` — set the connection's user
   state (optionally with a TTL after which it decays). Read with `flow.state`.
 - `flow.count` — a read-then-increment per-connection hit counter (an expression).
+- `src.state = N;` / `src.state = N for SECONDS;`, `src.count`, and the condition
+  `src.rate(per_second, burst)` — the same three, keyed on the **source address**
+  instead of the connection, so they hold across every connection a source opens.
 - `ring.push(v);` / `ring.get(i)` / `ring.len` — a 16-slot newest-wins per-flow
   ring (push is a statement; get/len are expressions).
 

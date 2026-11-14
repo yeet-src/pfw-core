@@ -21,7 +21,7 @@ stmt        = block | if | match | switch | "break" ";"
             | "repeat" "(" number ")" stmt
             | "frame" [ "at" primary ] "(" framefields ")" "up" "to" number stmt
             | "ring" "." "push" "(" expr ")" ";"
-            | "flow" "." "state" "=" expr [ "for" expr ] ";"
+            | ("flow"|"src") "." "state" "=" expr [ "for" expr ] ";"
             | ident "=" arith ";"          (* assign local / writable register *)
             | ident ";"                     (* macro expansion *)
             | ident "(" [ args ] ")" ";" ;  (* call / builtin statement *)
@@ -38,7 +38,7 @@ compare     = maskop [ "in" cidr-or-set ]
 maskop      = primary { "|" primary } ;
 arith       = primary { ("+"|"-"|"&"|"|"|"<<"|">>") primary } ;  (* value grammar *)
 primary     = number | char | string | ident | "(" expr ")" | "!" primary
-            | "flow" "." ("state"|"count") | "ring" "." ("len"|"get" "(" expr ")")
+            | ("flow"|"src") "." ("state"|"count") | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
             | "argv" "[" number "]" [ "??" (number|char) ] | "argc"
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"

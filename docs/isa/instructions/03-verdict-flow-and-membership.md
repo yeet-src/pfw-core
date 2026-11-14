@@ -101,16 +101,19 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Assembler:** `ban $rule, $ttl` — **pfw-C:** `decide ban("rule", ttl);`
 - **Encoding:** code = 29; `reg` = rule id; `imm` = TTL in seconds.
 - **Operation:** `st->verdict = V_BAN; st->rule = reg; st->ttl = imm; st->set_mark
-  = MARK_DROP`. Terminal. `finish()` writes the flow mark `MARK_DROP` with
-  `expires = now + ttl·1e9` (0 = forever), then `count_rule; bans++; dropped++;
-  XDP_DROP`. For the TTL, the **entry fast path** drops every later packet of that
-  flow before the program runs.
+  = MARK_DROP`. Terminal. `finish()` marks the **source address** `MARK_DROP` in
+  the `sources` map with `expires = now + ttl·1e9` (0 = forever) — and the flow
+  too — then `count_rule; bans++; dropped++; XDP_DROP`. For the TTL, the entry
+  drops every later packet from that address, on any port, protocol or
+  connection, before the program runs.
 - **Flags:** none.
-- **Maps:** `flows` (mark write), `counters`.
+- **Maps:** `sources` (the ban), `flows` (mark write), `counters`.
 - **Example:** `decide ban("scanner", 3600);`
-- **Notes:** `ban` blocklists the source/flow; `drop` only drops the one packet.
-  Shadow mode writes the mark but passes the packet (and the fast path then also
-  passes it while shadowed).
+- **Notes:** `ban` blocklists the source address; `rst` ends one connection;
+  `drop` drops one packet. The ban is keyed on the address alone, so a reconnect
+  from another port does not escape it. Shadow mode plants no source ban. The
+  host model returns `source.banned`; pass that `source` back to `exec` and the
+  next packet is dropped unseen.
 
 ### 30 — `OP_RST` (`rst $rule, $ttl`)
 
@@ -155,10 +158,12 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 
 ### 33 — `OP_SLOAD` (`sload %cur`)
 
-- **Assembler:** `sload %cur` — **pfw-C:** `flow.state`
-- **Encoding:** code = 33; operand `%cur`.
+- **Assembler:** `sload %cur` (or `srcload %cur`) — **pfw-C:** `flow.state` (or `src.state`)
+- **Encoding:** code = 33; operand `%cur`; `reg` = scope: 0 this connection, 1 the
+  source address.
 - **Operation:** `%cur = c->user_state` — the per-connection state value, or 0 if
-  it had expired by entry time.
+  it had expired by entry time. With the source scope, `st->src_state`: the same
+  for the source address (the `sources` map).
 - **Flags:** none.
 - **Maps:** reads the flow's `user_state` (passed in at entry).
 - **Example:** `if (flow.state == 1) decide pass;`
@@ -166,8 +171,9 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 
 ### 34 — `OP_SSTORE` (`sstore $state[, $ttl]`)
 
-- **Assembler:** `sstore $state[, $ttl]` — **pfw-C:** `flow.state = N for SECONDS;`
-- **Encoding:** code = 34; `reg` = TTL seconds; `imm` = the new state value.
+- **Assembler:** `sstore $state[, $ttl]` (or `srcstore`) — **pfw-C:** `flow.state = N for SECONDS;` (or `src.state = ...`)
+- **Encoding:** code = 34; `reg` = TTL seconds (the full 32 bits); `imm` = the new
+  state value in the low 32 bits, scope in bit 32 (1 = the source address).
 - **Operation:** `st->new_state = state; st->set_state = 1; st->state_ttl = ttl`.
   Deferred — `finish()` writes `f->user_state = state` with `state_expires = now +
   ttl·1e9` (0 = never expires). **Non-terminal.**
@@ -181,8 +187,9 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 
 ### 35 — `OP_BUMP` (`bump %cur`)
 
-- **Assembler:** `bump %cur` — **pfw-C:** `flow.count`
-- **Encoding:** code = 35; operand `%cur`.
+- **Assembler:** `bump %cur` (or `srcbump %cur`) — **pfw-C:** `flow.count` (or `src.count`)
+- **Encoding:** code = 35; operand `%cur`; `reg` = scope: 0 this connection, 1 the
+  source address (a counter that survives a reconnect).
 - **Operation:** `st->hits++; st->set_hits = 1; %cur = st->hits` — read-then-
   increment the per-connection hit counter; the new value is written back to the
   flow in `finish()`.
