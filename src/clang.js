@@ -843,6 +843,20 @@ function codegen(ast) {
           if (!(p.kind === "ref" && scratch.has(p.name))) die("skip(ptrVariable, 'c')", s.line);
           bld.movToCur(scratch.get(p.name)); bld.skipb(Number(immVal(c.args[1])), 0n); return bld.movFromCur(scratch.get(p.name));
         }
+        if (c.name === "redact") {
+          if (c.args.length < 1) die('redact(pattern [, \'fill\'])', s.line);
+          const mid = bld.patId(patArg(c.args[0]));
+          const fill = c.args[1] ? Number(immVal(c.args[1])) & 0xff : 0x2a; /* default '*' */
+          return bld.redact(mid, BigInt(fill));
+        }
+        if (c.name === "replace") {
+          if (c.args.length !== 2) die('replace(pattern, "repl" | pattern)', s.line);
+          const mid = bld.patId(patArg(c.args[0]));
+          const rid = bld.patId(patArg(c.args[1])); /* a "literal" is interned as a pattern */
+          const mlen = bld.patterns[mid].bytes.length, rlen = bld.patterns[rid].bytes.length;
+          if (mlen !== rlen) die(`replace needs a same-length replacement (pattern is ${mlen} bytes, replacement is ${rlen})`, s.line);
+          return bld.replace(mid, rid);
+        }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }

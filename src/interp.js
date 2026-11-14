@@ -156,6 +156,24 @@ export function machine({ asm, tables }) {
           break;
         }
         case OP.RLEN: cur = BigInt(ringCount); break;
+        case OP.REDACT:
+        case OP.REPLACE: {
+          // Overwrite every match of pattern `reg` in [cur, end) in place, same
+          // length: redact fills with imm's low byte, replace copies pattern imm.
+          const p = pats[reg & 63];
+          const repl = code === OP.REPLACE ? pats[Number(imm & 63n)] : null;
+          const fillB = Number(imm & 0xffn);
+          const end = Math.min(Number(r[REG.end]), frame.length);
+          const start = Number(cur);
+          if (p && p.len > 0 && (!repl || repl.len === p.len)) {
+            for (let o = start; o >= 0 && o + p.len <= end && o < start + 2048; o++) {
+              let hit = true;
+              for (let j = 0; j < p.len; j++) if (fold(frame[o + j]) !== fold(p.bytes[j])) { hit = false; break; }
+              if (hit) { for (let j = 0; j < p.len; j++) frame[o + j] = repl ? repl.bytes[j] : fillB; o += p.len - 1; }
+            }
+          }
+          break;
+        }
         case OP.SLOAD: cur = BigInt(userState); break;
         case OP.SSTORE: newState = Number(imm & 0xffffffffn); break;
         case OP.BUMP: hits = (hits + 1) >>> 0; cur = BigInt(hits); break;

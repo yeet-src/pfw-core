@@ -90,6 +90,10 @@ export const ringPush = (e) => ({ kind: "ringpush", value: E(e) });
 export const setState = (v, ttl) => ({ kind: "setstate", value: num(v), ttl: ttl == null ? null : num(ttl) });
 export const log = (n) => ({ kind: "exprstmt", call: { kind: "call", name: "log", args: [num(n)] } });
 export const skip = (ptrName, ch) => ({ kind: "exprstmt", call: { kind: "call", name: "skip", args: [ref(ptrName), chr(ch)] } });
+/** redact(patName[, fill]): overwrite every match of the pattern with a fill byte (default '*'). */
+export const redact = (patName, fill = "*") => ({ kind: "exprstmt", call: { kind: "call", name: "redact", args: fill == null ? [ref(patName)] : [ref(patName), chr(fill)] } });
+/** replace(patName, "repl"): overwrite every match with a same-length replacement string. */
+export const replace = (patName, repl) => ({ kind: "exprstmt", call: { kind: "call", name: "replace", args: [ref(patName), { kind: "string", text: repl }] } });
 
 /* frameWalk({ at?, len:{type,off}, type?:{type,off}, head, up }, ...body) */
 export const frameWalk = (spec, ...body) => ({

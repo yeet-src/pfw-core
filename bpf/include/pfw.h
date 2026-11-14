@@ -119,6 +119,8 @@ enum pfw_opcode {
     OP_RPUSH,   /* push cur onto this flow's ring */
     OP_RGET,    /* cur = ring entry at index cur (0 = newest); cur=0 + fault if out of range */
     OP_RLEN,    /* cur = this flow's ring length */
+    OP_REDACT,  /* overwrite every match of pattern reg in [cur, end) with fill byte imm */
+    OP_REPLACE, /* overwrite every match of pattern reg in [cur, end) with pattern imm (same length) */
     OP_COUNT_OPCODES,
 };
 

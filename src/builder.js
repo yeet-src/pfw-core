@@ -104,6 +104,9 @@ export class Builder {
   rpush() { return this.op(OP.RPUSH); }
   rget() { return this.op(OP.RGET); }
   rlen() { return this.op(OP.RLEN); }
+  // ---- packet rewrite (reg = match pattern id; imm = fill byte / replacement pattern id) ----
+  redact(pat, fill) { return this.op(OP.REDACT, pat, BigInt(fill)); }
+  replace(pat, repl) { return this.op(OP.REPLACE, pat, BigInt(repl)); }
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -209,6 +212,8 @@ export function opText(op, patterns = [], rules = []) {
       return `test ${names.length ? names.join("|") : "0x" + op.imm.toString(16)}`;
     }
     case OP.MPOS: case OP.CMPSTR: return `${name} ${pat(op.reg)}`;
+    case OP.REDACT: return `redact ${pat(op.reg)}, 0x${op.imm.toString(16)}`;
+    case OP.REPLACE: return `replace ${pat(op.reg)}, ${pat(Number(op.imm))}`;
     case OP.FINDB: case OP.SKIPB: return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;

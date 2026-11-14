@@ -116,6 +116,24 @@ yeet.test("cidr, rpush/rget/rlen", () => {
   expectRst("ring push/len/get", `        and     $0, %cur\n        add     $99, %cur\n        rpush   %cur\n        rlen    %cur\n        cmp     $1, %cur\n        jne     no\n        and     $0, %cur\n        rget    %cur\n        cmp     $99, %cur\n        jne     no\n        rst     $1, $0\n no:    pass`);
 });
 
+/* ---- packet rewrite (also covered in rewrite.test.mjs; here for op coverage) ---- */
+yeet.test("redact / replace rewrite the frame", () => {
+  // redact "bb" with 'X', then verify the frame bytes changed, then pass.
+  const red = assemble(`        .pat    bb, "bb"\n        redact  $bb, $0x58\n        pass`);
+  if (!red.ok) throw new Error("assemble redact: " + JSON.stringify(red.errors));
+  note(red);
+  const f = Uint8Array.from(enc.encode("a bb c bb"));
+  machine({ asm: red, tables: build(red.patterns, red.nocase) })(f, 0, { ac: 0, mask: 0n }, {});
+  if (String.fromCharCode(...f) !== "a XX c XX") throw new Error("redact: " + String.fromCharCode(...f));
+  // replace "GG" with "HH" (same length).
+  const rep = assemble(`        .pat    g, "GG"\n        .pat    h, "HH"\n        replace $g, $h\n        pass`);
+  if (!rep.ok) throw new Error("assemble replace: " + JSON.stringify(rep.errors));
+  note(rep);
+  const f2 = Uint8Array.from(enc.encode("x GG y"));
+  machine({ asm: rep, tables: build(rep.patterns, rep.nocase) })(f2, 0, { ac: 0, mask: 0n }, {});
+  if (String.fromCharCode(...f2) !== "x HH y") throw new Error("replace: " + String.fromCharCode(...f2));
+});
+
 /* ---- coverage gate ---- */
 yeet.test("every opcode was exercised", () => {
   const miss = Object.entries(OP).filter(([, v]) => !used.has(v)).map(([k]) => k);

@@ -374,6 +374,14 @@ export function assemble(source) {
         if (a.kind !== "imm" || !(b.kind === "mem" && isCur(b.base))) fail("cmpstr is `cmpstr $PAT, (%cur)`");
         if (b.disp !== 0n) fail("cmpstr reads at (%cur); move the cursor first");
         emit(OP.CMPSTR, patId(a.text));
+      } else if (m === "redact") {
+        want(2);
+        if (a.kind !== "imm" || b.kind !== "imm") fail("redact is `redact $PAT, $FILL`");
+        emit(OP.REDACT, patId(a.text), numberOf(b.text, "fill") & 0xffn);
+      } else if (m === "replace") {
+        want(2);
+        if (a.kind !== "imm" || b.kind !== "imm") fail("replace is `replace $PAT, $REPL` (pattern names)");
+        emit(OP.REPLACE, patId(a.text), BigInt(patId(b.text)));
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");
