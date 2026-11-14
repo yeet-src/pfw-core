@@ -279,6 +279,14 @@ The rest, each a single-feature demonstration:
 | `observe.pfc` | passive tap — `count` / `log`, no blocking |
 | `macro.pfc` | reusable rule block |
 
+Advanced — several features at once:
+
+| file | shows |
+|---|---|
+| `waf.pfc` | a mini WAF: one scan, `any`/`seq` attack sigs, per-flow strikes → `rst`/`ban` |
+| `h2_guard.pfc` | `decode h2` → match bot user-agents in the decoded header view, `ban` |
+| `escalate.pfc` | ring + `flow.state` TTL: detect a sustained bulk-transfer burst and reset |
+
 ## What's in the VM
 
 - **ISA** — `src/isa.js` (host view) mirrored by `bpf/include/pfw.h` (the C

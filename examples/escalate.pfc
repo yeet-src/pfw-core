@@ -1,0 +1,21 @@
+// Per-connection escalation with the ring and flow state — a shape flat packet
+// matching can't express. Each data segment's size goes on the ring; the sum of
+// the three most recent is a cheap "recent burst" measure. The first big burst
+// arms the connection (flow.state = 1, for 60s); a second big burst while armed
+// resets it, on the theory that sustained bulk transfer on this port is exfil.
+//
+// Combines: reassembly, the ring (push + get), let/arithmetic over ring values,
+// and per-flow state read + write with a TTL.
+reassemble 8080;
+filter {
+  if (len == 0) return pass;                 // ignore pure ACKs
+  ring.push(len);
+
+  let recent = ring.get(0) + ring.get(1) + ring.get(2);
+  if (recent > 3000) {
+    if (flow.state == 1) return rst("bulk_exfil", 0);   // second big burst: cut it
+    flow.state = 1 for 60;                               // first: arm for 60s
+    log(1);
+  }
+  return pass;
+}

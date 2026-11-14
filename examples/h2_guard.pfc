@@ -1,0 +1,15 @@
+// HTTP/2 crawler defense through the HPACK decode front-end. `decode h2` runs the
+// reassembled HTTP/2 stream through the kernel's HPACK stages, which hand the
+// matcher a decoded "name: value\n" view of the headers — so a bot that hides in
+// an HPACK-indexed or Huffman-coded User-Agent is matched in plaintext, the way
+// flat scanning never could. A hit bans the source for five minutes.
+//
+// Combines: the h2 decode stage (implies reassembly), a scan over the decoded
+// header view, any() across several patterns, and ban.
+nocase;
+decode h2 8080;
+pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
+filter {
+  if (any(scan(payload, 2048), gptbot, claudebot, bytespider)) return ban("h2_crawler", 300);
+  return pass;
+}
