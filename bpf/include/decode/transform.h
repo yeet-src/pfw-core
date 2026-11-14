@@ -20,7 +20,7 @@
  * iteration and blows the jump budget) and writing decoded bytes to st->dec.
  * Mirrors huffDecode() in app/lib/pfw/huffman.js. */
 struct tf_ctx { struct flow *f; struct pfw_state *st; __u32 n; };
-static long tf_step(__u32 i, void *ctx_)
+static long __attribute__((unused)) tf_step(__u32 i, void *ctx_)
 {
     struct tf_ctx *c = ctx_;
     struct pfw_state *st = c->st;
@@ -54,7 +54,7 @@ static long tf_step(__u32 i, void *ctx_)
  * reloaded each iteration, so its precision is laundered. `base` selects the
  * table: table_id * TT_CELLS. */
 struct tf_map_ctx { struct flow *f; struct pfw_state *st; __u32 base, n; };
-static long tf_map_step(__u32 i, void *ctx_)
+static long __attribute__((unused)) tf_map_step(__u32 i, void *ctx_)
 {
     struct tf_map_ctx *c = ctx_;
     struct pfw_state *st = c->st;

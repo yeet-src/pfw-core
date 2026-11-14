@@ -2,44 +2,32 @@
  *
  * The program is data: up to PFW_MAX_OPS instructions in the `programs` map, one
  * generation active at a time, each run as a `bpf_loop` step over a per-CPU state
- * element. This file is the thin top: the license, the module includes, and the
- * SEC("xdp") programs (the entry, the matcher, and the tail-call decode stages).
+ * element. This unit is the entry (pfw_xdp) and the matcher (pfw_match); the
+ * tail-call decode stages are their own units under decode/.
  *
- * The machinery lives in bpf/include/<topic>/*.h, one responsibility each, all
- * `static __always_inline`. Each unit is a single translation unit that includes
- * them, so everything inlines exactly as it did when this was one file — the
- * verifier sees byte-identical code. The split is for readers, not the compiler:
+ * The machinery lives in bpf/include/<topic>/*.h, one responsibility each. The
+ * `static __always_inline` helpers inline into each program (the verifier sees
+ * the same code as a single file); maps are defined once in core/maps.bpf.c and
+ * referenced extern; send_rst is a real cross-unit function (action/rst.h). Each
+ * unit includes only the headers it uses:
  *
- *   core/common.h       base includes (vmlinux, libbpf, pfw.h)
- *   core/maps.h         control/counter globals, maps, pfw_state, decode_jmp
- *   core/stage.h        match_half + the P1 stage framework
- *   parse/parse.h       L2..L4 -> struct pkt
- *   io/read.h           pfw_ctx, window(), load()
- *   io/reasm.h          TCP reassembly
- *   match/scan.h        Aho-Corasick + findb/cmpstr/skipb byte-ops
- *   match/interp.h      pfw_step: one instruction
- *   decode/transform.h  table-driven decode steps (huffman / loaded transform)
- *   decode/h2.h         HTTP/2 HEADERS/HPACK decode
- *   action/rst.h        send_rst
- *   action/event.h      count_rule, emit
+ *   core/common.h   base includes (vmlinux, libbpf, pfw.h)
+ *   core/maps.h     control/counter globals, maps, pfw_state, decode_jmp
+ *   core/match.h    match_half (runs the interpreter + applies the verdict)
+ *   parse/parse.h   L2..L4 -> struct pkt
+ *   io/reasm.h      TCP reassembly
+ *   action/rst.h    send_rst (prototype; defined in action/rst.bpf.c)
+ *   action/event.h  count_rule, emit
  *
- * The maps and counter globals are DEFINED once in core/maps.bpf.c; this unit
- * and decode/stages.bpf.c reference them `extern` (core/maps.h emits them that
- * way when PFW_MAPS_DEFINE is unset). bpftool gen object links all the vm/
- * units into one bin/vm.bpf.o.
+ * bpftool gen object links all bpf/vm/ units into one bin/vm.bpf.o.
  */
 #include "core/common.h"
 #include "core/maps.h"
 #include "parse/parse.h"
-#include "io/read.h"
-#include "match/scan.h"
-#include "decode/transform.h"
-#include "match/interp.h"
+#include "io/reasm.h"
 #include "action/rst.h"
 #include "action/event.h"
-#include "io/reasm.h"
-#include "decode/h2.h"
-#include "core/stage.h"
+#include "core/match.h"
 
 char LICENSE[] SEC("license") = "GPL";
 
