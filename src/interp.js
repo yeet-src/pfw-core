@@ -218,7 +218,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.FARGS: { /* capture a %s string: cur is a frame offset, up to imm/32 bytes */
           if (fstrs.length < 2) {
             const off = Number(cur), e2 = Math.min(Number(r[REG.end]), frame.length);
-            const len = Math.max(0, Math.min(Number(imm), 32, e2 - off));
+            const len = Math.max(0, Math.min(Number(imm), 256, e2 - off));
             let str = ""; for (let j = 0; j < len; j++) str += String.fromCharCode(frame[off + j]);
             fstrs.push(str);
           }

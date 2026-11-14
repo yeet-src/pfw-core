@@ -10,9 +10,6 @@ export const OP = {
   REDIRECT: 50, RATE: 51, ARG: 52, ARGC: 53, FARG: 54, FARGS: 55, CONSOLE: 56,
 };
 
-/* events whose `verdict` field carries a non-verdict message kind, read by the host. */
-export const EV = { CONSOLE: 100 };
-
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each
  * normalizes the reassembled stream to a plaintext view the matcher scans.
  * huffman decodes an HPACK-Huffman stream through a table huffman.js builds. */
@@ -30,7 +27,7 @@ export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [
 
 export const LIMITS = {
   MAX_OPS: 8192, MAX_PATS: 64, PAT_CAP: 64, NRULES: 64, GENS: 2,
-  AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256, RE_STATES: 1024, ARGC: 16, FARGS: 4, FSTR: 2, STRARG: 32,
+  AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256, RE_STATES: 1024, ARGC: 16, FARGS: 4, FSTR: 2, STRARG: 256,
 };
 
 export const VERDICT = { 0: "none", 1: "pass", 2: "drop", 3: "ban", 4: "rst" };

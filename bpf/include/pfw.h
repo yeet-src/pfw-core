@@ -17,8 +17,7 @@
 #define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define FARGS_MAX    4    /* numeric format args a console()/printk() call can carry */
 #define FSTR_MAX     2    /* %s string args a call can carry */
-#define STRARG_CAP   32   /* bytes captured per %s arg (power of two) */
-#define PFW_EV_CONSOLE 100 /* pfw_event.verdict value marking a console message (not a verdict) */
+#define STRARG_CAP   256  /* bytes captured per %s arg (power of two) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -245,6 +244,19 @@ struct pfw_event {
     __u8 saddr[16];
     __u8 daddr[16];
     __u8 data[LOG_CAP];
+};
+
+/* A console() message: the format id, the numeric args, and the captured %s
+ * strings. The host maps fmtid -> format string and prints it. */
+struct pfw_console {
+    __u64 ts;
+    __u32 ifindex;
+    __u32 fmtid;
+    __u32 nnum;              /* numeric arg count */
+    __u32 nstr;             /* %s string count */
+    __u64 nums[FARGS_MAX];
+    __u16 slen[FSTR_MAX];
+    __u8 strs[FSTR_MAX][STRARG_CAP];
 };
 
 #endif

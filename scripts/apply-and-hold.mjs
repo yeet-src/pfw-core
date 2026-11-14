@@ -10,7 +10,7 @@
 import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
 import { compile } from "#/clang.js";
 import { build } from "#/ac.js";
-import { LIMITS, EV } from "#/isa.js";
+import { LIMITS } from "#/isa.js";
 import { formatMsg } from "#/program.js";
 import { transformCells } from "#/transform.js";
 
@@ -38,6 +38,7 @@ if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(
 
 const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
+  .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
   .bind("programs", { kind: "array" })
   .bind("ac_goto", { kind: "array" })
   .bind("ac_fail", { kind: "array" })
@@ -131,21 +132,22 @@ await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shad
 const consoleFormats = c.consoleFormats ?? [];
 const sub = await new RingBuf(control, "events").subscribe((w) => {
   const e = w?.pfw_event ?? w;
-  const v = Number(e.verdict ?? 0);
-  if (v === EV.CONSOLE) {
-    const lv = Number(e.len ?? 0), n = Math.min(lv & 0xff, 4), sn = Math.min((lv >> 8) & 0xff, 2), d = e.data || [];
-    const nums = [];
-    for (let i = 0; i < n; i++) { let x = 0n; for (let b = 0; b < 8; b++) x |= BigInt((d[i * 8 + b] ?? 0) & 0xff) << BigInt(8 * b); nums.push(x); }
-    const strs = [];
-    for (let s = 0; s < sn; s++) { const base = 4 * 8 + 1 + s * (1 + 32), slen = (d[base] ?? 0) & 0xff; let str = ""; for (let b = 0; b < slen; b++) str += String.fromCharCode((d[base + 1 + b] ?? 0) & 0xff); strs.push(str); }
-    console.log(`CONSOLE ${formatMsg(consoleFormats[Number(e.rule ?? 0)] ?? "", nums, strs)}`);
-    return;
-  }
-  console.log(`EVENT ${v}`);
+  console.log(`EVENT ${Number(e.verdict ?? 0)}`);
+});
+const csub = await new RingBuf(control, "console_ring").subscribe((w) => {
+  const e = w?.pfw_console ?? w;
+  const nn = Math.min(Number(e.nnum ?? 0), 4), sn = Math.min(Number(e.nstr ?? 0), 2);
+  const nums = Array.from({ length: nn }, (_, i) => BigInt(e.nums?.[i] ?? 0));
+  const strs = Array.from({ length: sn }, (_, s) => {
+    const len = Number(e.slen?.[s] ?? 0), by = e.strs?.[s] ?? [];
+    let str = ""; for (let b = 0; b < len; b++) str += String.fromCharCode((by[b] ?? 0) & 0xff); return str;
+  });
+  console.log(`CONSOLE ${formatMsg(consoleFormats[Number(e.fmtid ?? 0)] ?? "", nums, strs)}`);
 });
 
 console.log(`READY nops=${c.program.nops} decode=${c.program.decode ?? 0} reasm=${c.program.reasm ?? 0}`);
 for (let i = 0; i < hold; i++) await new Promise((r) => setTimeout(r, 1000));
 await sub.stop?.();
+await csub.stop?.();
 await control.stop();
 console.log("detached");

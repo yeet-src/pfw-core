@@ -15,33 +15,24 @@ static __always_inline void count_rule(__u32 rule)
         (*n)++;
 }
 
-/* Emit a console message to the host: a pfw_event tagged PFW_EV_CONSOLE, carrying
- * the format id (in rule), the arg count (in len) and the pushed fargs (packed
- * into data). The host maps the id back to the format string and prints it. */
+/* Emit a console() message to the host on the typed console ring: the format id,
+ * the numeric args, and the captured %s strings. The host maps id -> format. */
 static __always_inline void console_emit(struct xdp_md *ctx, struct pfw_state *st, __u32 fmtid)
 {
-    struct pfw_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct pfw_console *e = bpf_ringbuf_reserve(&console_ring, sizeof(*e), 0);
     if (!e) { ring_full++; return; }
-    __builtin_memset(e, 0, sizeof(*e));
     e->ts = bpf_ktime_get_ns();
     e->ifindex = ctx->ingress_ifindex;
-    e->verdict = PFW_EV_CONSOLE;
-    e->rule = fmtid;
-    __u32 n = st->fargn > FARGS_MAX ? FARGS_MAX : st->fargn;
-    __u32 sn = st->fsn > FSTR_MAX ? FSTR_MAX : st->fsn;
-    e->len = n | (sn << 8);                          /* numeric count | string count<<8 */
-    /* layout: [FARGS_MAX u64 numbers][u8 sn][per string: u8 len, STRARG_CAP bytes] */
+    e->fmtid = fmtid;
+    e->nnum = st->fargn > FARGS_MAX ? FARGS_MAX : st->fargn;
+    e->nstr = st->fsn > FSTR_MAX ? FSTR_MAX : st->fsn;
 #pragma unroll
-    for (int i = 0; i < FARGS_MAX; i++) {
-        __u64 v = st->fargs[i];
-        __builtin_memcpy(&e->data[i * 8], &v, 8);
-    }
-    e->data[FARGS_MAX * 8] = (__u8) sn;
+    for (int i = 0; i < FARGS_MAX; i++)
+        e->nums[i] = st->fargs[i];
 #pragma unroll
     for (int s = 0; s < FSTR_MAX; s++) {
-        __u32 b = FARGS_MAX * 8 + 1 + s * (1 + STRARG_CAP);
-        e->data[b] = st->fslen[s];
-        __builtin_memcpy(&e->data[b + 1], st->fstr[s], STRARG_CAP);  /* 32+1+2*33 = 99 <= LOG_CAP */
+        e->slen[s] = st->fslen[s];
+        __builtin_memcpy(e->strs[s], st->fstr[s], STRARG_CAP);
     }
     bpf_ringbuf_submit(e, 0);
 }

@@ -102,6 +102,14 @@ PFW_LINK struct {
  * needs an anchor or it never makes it into the object's BTF. */
 __attribute__((used)) static const struct pfw_event __pfw_event_anchor;
 
+/* console() messages go on their own ring (typed pfw_console), so enforcement
+ * events stay lean and the host reads args by field instead of unpacking bytes. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 18);
+} console_ring SEC(".maps");
+__attribute__((used)) static const struct pfw_console __pfw_console_anchor;
+
 struct pfw_state {
     __u64 r[NREGS];
     __u32 pc;
@@ -146,7 +154,7 @@ struct pfw_state {
     __u64 fargs[FARGS_MAX]; /* OP_FARG numeric format-arg buffer, flushed by console()/printk() */
     __u32 fargn;
     __u8 fstr[FSTR_MAX][STRARG_CAP]; /* OP_FARGS captured %s strings */
-    __u8 fslen[FSTR_MAX];
+    __u16 fslen[FSTR_MAX];
     __u32 fsn;
 };
 

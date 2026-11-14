@@ -45,9 +45,18 @@ try {
     await send("HELLO-WORLD");
     await sleep(500);
     const want = `req to :${PORT} says HELLO-WORLD`;
-    const got = lines.find((l) => l.includes("says")) ?? "";
-    n++; const ok = got === want; if (!ok) fail++;
+    const got = lines.find((l) => l.includes("HELLO-WORLD")) ?? "";
+    n++; let ok = got === want; if (!ok) fail++;
     console.log(`  ${ok ? "ok  " : "FAIL"} console %d + %s: ${JSON.stringify(got)}${ok ? "" : ` want ${JSON.stringify(want)}`}`);
+
+    // a long payload proves the 256-byte %s capture (not the old 32)
+    const big = "Z".repeat(200);
+    await send(big);
+    await sleep(500);
+    const wantBig = `req to :${PORT} says ${big}`;
+    const gotBig = lines.find((l) => l.includes("Z".repeat(200))) ?? (lines.find((l) => l.includes("ZZZ")) ?? "");
+    n++; ok = gotBig === wantBig; if (!ok) fail++;
+    console.log(`  ${ok ? "ok  " : "FAIL"} console %s 200 bytes: ${ok ? "full string captured" : JSON.stringify(gotBig.slice(0, 60)) + "..."}`);
   });
 } finally { server.close(); }
 console.log(`\n${n - fail}/${n} as expected`);

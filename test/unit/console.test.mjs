@@ -23,10 +23,10 @@ yeet.test("%s captures a string from a packet pointer", () => {
   eq(r.console[0], "req=GET /index", "string arg from payload");
 });
 
-yeet.test("%s is capped at 32 bytes", () => {
+yeet.test("%s is capped at 256 bytes", () => {
   const p = prog(`filter { console("b=%s", payload); return pass; }`);
-  const r = p.exec(enc("A".repeat(50)), { payload: 0 });
-  eq(r.console[0], "b=" + "A".repeat(32), "truncated to the cap");
+  const r = p.exec(enc("A".repeat(400)), { payload: 0 });
+  eq(r.console[0], "b=" + "A".repeat(256), "truncated to the cap");
 });
 
 yeet.test("mixed numeric and string args interleave in format order", () => {
