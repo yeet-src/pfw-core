@@ -7,7 +7,7 @@
  *
  *   yeet run scripts/apply-and-hold.mjs --src <base64 pfw-C> [--iface N] [--hold S]
  */
-import { ArrayMap, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
+import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
 import { compile } from "#/clang.js";
 import { build } from "#/ac.js";
 import { LIMITS } from "#/isa.js";
@@ -46,6 +46,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("tt_cells", { kind: "array" })
   .bind("lpm", { kind: "lpm_trie" })
   .bind("hashset", { kind: "hash" })
+  .bind("bloom", { kind: "bloom_filter" })
   .bind("re_goto", { kind: "array" })
   .bind("re_accept", { kind: "array" })
   .bind("decode_jmp", { kind: "prog_array" })
@@ -84,6 +85,12 @@ if (c.regex) {
 if (argv.hashset) {
   const h = new HashMap(control, "hashset");
   for (const v of String(argv.hashset).split(",").filter(Boolean)) await h.update((Number(v) >>> 0), 1);
+}
+
+/* Populate the `x in bloom` filter from --bloom "1,2,3". */
+if (argv.bloom) {
+  const bf = new BloomFilter(control, "bloom");
+  for (const v of String(argv.bloom).split(",").filter(Boolean)) await bf.insert(Number(v) >>> 0);
 }
 
 /* Populate the `src in set` CIDR trie from --set "10.0.0.0/8,192.168.1.0/24". */

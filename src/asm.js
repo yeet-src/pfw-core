@@ -397,6 +397,9 @@ export function assemble(source) {
       } else if (m === "hash") {
         want(0);
         emit(OP.HASH);
+      } else if (m === "bloom") {
+        want(0);
+        emit(OP.BLOOM);
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");

@@ -55,7 +55,7 @@ export class Program {
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
     const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
-    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [] });
+    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [] });
     return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow };
   }
 }

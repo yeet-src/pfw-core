@@ -153,6 +153,11 @@ yeet.test("hash assembles and runs (empty set -> pass)", () => {
   expect("hash", `        mov     %dport, %cur\n        hash\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { dport: 31337 } });
 });
 
+/* ---- bloom (probabilistic membership; host-loaded, empty here -> no match) ---- */
+yeet.test("bloom assembles and runs (empty filter -> pass)", () => {
+  expect("bloom", `        mov     %dport, %cur\n        bloom\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { dport: 1234 } });
+});
+
 /* ---- coverage gate ---- */
 yeet.test("every opcode was exercised", () => {
   const miss = Object.entries(OP).filter(([, v]) => !used.has(v)).map(([k]) => k);

@@ -55,6 +55,7 @@ export const band = (a, ...pats) => {
 export const inCidr = (a, cidr) => ({ kind: "incidr", a: E(a), cidr }); // `a in "10.0.0.0/8"`
 export const inSet = (a) => ({ kind: "inset", a: E(a) }); // `a in set` — the lpm_trie CIDR set
 export const inHash = (a) => ({ kind: "inhash", a: E(a) }); // `a in hash` — the exact hashset
+export const inBloom = (a) => ({ kind: "inbloom", a: E(a) }); // `a in bloom` — the probabilistic set
 
 const arith = (op) => (a, b) => ({ kind: "arith", op, a: E(a), b: E(b) });
 export const add = arith("+"), sub = arith("-"), bor = arith("|"), bitand = arith("&"), shl = arith("<<"), shr = arith(">>");

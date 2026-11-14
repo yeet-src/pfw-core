@@ -346,6 +346,13 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (v ? FL_ZF : 0);
         break;
     }
+    case OP_BLOOM: {
+        /* ZF = cur (low 32 bits) is (probably) in the bloom filter. peek returns
+         * 0 when present, an error when definitely absent. */
+        __u32 e = (__u32) cur;
+        fl = (fl & FL_FF) | (bpf_map_peek_elem(&bloom, &e) == 0 ? FL_ZF : 0);
+        break;
+    }
     default:
         st->verdict = V_PASS;
         faults++;

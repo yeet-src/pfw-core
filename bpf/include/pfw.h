@@ -10,6 +10,8 @@
 #define PFW_PAT_CAP  64   /* bytes per pattern */
 #define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
 #define HASH_MAX     16384 /* max keys in the `x in hash` exact set (hashset) */
+#define BLOOM_MAX    65536 /* capacity of the `x in bloom` probabilistic set (bloom) */
+#define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -130,6 +132,7 @@ enum pfw_opcode {
     OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums */
     OP_LPM,     /* ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) */
     OP_HASH,    /* ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) */
+    OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
     OP_COUNT_OPCODES,
 };
 

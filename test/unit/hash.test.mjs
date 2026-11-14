@@ -24,6 +24,18 @@ yeet.test("x in hash — pfw-C compiles and the DSL matches it", () => {
   if (J(s.program.ops) !== J(d.program.ops)) throw new Error("DSL != source");
 });
 
+yeet.test("x in bloom — membership (modelled exact: no false negatives)", () => {
+  const p = C.program(C.filter(C.iff(C.inBloom(C.dport), C.drop("maybe")), C.pass()));
+  const bloom = [31337, 4444];
+  eq(p.exec(enc(""), { dport: 31337, bloom }).verdict, "drop", "inserted -> present");
+  eq(p.exec(enc(""), { dport: 80, bloom }).verdict, "pass", "not inserted");
+  eq(p.exec(enc(""), { dport: 31337, bloom: [] }).verdict, "pass", "empty filter");
+  // DSL == source
+  const s = compile(`filter { if (dport in bloom) return drop("maybe"); return pass; }`);
+  if (!s.ok) throw new Error("source: " + JSON.stringify(s.errors));
+  if (J(s.program.ops) !== J(C.program(C.filter(C.iff(C.inBloom(C.dport), C.drop("maybe")), C.pass())).program.ops)) throw new Error("DSL != source");
+});
+
 yeet.test("hash works on a computed value and negates", () => {
   // allow only known ports: drop if dport NOT in the set
   const p = C.program(C.filter(C.iff(C.not(C.inHash(C.dport)), C.drop("unknown_port")), C.pass()));

@@ -176,6 +176,16 @@ PFW_LINK struct {
     __type(value, __u32);
 } hashset SEC(".maps");
 
+/* Probabilistic membership for `x in bloom`: a host-loaded Bloom filter of u32
+ * values, for very large sets where an exact hash would be too big (may yield
+ * false positives, never false negatives). No key; map_extra = hash functions. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_BLOOM_FILTER);
+    __uint(max_entries, BLOOM_MAX);
+    __type(value, __u32);
+    __uint(map_extra, BLOOM_HASHES);
+} bloom SEC(".maps");
+
 /* Regex DFA (fuzzy matching): a complete transition table (re_goto, key =
  * gen*RE_STATES*256 + state*256 + byte -> next state) and a per-state accept
  * bitmask (re_accept). The host builds these from `regex` patterns; the scan's
