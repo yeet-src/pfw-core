@@ -1,0 +1,31 @@
+// Citrix Bleed (CVE-2023-4966): session-token memory disclosure on NetScaler
+// ADC/Gateway. The PoC requests the OpenID configuration endpoint with a Host
+// header padded to ~24 KB; the appliance's fixed response buffer over-reads
+// adjacent memory and leaks live session cookies into the reply. The signature
+// is the specific endpoint combined with an abnormally large request, and the
+// hammering a token-harvest loop produces.
+//
+// Non-trivial: correlates endpoint + request size + request cadence (per-flow
+// strike count) rather than matching any single string; a sustained harvester is
+// banned, a one-off is reset.
+reassemble 443;
+pattern endpoint = "/oauth/idp/.well-known/openid-configuration";
+
+fn score() {
+  let s = 0;
+  if (scan(payload, 256) & endpoint) s = s + 1;   // the vulnerable endpoint
+  if (len > 4096) s = s + 2;                       // the oversized Host buffer
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 443) decide pass;
+  let s = score();
+  if (s >= 3) {
+    log(1);
+    if (flow.count >= 3) decide ban("citrix_bleed", 7200);   // harvest loop
+    decide rst("citrix_bleed", 0);
+  }
+  decide pass;
+}

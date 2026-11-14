@@ -1,0 +1,27 @@
+// CSV-injection + structure guard. When an app exports user input to CSV, a field
+// beginning with = + @ or - is interpreted as a formula by Excel/Sheets (remote
+// data exfil, command execution). This rejects any field whose first byte is a
+// formula lead-in, counts fields with a bounded loop, and caps absurdly wide rows.
+// The comma walk is starts()-disambiguated, so empty fields (",,,,") are counted
+// correctly and every field boundary gets a leading-byte probe.
+reassemble 8080;
+pattern f_eq = "=", f_pl = "+", f_at = "@", f_mi = "-", comma = ",";
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  if (starts(payload, f_eq) || starts(payload, f_pl) || starts(payload, f_at) || starts(payload, f_mi))
+    decide drop("csv_formula");
+  let big = 1000000;
+  ptr p = payload; let fields = 1; let bad = 0;
+  repeat (80) {
+    let o = find(p, ',', 2048);
+    if (o == p) { if (!starts(p, comma)) o = big; }
+    if (o < big) {
+      fields = fields + 1; p = o + 1;
+      if (starts(p, f_eq) || starts(p, f_pl) || starts(p, f_at)) bad = 1;
+    }
+  }
+  if (bad == 1) { log(1); decide drop("csv_formula_field"); }
+  if (fields > 80) decide drop("csv_too_wide");
+  decide pass;
+}

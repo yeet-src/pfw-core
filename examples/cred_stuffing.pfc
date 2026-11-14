@@ -1,0 +1,23 @@
+// Credential-stuffing / login brute-force mitigation (behavioral). Attackers
+// replay huge lists of username:password pairs against a login endpoint. Each
+// POST /login is legitimate in isolation; the abuse is the RATE and VOLUME from
+// one connection. We count login attempts per flow, apply a token-bucket rate
+// limit, and ban a persistent flood.
+//
+// Cross-packet: flow.count (attempts), rate() (per-flow token bucket). Only
+// login-bearing segments touch the counter.
+nocase;
+reassemble 80;
+pattern post = "POST ", login = "/login", api_auth = "/api/auth";
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  mask m = scan(payload, 512);
+  if (seq(m, post, login) || seq(m, post, api_auth)) {
+    log(1);
+    let attempts = flow.count;
+    if (attempts >= 25) decide ban("cred_stuffing", 1800);  // sustained -> ban source
+    if (rate(5, 10)) decide drop("login_rate");             // >5/s (burst 10) -> drop
+  }
+  decide pass;
+}

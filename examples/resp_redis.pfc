@@ -1,0 +1,27 @@
+// Redis RESP command firewall. Redis speaks RESP ("*<argc>\r\n$<len>\r\n<arg>..");
+// this confirms the array framing, then applies argument-aware command policy:
+// CONFIG SET (persistence/backdoor), MODULE LOAD and SLAVEOF (RCE), EVAL (Lua),
+// and FLUSHALL/DEBUG/KEYS are each handled by intent, not just name — CONFIG GET is
+// fine, CONFIG SET is not. Unauthenticated Redis is a perennial breach source.
+//
+// Combines: reassembly, a RESP framing check, and seq()/any() over one scan to
+// distinguish a command from its dangerous sub-verb.
+nocase;
+reassemble 6379;
+pattern resp = "*";
+pattern k_config = "config", k_set = "set", k_module = "module", k_load = "load";
+pattern k_eval = "eval", k_slaveof = "slaveof", k_flush = "flushall", k_debug = "debug", k_keys = "keys";
+filter {
+  if (len == 0) decide pass;
+  if (starts(payload, resp)) {                 // a RESP client command array
+    mask m = scan(payload, 1024);
+    if (seq(m, k_config, k_set))   { log(1); decide drop("redis_config_set"); }      // write to config
+    if (seq(m, k_module, k_load))  { log(1); decide ban("redis_module_load", 3600); } // RCE via module
+    if (any(m, k_slaveof))         { log(1); decide drop("redis_slaveof"); }          // replication hijack
+    if (any(m, k_eval))            decide drop("redis_eval_lua");
+    if (any(m, k_flush, k_debug))  decide drop("redis_dangerous");
+    if (any(m, k_keys))            decide rst("redis_keys_scan", 0);                   // O(n) DoS
+    count("redis_cmd");
+  }
+  decide pass;
+}

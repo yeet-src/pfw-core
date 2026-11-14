@@ -1,0 +1,35 @@
+// Spring4Shell (CVE-2022-22965): unauthenticated RCE in Spring MVC/WebFlux via
+// data-binding. An attacker sets magic bean properties reachable through
+// `class.module.classLoader.*` to rewire Tomcat's AccessLogValve and write a JSP
+// webshell to the webroot. Legitimate forms never post a `class.classLoader`
+// property path, so that alone is a strong signal; the pipeline/resources and
+// suffix/pattern/directory params that configure the dropped file confirm it.
+//
+// Non-trivial: a scoring subroutine weighs three independent indicator groups
+// over one scan of the (reassembled) request; a confirmed hit is reset, and a
+// source that keeps trying is banned.
+nocase;
+reassemble 8080;
+pattern cl1 = "class.module.classloader", cl2 = "class.classloader";
+pattern pipe = "pipeline.first", res = ".resources.", ctx = ".context.parent";
+pattern suf = ".suffix", pat = ".pattern", dir = ".directory", pre = ".prefix";
+
+fn score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, cl1, cl2)) s = s + 3;            // the forbidden classLoader path
+  if (any(m, pipe, res, ctx)) s = s + 2;      // AccessLogValve rewiring
+  if (any(m, suf, pat, dir, pre)) s = s + 1;  // webshell file params
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let s = score();
+  if (s >= 4) {
+    log(1);
+    if (flow.count >= 2) decide ban("spring4shell", 3600);
+    decide rst("spring4shell", 0);
+  }
+  decide pass;
+}

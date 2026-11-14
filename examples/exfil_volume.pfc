@@ -1,0 +1,25 @@
+// Data-exfiltration detector by recent upload volume (behavioral). A single
+// upload is fine; sustained bulk transfer off a connection that normally trickles
+// is exfil. We keep the last eight segment sizes on the per-flow ring and sum
+// them into a rolling "recent bytes" measure; crossing a (host-tunable) threshold
+// resets the flow, and a repeat offender is banned.
+//
+// Cross-packet: the ring is the sliding volume history. argv[0] tunes the
+// threshold per deployment without recompiling.
+reassemble 8080;
+filter {
+  if (proto != 6) decide pass;
+  if (len == 0) decide pass;
+  ring.push(len);
+  if (ring.len < 8) decide pass;             // wait for a full window
+
+  let vol = ring.get(0) + ring.get(1) + ring.get(2) + ring.get(3)
+          + ring.get(4) + ring.get(5) + ring.get(6) + ring.get(7);
+  if (vol > argv[0] ?? 48000) {              // recent bytes over the cap
+    log(2);
+    let strikes = flow.count;
+    if (strikes >= 2) decide ban("bulk_exfil", 3600);
+    decide rst("exfil_burst", 0);
+  }
+  decide pass;
+}

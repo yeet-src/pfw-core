@@ -1,0 +1,25 @@
+// "JSON bomb" / billion-laughs guard — structural complexity, not just size. A
+// small body can expand into millions of nodes (deep nesting or a huge flat array
+// of objects) and exhaust a parser's memory/CPU. This counts total structural
+// openers with a bounded loop (each push grows the stack; %sp is the running
+// count) and combines that with the raw size: a body that is both large AND
+// structurally dense is dropped before the parser sees it. Showcases the stack as
+// an accumulator plus arithmetic over the live count and the length.
+reassemble 8080;
+pattern ob = "{", ar = "[";
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  ptr p = payload; let opens = 0;
+  repeat (120) {
+    let b = p;
+    let o = find(p, '{', 2048); if (o == p) { if (!starts(p, ob)) o = 2000000; }
+    let a = find(p, '[', 2048); if (a == p) { if (!starts(p, ar)) a = 2000000; }
+    if (o <= a) { if (o < 2000000) { push(1); opens = opens + 1; p = o + 1; } }
+    else { if (a < 2000000) { push(1); opens = opens + 1; p = a + 1; } }
+  }
+  // dense structure is suspicious; dense AND large is a bomb
+  if (opens > 100) { log(1); decide ban("json_bomb", 120); }
+  if (opens > 40 && len > 1024) decide drop("json_dense");
+  decide pass;
+}

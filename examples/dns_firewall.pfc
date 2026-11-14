@@ -1,0 +1,27 @@
+// DNS firewall: block queries for known-bad domains and restrict who may resolve.
+// The malware/ad domains are loaded host-side into a bloom filter keyed per query
+// id for cheap membership, while the domain bytes themselves (present in the QNAME
+// even though it is length-prefixed) are matched against an inline blocklist. Only
+// clients on the resolver's allowed networks may query at all.
+//
+// Combines: UDP, `src in set` (allowed-resolver CIDRs), a scan over the question
+// for blocked domains, and logging for the DNS audit trail.
+nocase;
+pattern d_malware = "malware-c2", d_phish = "login-verify", d_dga = "xn--", d_ads = "doubleclick";
+pattern d_dyndns = "duckdns", d_pastebin = "pastebin";
+filter {
+  if (proto != 17) decide pass;
+  if (dport != 53) decide pass;
+
+  // only clients on an allowed network may use this resolver
+  if (src in set) {
+    mask m = scan(payload, 512);          // the QNAME bytes live here
+    if (any(m, d_malware, d_phish)) { log(1); decide drop("dns_blocked_malware"); }
+    if (any(m, d_dga)) decide drop("dns_blocked_dga");
+    if (any(m, d_ads)) { count("dns_ads"); decide drop("dns_blocked_ads"); }
+    if (any(m, d_dyndns, d_pastebin)) { log(1); decide rst("dns_exfil_channel", 0); }
+    count("dns_allowed");
+    decide pass;
+  }
+  decide drop("dns_unauthorized_client");
+}

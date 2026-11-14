@@ -304,7 +304,7 @@ list and the `pfw_prog` / `pfw_event` / `pfw_console` layouts are in
 
 ## Examples
 
-83 complete pfw-C programs live in [`examples/`](examples); every one is compiled
+133 complete pfw-C programs live in [`examples/`](examples); every one is compiled
 by `npm run test:node`. A few, as you'd actually write them:
 
 **Reset AI crawlers by user-agent** ([`crawlers.pfc`](examples/crawlers.pfc)):

@@ -1,0 +1,24 @@
+// Connection-behavior validation (behavioral). pfw-C sees the reassembled stream
+// rather than raw L4 flag bytes, so instead of reading TCP flags directly this
+// watches the connection's shape: a storm of pure ACKs with no data is an ACK
+// flood, and the first data segment arms a simple lifecycle so later floods are
+// attributable. (Raw xmas/null-scan flag inspection belongs in a kernel probe.)
+//
+// Cross-packet: flow.count separates ACK volume from data volume; flow.state
+// marks the connection active.
+reassemble 8080;
+filter {
+  if (proto != 6) decide pass;
+
+  if (len == 0) {                              // pure ACK / control
+    let acks = flow.count;
+    if (acks >= 500) decide ban("ack_flood", 300);
+    decide pass;
+  }
+
+  match (flow.state) {
+    case 0 { flow.state = 1 for 300; decide pass; }   // first data: connection active
+    case 1 { decide pass; }                            // established
+    default { decide pass; }
+  }
+}

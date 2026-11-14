@@ -1,0 +1,35 @@
+// ProxyShell (CVE-2021-34473 / -34523 / -31207): pre-auth RCE chain on Microsoft
+// Exchange. The explicit-LogonUser path-confusion rides in an Autodiscover URL
+// (`autodiscover/autodiscover.json?...@evil`) to smuggle a request to the backend
+// PowerShell / MAPI endpoints, which the chain then uses to write a shell. The
+// `?...@` in the Autodiscover path is the tell; a PowerShell/MAPI backend hit and
+// the X-Rps-CAT token confirm it.
+//
+// Non-trivial: scored over the reassembled TLS-terminated request; a single
+// confident hit resets, a repeat bans (exploitation is loud and iterative).
+nocase;
+reassemble 443;
+pattern at = "autodiscover/autodiscover.json?@", email = "email=autodiscover";
+pattern ad = "/autodiscover/autodiscover.json", rps = "x-rps-cat";
+pattern ps = "/powershell", mapi = "/mapi/nspi";
+
+fn score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, at)) s = s + 3;          // the SSRF path-confusion marker
+  if (any(m, ad)) s = s + 1;
+  if (any(m, ps, mapi)) s = s + 2;    // backend PowerShell / MAPI
+  if (any(m, email, rps)) s = s + 1;
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let s = score();
+  if (s >= 3) {
+    log(1);
+    if (flow.count >= 1) decide ban("proxyshell", 7200);
+    decide rst("proxyshell", 0);
+  }
+  decide pass;
+}

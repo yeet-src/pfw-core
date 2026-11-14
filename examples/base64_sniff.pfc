@@ -1,0 +1,23 @@
+// Large base64 / data-URI blob sniffer. Big encoded blobs in a request body —
+// data: URIs, embedded certificates/keys, staged payloads, or exfiltrated data —
+// are worth catching. This finds the "base64," / "data:" marker, measures the tail
+// after it with pointer arithmetic (%end minus the cursor), and drops an oversized
+// blob while shipping the region to the host with console()'s %s. Showcases
+// after() + cursor arithmetic + a console trace carrying packet bytes.
+nocase;
+reassemble 8080;
+pattern b64 = "base64,", datauri = "data:", jwt = "eyj";
+filter {
+  if (dport != 80) decide pass;
+  if (scan(payload, 512) & b64) {
+    ptr b = after(b64);
+    let tail = end - b;                  // bytes of encoded data remaining
+    if (tail > 2048) {
+      console("oversize base64 blob: %d bytes starting %s", tail, b);
+      decide drop("base64_blob");
+    }
+  }
+  if (scan(payload, 256) & datauri) log(2);
+  if (scan(payload, 256) & jwt) log(3);
+  decide pass;
+}

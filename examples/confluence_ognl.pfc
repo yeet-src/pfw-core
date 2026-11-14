@@ -1,0 +1,35 @@
+// Confluence OGNL injection (CVE-2022-26134): unauthenticated RCE. The payload
+// rides in the request-line URI as an OGNL expression — e.g.
+// `/%24%7B(...@java.lang.Runtime@getRuntime().exec(...))%7D/` — which Confluence
+// evaluates while routing. The Runtime/exec reflection is near-certain RCE; the
+// `${`/encoded-`${` wrapper and the OGNL member-access gadgets add weight.
+//
+// Non-trivial: a regex catches the generic `@class@member` reflection shape
+// alongside literal gadgets, scored over one scan; confirmed hits reset and then
+// ban the source.
+nocase;
+reassemble 8090;
+pattern ognl = "${", enc = "%24%7b", runtime = "@java.lang.runtime@", exec = ".exec(";
+pattern forname = "class.forname", member = "#_memberaccess";
+regex reflect = "@[a-z.]+@[a-z]+";   // @java.lang.Runtime@getRuntime shape
+
+fn score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, runtime, exec)) s = s + 3;   // Runtime / exec reflection
+  if (any(m, reflect)) s = s + 2;         // generic @class@member OGNL
+  if (any(m, forname, member)) s = s + 2;
+  if (any(m, ognl, enc)) s = s + 1;       // the expression wrapper
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let s = score();
+  if (s >= 3) {
+    log(1);
+    if (flow.count >= 1) decide ban("confluence_ognl", 3600);
+    decide rst("confluence_ognl", 0);
+  }
+  decide pass;
+}

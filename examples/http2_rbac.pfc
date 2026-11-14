@@ -1,0 +1,32 @@
+// HTTP/2 role-based access control. `decode h2` runs the HPACK front-end so the
+// matcher sees the decoded pseudo-headers as plaintext ":method: GET\n:path: /..".
+// We enforce method x path rules on the decoded view: no mutating method against
+// an /admin path, /internal only from trusted networks, and a Bearer token
+// required for the write APIs — the kind of gateway policy you'd otherwise need a
+// full proxy to apply, here before the stream is reassembled upstream.
+//
+// Combines: the h2 decode stage, one scan over the decoded headers, any() across
+// method/path pseudo-headers, and CIDR membership.
+nocase;
+decode h2 8080;
+pattern x_post = ":method: post", x_put = ":method: put", x_del = ":method: delete";
+pattern x_admin = ":path: /admin", x_internal = ":path: /internal", x_api = ":path: /api/";
+pattern x_bearer = "authorization: bearer ";
+filter {
+  mask m = scan(payload, 2048);
+
+  if (any(m, x_admin)) {
+    if (any(m, x_post, x_put, x_del)) { log(1); decide rst("h2_admin_write", 0); }
+  }
+  if (any(m, x_internal)) {
+    if (src in "10.0.0.0/8") decide pass;
+    decide drop("h2_internal_external");
+  }
+  if (any(m, x_api)) {
+    if (any(m, x_post, x_put, x_del)) {
+      if (any(m, x_bearer)) { count("h2_api_authed"); decide pass; }
+      decide rst("h2_api_noauth", 0);
+    }
+  }
+  decide pass;
+}

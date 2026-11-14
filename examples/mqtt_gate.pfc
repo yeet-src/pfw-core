@@ -1,0 +1,29 @@
+// MQTT broker gateway. Parses the MQTT fixed header (the high nibble of byte 0 is
+// the control packet type) and applies policy per type: PUBLISH to broker-internal
+// $SYS/ topics or to a denied prefix is blocked, and the dangerous packet types are
+// gated. MQTT brokers are routinely exposed with no auth; this is a bolt-on ACL at
+// the wire.
+//
+// Combines: `frame` to read the fixed header, let/bit-arithmetic for the packet
+// type nibble, and a topic ACL scanned out of the packet body.
+nocase;
+pattern t_sys = "$SYS/", t_admin = "admin/", t_firmware = "firmware/update";
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 1883) decide pass;
+  if (len < 2) decide pass;
+
+  frame (type = u8 @ 0, len = u8 @ 1, head = 2) up to 1 {
+    let pkt = frame.type >> 4;            // MQTT control packet type (1..15)
+
+    if (pkt == 3) {                        // PUBLISH
+      if (scan(frame.data, 256) & t_sys)      { log(1); decide drop("mqtt_sys_topic"); }
+      if (scan(frame.data, 256) & t_firmware) { log(1); decide rst("mqtt_firmware_push", 0); }
+      if (scan(frame.data, 256) & t_admin)    decide drop("mqtt_admin_topic");
+    }
+    if (pkt == 0)  decide drop("mqtt_reserved_type");    // 0 is forbidden
+    if (pkt > 14)  decide drop("mqtt_reserved_type");    // 15 is forbidden
+    count("mqtt_packet");
+  }
+  decide pass;
+}

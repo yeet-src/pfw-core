@@ -1,0 +1,20 @@
+// Application-layer port knocking as a per-connection state machine (match on
+// flow.state). The service stays locked until the client presents a secret
+// sequence of markers IN ORDER; any wrong/out-of-order marker drops. Only after
+// the full knock does the real request pass. A stealthy alternative to exposing
+// the service directly.
+//
+// Cross-packet: flow.state advances one rung per correct knock and carries a TTL,
+// so the sequence must complete promptly. match() gives one clean arm per rung.
+reassemble 7000;
+pattern k1 = "KNOCK-ALPHA", k2 = "KNOCK-BRAVO", k3 = "KNOCK-CHARLIE", open = "OPEN";
+filter {
+  if (len == 0) decide pass;
+  match (flow.state) {
+    case 0 { if (starts(payload, k1)) { flow.state = 1 for 20; decide pass; } decide drop("knock_1"); }
+    case 1 { if (starts(payload, k2)) { flow.state = 2 for 20; decide pass; } decide drop("knock_2"); }
+    case 2 { if (starts(payload, k3)) { flow.state = 3 for 20; decide pass; } decide drop("knock_3"); }
+    case 3 { if (starts(payload, open)) decide pass; decide drop("locked"); }
+    default { decide drop("knock_bad"); }
+  }
+}

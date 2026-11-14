@@ -1,0 +1,29 @@
+// C2 beaconing detector (behavioral, cross-packet). Malware command-and-control
+// "beacons" home on a timer with small, uniformly-sized packets. No single packet
+// looks bad — the tell is the PATTERN across packets. We push each data segment's
+// size onto the per-flow ring and fire when the recent history is a run of
+// identical, small sizes (the beacon signature), escalating a repeat offender to
+// a source ban.
+//
+// Needs cross-packet memory: the per-flow ring (size history) + flow.count
+// (strikes). One segment tells you nothing; six in a row tell you everything.
+reassemble 8080;
+filter {
+  if (proto != 6) decide pass;
+  if (len == 0) decide pass;                 // pure ACKs carry no beacon
+  ring.push(len);
+  if (ring.len < 6) decide pass;             // need history first
+
+  let a = ring.get(0); let b = ring.get(1); let c = ring.get(2);
+  let d = ring.get(3); let e = ring.get(4);
+  // uniform size across the last five data segments?
+  if (a == b && b == c && c == d && d == e) {
+    if (a < 256) {                           // ...and small (classic beacon)
+      log(1);
+      let strikes = flow.count;
+      if (strikes >= 3) decide ban("c2_beacon", 1800);
+      decide rst("beacon_suspect", 0);
+    }
+  }
+  decide pass;
+}

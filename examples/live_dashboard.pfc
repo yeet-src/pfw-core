@@ -1,0 +1,38 @@
+// Live decision tracer — a window into the firewall for a real-time operator
+// dashboard. Every scored request emits rich console() telemetry (port, size,
+// threat class, and the leading bytes) that the JS side renders live. It is
+// %shadow-aware: while shadow is set it only observes (so you can watch what the
+// policy WOULD do before arming it); flip shadow off and the same classes enforce
+// via a `match`. One program for both "watch" and "enforce".
+//
+// Combines: reassembly, a threat-scoring subroutine, console() with a %s payload
+// view, %shadow-gated enforcement, and a `match` on the threat class.
+nocase;
+reassemble 8080;
+pattern ua_scan = "sqlmap", sqli = "union select", xss = "<script", trav = "../";
+
+fn threat() {
+  mask m = scan(payload, 1460);
+  if (any(m, ua_scan)) return 3;        // scanner
+  if (any(m, sqli)) return 2;           // injection
+  if (any(m, xss, trav)) return 1;      // generic probe
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+
+  let t = threat();
+  console("conn dport=%d len=%d threat=%d :: %s", dport, len, t, payload);
+  if (t == 0) decide pass;
+  log(1);
+
+  if (shadow == 1) decide pass;         // observe-only while tuning
+  match (t) {
+    case 3 { decide ban("scanner", 3600); }
+    case 2 { decide rst("injection", 0); }
+    default { decide drop("probe"); }
+  }
+}

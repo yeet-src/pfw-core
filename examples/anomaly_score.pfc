@@ -1,0 +1,46 @@
+// Weighted anomaly scorer built from subroutines. No single signal decides; each
+// detector returns a severity weight, the filter sums them, and the total picks a
+// response tier — pass, drop, reset, or (on repeat) a source ban. This is the
+// shape of a real detection engine: additive evidence, tunable thresholds.
+//
+// Uses: subroutines with return values, arithmetic scoring, flow.count for
+// per-connection escalation, and a single reused scan per detector.
+nocase;
+reassemble 80;
+pattern p_sqli = "union select", p_xss = "<script", p_trav = "../";
+pattern p_tool = "sqlmap", p_null = "%00", p_shell = "/bin/sh";
+
+fn score_content() {
+  mask m = scan(payload, 1460);
+  let s = 0;
+  if (any(m, p_sqli)) s = s + 3;
+  if (any(m, p_xss)) s = s + 2;
+  if (any(m, p_trav)) s = s + 2;
+  if (any(m, p_tool)) s = s + 4;
+  if (any(m, p_null)) s = s + 1;
+  if (any(m, p_shell)) s = s + 4;
+  return s;
+}
+
+fn score_shape(sz) {
+  let s = 0;
+  if (sz > 8000) s = s + 2;                    // oversized request
+  return s;
+}
+
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+
+  let score = score_content() + score_shape(len);
+  if (score == 0) decide pass;
+  log(1);
+
+  let strikes = flow.count;
+  if (score >= 6) {
+    if (strikes >= 2) decide ban("anomaly_critical", 1800);
+    decide rst("anomaly_high", 0);
+  }
+  if (score >= 3) decide drop("anomaly_medium");
+  decide pass;
+}

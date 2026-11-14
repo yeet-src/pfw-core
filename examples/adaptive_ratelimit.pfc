@@ -1,0 +1,28 @@
+// An adaptive rate limiter that tightens as a connection misbehaves, is tunable
+// per deployment, and can run in observe-only mode. The per-flow hit count sets a
+// soft cap (argv-tuned); crossing it drops, crossing it badly bans, and a
+// token-bucket backstop catches short bursts. In %shadow mode every enforcement
+// is logged but let through — deploy it watching first, then flip it live.
+//
+// Uses: flow.count, argv[i] ?? default thresholds, rate(), and %shadow.
+reassemble 80;
+filter {
+  if (dport != argv[0] ?? 80) decide pass;
+  if (len == 0) decide pass;
+
+  let hits = flow.count;
+  let cap = argv[1] ?? 100;
+  let cap2 = cap + cap;          // 2x the cap, precomputed (arithmetic lives in let, not in a comparison)
+
+  if (hits > cap) {
+    if (shadow == 1) { log(2); decide pass; }        // observe-only
+    if (hits > cap2) decide ban("adaptive_ban", 600);  // 2x over -> ban
+    decide drop("adaptive_limit");
+  }
+
+  if (rate(50, 100)) {                                // burst backstop
+    if (shadow == 1) { log(2); decide pass; }
+    decide drop("rate_backstop");
+  }
+  decide pass;
+}

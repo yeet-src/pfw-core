@@ -1,0 +1,36 @@
+// Network honeytokens — zero-false-positive tripwires. Nobody legitimate ever
+// contacts the decoy port or requests the seeded decoy paths, and the canary
+// string only exists in planted fake data; so ANY hit is, by construction, an
+// intruder. We fire a loud alert and ban the source for a full day. This is the
+// highest-signal rule you can run: no tuning, no noise.
+//
+// Combines: a decoy-port check, a content tripwire subroutine (decoy paths + a
+// planted canary token), %s telemetry showing the offending bytes, and a long ban.
+nocase;
+reassemble 8080;
+pattern canary = "yeet-canary-7f3a9c21";
+pattern decoy_git = "/.git/config", decoy_wp = "/wp-admin/setup-config.php", decoy_env = "/.env";
+
+filter {
+  if (proto != 6) decide pass;
+
+  // a dedicated decoy service port: any contact at all is malicious
+  if (dport == 9) {
+    console("HONEYPOT port contact from sport=%d", sport);
+    log(1);
+    decide ban("honeypot_port", 86400);
+  }
+
+  if (tripped()) {
+    console("HONEYTOKEN tripped dport=%d :: %s", dport, payload);
+    log(1);
+    decide ban("honeytoken", 86400);                // day-long source ban
+  }
+
+  decide pass;
+}
+
+fn tripped() {
+  if (any(scan(payload, 1024), canary, decoy_git, decoy_wp, decoy_env)) return 1;
+  return 0;
+}

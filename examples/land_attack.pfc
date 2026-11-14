@@ -1,0 +1,30 @@
+// LAND attack: a spoofed SYN whose source address and port equal the destination,
+// so the target replies to itself and some stacks lock up. We read the destination
+// IPv4 from the header and compare it to the parsed source (%src); separately we
+// catch the source-port == dest-port SYN variant.
+//
+// Header reads: destination IPv4 (be32 @ l3+16) vs the %src register; TCP flags at
+// l4+13. Both %src and the be32 read are host byte order, so they compare directly.
+filter {
+  if (proto != 6) decide pass;
+
+  let dst = 0;
+  // `type` is read but doesn't advance the cursor; `len` is required, so point it
+  // at the version/IHL byte (small, harmless with `up to 1`).
+  frame at (l3) (type = be32 @ 16, len = u8 @ 0, head = 20) up to 1 { dst = frame.type; }
+
+  if (dst == src) {
+    console("LAND src==dst sport=%d dport=%d", sport, dport);
+    log(1);
+    decide drop("land_addr");
+  }
+
+  if (sport == dport) {
+    let fl = 0;
+    frame at (l4) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+    let syn = fl & 2;
+    if (syn == 2) { log(1); decide drop("land_port"); }
+  }
+
+  decide pass;
+}

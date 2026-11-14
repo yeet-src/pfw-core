@@ -1,0 +1,31 @@
+// TLS ClientHello fingerprinting. Dissects the TLS record and handshake framing to
+// reach the ClientHello, then matches the cipher-suite / extension bytes against a
+// blocklist of fingerprints known to belong to malware and scanners (a JA3-style
+// signature, matched on the raw bytes rather than a hash). Legacy protocol
+// versions are refused outright.
+//
+// Combines: nested `frame` parsing (TLS record -> handshake header), byte-list
+// patterns over the cipher bytes, and a source fingerprint set.
+pattern v_ssl3 = {0x03, 0x00}, v_tls10 = {0x03, 0x01};
+pattern ja3_metasploit = {0xc0, 0x14, 0xc0, 0x13}, ja3_weak_rc4 = {0x00, 0x05};
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 443) decide pass;
+
+  // TLS record: content_type(1) | version(2) | length(2) | fragment...
+  frame (type = u8 @ 0, len = be16 @ 3, head = 5) up to 2 {
+    if (frame.type == 22) {                       // handshake
+      // Handshake: msg_type(1) | length(3) | body...
+      frame at frame.data (type = u8 @ 0, len = be24 @ 1, head = 4) up to 1 {
+        if (frame.type == 1) {                    // ClientHello
+          if (scan(frame.data, 512) & v_ssl3) decide rst("tls_sslv3", 0);
+          if (scan(frame.data, 512) & v_tls10) { log(1); decide drop("tls_legacy"); }
+          if (any(scan(frame.data, 512), ja3_metasploit, ja3_weak_rc4)) {
+            log(1); decide ban("tls_bad_fingerprint", 3600);
+          }
+        }
+      }
+    }
+  }
+  decide pass;
+}

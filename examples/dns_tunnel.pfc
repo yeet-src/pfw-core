@@ -1,0 +1,32 @@
+// DNS tunneling / exfiltration detector. Walks the QNAME label structure of a DNS
+// query (each label is a length byte followed by that many bytes) with a `frame`
+// loop starting just past the 12-byte DNS header, and scores the name: an
+// abnormally long single label, too many labels, or an oversized overall name are
+// the signatures of base32/hex data smuggled inside subdomain labels.
+//
+// Combines: UDP, pointer arithmetic to skip the fixed header, `frame` walking the
+// length-prefixed labels, let/arithmetic accumulation across the unrolled loop.
+filter {
+  if (proto != 17) decide pass;
+  if (dport != 53) decide pass;
+  if (len < 13) decide pass;
+
+  let q = payload + 12;                 // the question section, past the DNS header
+  let labels = 0;
+  let longest = 0;
+  let total = 0;
+
+  frame at (q) (len = u8 @ 0, head = 1) up to 24 {
+    if (frame.len > 0 && frame.len < 64) {   // a real label (0 = root/end)
+      labels = labels + 1;
+      total = total + frame.len;
+      if (frame.len > longest) longest = frame.len;
+    }
+  }
+
+  if (longest > 50) { log(1); console("dns tunnel: label %d bytes", longest); decide drop("dns_tunnel_label"); }
+  if (labels > 15)  { log(1); decide drop("dns_tunnel_labels"); }
+  if (total > 150)  { log(1); decide drop("dns_tunnel_size"); }
+  count("dns_query");
+  decide pass;
+}

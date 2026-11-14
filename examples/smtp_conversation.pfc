@@ -1,0 +1,42 @@
+// SMTP conversation state machine. A valid SMTP session walks a fixed sequence of
+// commands; this models it with match(flow.state) and blocks anything out of
+// order, plus the classic abuses: VRFY/EXPN user enumeration at any point, and
+// open relay (a RCPT TO a non-local domain from an untrusted source). Enforcing
+// the grammar at the wire stops a whole class of SMTP attacks.
+//
+// Combines: reassembly, a per-connection FSM with match + flow.state TTLs,
+// cursor-anchored command matching, and CIDR membership for the relay policy.
+nocase;
+reassemble 25;
+pattern c_ehlo = "EHLO", c_helo = "HELO", c_mail = "MAIL FROM:", c_rcpt = "RCPT TO:";
+pattern c_data = "DATA", c_vrfy = "VRFY", c_expn = "EXPN", d_local = "@corp.example";
+filter {
+  if (len == 0) decide pass;
+  if (starts(payload, c_vrfy)) decide drop("smtp_vrfy_enum");
+  if (starts(payload, c_expn)) decide drop("smtp_expn_enum");
+
+  match (flow.state) {
+    case 0 {                                           // expect greeting
+      if (starts(payload, c_ehlo) || starts(payload, c_helo)) { flow.state = 1 for 120; decide pass; }
+      decide drop("smtp_no_greeting");
+    }
+    case 1 {                                           // expect MAIL FROM
+      if (starts(payload, c_mail)) { flow.state = 2 for 120; decide pass; }
+      decide drop("smtp_expected_mail");
+    }
+    case 2 {                                           // expect RCPT TO — relay check here
+      if (starts(payload, c_rcpt)) {
+        if (scan(payload, 256) & d_local) { flow.state = 3 for 120; decide pass; }  // local delivery
+        if (src in "10.0.0.0/8")          { flow.state = 3 for 120; decide pass; }  // trusted relay
+        log(1); decide drop("smtp_open_relay");
+      }
+      decide drop("smtp_expected_rcpt");
+    }
+    case 3 {                                           // more RCPTs, or DATA
+      if (starts(payload, c_rcpt)) decide pass;
+      if (starts(payload, c_data)) { flow.state = 4 for 300; decide pass; }
+      decide drop("smtp_expected_data");
+    }
+    default { decide pass; }                            // in DATA: message body
+  }
+}

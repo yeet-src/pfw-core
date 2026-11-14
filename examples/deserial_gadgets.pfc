@@ -1,0 +1,36 @@
+// Insecure deserialization gadget chains. Beyond spotting a serialized blob, this
+// classifies the gadget FAMILY so triage sees what's being thrown:
+//   Java   — stream magic 0xACED0005 (or base64 "rO0AB") + a ysoserial gadget
+//            class (CommonsCollections InvokerTransformer / TemplatesImpl)
+//   .NET   — BinaryFormatter TypeConfuseDelegate / ObjectDataProvider
+//   Python — pickle global opcode for os/posix/__builtin__ reaching system/eval
+// A confirmed chain is banned (these are never benign) and the family is logged.
+//
+// Non-trivial: a subroutine returns the gadget family code, and `match` turns it
+// into a per-family verdict — a clean classifier, not a yes/no grep.
+nocase;
+reassemble 8080;
+pattern java_raw = {0xac, 0xed, 0x00, 0x05};
+pattern java_b64 = "rO0AB";
+pattern cc = "org.apache.commons.collections", invoker = "invokertransformer", templ = "templatesimpl";
+pattern net_tcd = "typeconfusedelegate", net_odp = "objectdataprovider";
+pattern py_posix = "cposix", py_bi = "c__builtin__", py_cmd = "system", py_eval = "eval", py_sub = "subprocess";
+
+fn family() {
+  mask m = scan(payload, 2048);
+  if (any(m, java_raw, java_b64) && any(m, cc, invoker, templ)) return 1;  // Java CC chain
+  if (any(m, net_tcd, net_odp)) return 2;                                  // .NET
+  if (any(m, py_posix, py_bi) && any(m, py_cmd, py_eval, py_sub)) return 3; // Python pickle RCE
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let f = family();
+  match (f) {
+    case 1 { log(1); decide ban("deserial_java", 7200); }
+    case 2 { log(1); decide ban("deserial_dotnet", 7200); }
+    case 3 { log(1); decide ban("deserial_python", 7200); }
+    default { decide pass; }
+  }
+}

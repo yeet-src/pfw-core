@@ -1,0 +1,30 @@
+// WebSocket frame validation (RFC 6455). Parses the 2-byte frame header and pulls
+// the FIN bit, opcode, MASK bit and 7-bit length out with bit arithmetic, then
+// enforces the protocol invariants that abusive clients violate: control frames
+// must be <= 125 bytes and never fragmented, client->server frames MUST be masked,
+// and reserved opcodes are rejected. Malformed framing is a classic DoS/parser
+// confusion vector.
+//
+// Combines: `frame` to read the two header bytes, let/bit-arithmetic to split the
+// fields, and layered validation.
+reassemble 8080;
+filter {
+  if (proto != 6) decide pass;
+  if (len < 2) decide pass;
+
+  frame (type = u8 @ 0, len = u8 @ 1, head = 2) up to 1 {
+    let fin    = frame.type & 128;        // byte0: FIN | RSV | opcode
+    let opcode = frame.type & 15;
+    let masked = frame.len & 128;         // byte1: MASK | payload-len(7)
+    let paylen = frame.len & 127;
+
+    if (opcode >= 8) {                     // control frame (close/ping/pong)
+      if (paylen > 125) { log(1); decide drop("ws_control_oversize"); }
+      if (fin == 0)     { log(1); decide drop("ws_control_fragmented"); }
+    }
+    if (opcode > 10) decide drop("ws_reserved_opcode");   // 11..15 reserved
+    if (masked == 0) { log(1); decide rst("ws_unmasked_client", 0); }  // client must mask
+  }
+  count("ws_frame");
+  decide pass;
+}

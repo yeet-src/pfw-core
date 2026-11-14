@@ -1,0 +1,20 @@
+// Binary-in-a-text-protocol detector (a cheap entropy proxy). HTTP is text; a NUL
+// byte or a run of terminal ESC/control bytes in a request is never legitimate —
+// it signals request smuggling, a binary exploit stage, or terminal-escape
+// injection into logs. This samples for the tell-tale bytes with bounded cursor
+// loops; the starts()-disambiguated count is exact even for adjacent runs (a block
+// of NULs). Named byte-list patterns let the unrolled loop reuse the 1-byte probe.
+reassemble 8080;
+pattern nul = {0x00}, esc = {0x1b};
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  let big = 1000000;
+  ptr p = payload; let nz = 0;
+  repeat (48) { let o = find(p, 0x00, 2048); if (o == p) { if (!starts(p, nul)) o = big; } if (o < big) { nz = nz + 1; p = o + 1; } }
+  ptr q = payload; let ez = 0;
+  repeat (48) { let o = find(q, 0x1b, 2048); if (o == q) { if (!starts(q, esc)) o = big; } if (o < big) { ez = ez + 1; q = o + 1; } }
+  if (nz > 0) { log(1); decide drop("nul_in_http"); }
+  if (ez > 2) decide rst("control_byte_flood", 0);
+  decide pass;
+}

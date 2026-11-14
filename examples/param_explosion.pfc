@@ -1,0 +1,22 @@
+// Parameter-explosion / HTTP parameter-pollution guard. A request with thousands
+// of query/body parameters forces the app to allocate and hash each one — a cheap
+// way to burn server CPU (a HashDoS precursor) and to smuggle duplicate params
+// past WAFs. Counts '&' and ';' separators with bounded cursor loops. findb lands
+// at-or-after the cursor and leaves it unchanged on a miss, so a result == cursor
+// is disambiguated with starts() (a real delimiter) vs a sentinel (truly gone) —
+// which makes the count correct even for runs of consecutive separators ("&&&&").
+reassemble 8080;
+pattern amp = "&", semi = ";";
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  let big = 1000000;
+  ptr p = payload; let a = 0;
+  repeat (100) { let o = find(p, '&', 2048); if (o == p) { if (!starts(p, amp)) o = big; } if (o < big) { a = a + 1; p = o + 1; } }
+  ptr q = payload; let s = 0;
+  repeat (100) { let o = find(q, ';', 2048); if (o == q) { if (!starts(q, semi)) o = big; } if (o < big) { s = s + 1; q = o + 1; } }
+  let total = a + s;
+  if (total > 200) { log(1); decide ban("param_flood", 300); }
+  if (total > 64) decide drop("too_many_params");
+  decide pass;
+}

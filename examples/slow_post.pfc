@@ -1,0 +1,31 @@
+// Slow-POST / R-U-Dead-Yet (RUDY) DoS detector (behavioral state machine). The
+// attack announces a large request body, then dribbles it a few bytes at a time
+// to tie up a worker for as long as possible. The signature is only visible over
+// time: a POST with a Content-Length, followed by a long run of tiny segments.
+//
+// Cross-packet: match(flow.state) separates the "announce" phase from the "body"
+// phase; flow.count tallies the dribbles.
+nocase;
+reassemble 80;
+pattern post = "POST ", clen = "content-length:";
+filter {
+  if (dport != 80) decide pass;
+  match (flow.state) {
+    case 0 {                                   // waiting for the request line
+      if (len == 0) decide pass;
+      mask m = scan(payload, 512);
+      if (seq(m, post, clen)) flow.state = 1 for 120;   // body announced -> watch it
+      decide pass;
+    }
+    case 1 {                                   // body phase: watch for dribbles
+      if (len == 0) decide pass;               // bare ACKs don't count
+      if (len < 16) {                          // a tiny body segment = a drip
+        log(1);
+        let drips = flow.count;
+        if (drips >= 12) decide ban("slow_post", 600);
+      }
+      decide pass;
+    }
+    default { decide pass; }
+  }
+}

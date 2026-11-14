@@ -1,0 +1,41 @@
+// JSON nesting-depth guard — a pushdown automaton running at XDP. People don't
+// expect a firewall to *parse* structure, but this one does: it walks the body
+// with a bounded loop and, in byte order, pushes the data stack on every opening
+// `{` and pops on every closing `}`. %sp IS the live nesting depth; the deepest
+// point reached is remembered. A document nested past the limit — a classic
+// parser-DoS / "JSON bomb" that stack-overflows a recursive-descent parser — is
+// dropped before it ever reaches the application.
+//
+// Each step finds the next opener and the next closer from the cursor (findb
+// leaves the cursor unchanged on a miss, so a result == cursor that isn't really
+// a delimiter is normalized to a large sentinel), takes whichever comes first,
+// and advances past it. Showcases: the data stack (push/pop + %sp as a live
+// counter), a bounded repeat loop, cursor arithmetic, and starts() as a 1-byte
+// probe. The `{`/`}` probes are named patterns so the loop unroll reuses them.
+reassemble 8080;
+pattern ob = "{", cb = "}";
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+
+  ptr p = payload;
+  let maxd = 0;
+  let big = 1000000;
+
+  repeat (96) {
+    let o = find(p, '{', 2048);
+    if (o == p) { if (!starts(p, ob)) o = big; }     // miss -> sentinel
+    let c = find(p, '}', 2048);
+    if (c == p) { if (!starts(p, cb)) c = big; }
+
+    if (o < big) {
+      if (o <= c) { push(1); if (sp > maxd) maxd = sp; p = o + 1; }   // opener first -> descend
+      else { if (sp > 0) { let d = pop(); } p = c + 1; }              // closer first -> ascend
+    } else {
+      if (c < big) { if (sp > 0) { let d = pop(); } p = c + 1; }
+    }
+  }
+
+  if (maxd > 16) { log(1); decide drop("json_too_deep"); }
+  decide pass;
+}

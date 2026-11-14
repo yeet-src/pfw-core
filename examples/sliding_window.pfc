@@ -1,0 +1,22 @@
+// Two rate-limiting strategies on one connection, for contrast. rate() is a
+// TIME-based token bucket (kernel-clocked). The per-flow ring gives a COUNT-based
+// window: the last sixteen request markers, independent of wall-clock. Summing
+// the window tells you how many of the recent segments were request-bearing — a
+// burst fills it. Drop if either limiter trips.
+//
+// Cross-packet: the ring is the count-window history; rate() carries its bucket
+// in the flow. Shows that the ISA supports both limiter shapes.
+reassemble 80;
+filter {
+  if (dport != 80) decide pass;
+  if (len == 0) decide pass;
+  ring.push(1);                                // one marker per request segment
+
+  if (rate(50, 100)) { log(2); decide drop("rate_tokenbucket"); }  // time-based
+
+  if (ring.len < 8) decide pass;
+  let recent = ring.get(0) + ring.get(1) + ring.get(2) + ring.get(3)
+             + ring.get(4) + ring.get(5) + ring.get(6) + ring.get(7);
+  if (recent >= 8) { log(1); decide drop("recent_window"); }       // count-based
+  decide pass;
+}

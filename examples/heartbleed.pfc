@@ -1,0 +1,25 @@
+// Heartbleed (CVE-2014-0160). A TLS heartbeat request carries a claimed payload
+// length; OpenSSL copied that many bytes back without checking it against the
+// record, leaking memory. We parse the heartbeat record and its inner message and
+// flag the overread directly: a claimed heartbeat payload length larger than the
+// record that contains it. The attacker's source is banned.
+//
+// Combines: nested `frame` parsing (TLS record -> heartbeat message), saving the
+// outer record length in a local, and comparing the claimed length against it.
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 443) decide pass;
+
+  // TLS record: content_type(1) | version(2) | length(2) | fragment...
+  frame (type = u8 @ 0, len = be16 @ 3, head = 5) up to 1 {
+    if (frame.type == 24) {                       // heartbeat content type
+      let reclen = frame.len;                      // bytes actually in the record
+      // Heartbeat message: type(1) | payload_length(2) | payload... — read the
+      // claimed payload length (@1). If it exceeds the record, that is the overread.
+      frame at frame.data (len = be16 @ 1, head = 3) up to 1 {
+        if (frame.len > reclen) { log(1); console("heartbleed: claim %d > rec %d", frame.len, reclen); decide ban("heartbleed", 86400); }
+      }
+    }
+  }
+  decide pass;
+}

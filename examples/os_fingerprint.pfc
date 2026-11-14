@@ -1,0 +1,44 @@
+// Passive OS fingerprinting (p0f-lite) from the SYN. No payload needed: the
+// initial TTL and advertised TCP window betray the stack. Observed TTL is the
+// initial value minus hop count, so we bucket it up to the nearest common initial
+// (64 Linux/macOS, 128 Windows, 255 BSD/network gear) and fold in a couple of
+// well-known initial window sizes, then trace the guess to the host dashboard.
+//
+// Header reads: IP TTL at l3+8, TCP window at l4+14, TCP flags at l4+13 (read via
+// `frame at (...)`, the VM's bounded header-load path). Combines a subroutine with
+// a return value, bitfield extraction, and console() telemetry. Observe-only.
+filter {
+  if (proto != 6) decide pass;
+
+  let ttl = 255;
+  frame at (l3) (len = u8 @ 8, head = 20) up to 1 { ttl = frame.len; }
+  let win = 0;
+  frame at (l4) (len = be16 @ 14, head = 20) up to 1 { win = frame.len; }
+  let fl = 0;
+  frame at (l4) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+
+  // fingerprint only the opening SYN (SYN set, ACK clear) — the window is the
+  // advertised initial there.
+  let syn = fl & 2;
+  let ack = fl & 16;
+  if (syn != 2) decide pass;
+  if (ack != 0) decide pass;
+
+  let os = os_guess(ttl, win);
+  console("osfp sport=%d ttl=%d win=%d os=%d", sport, ttl, win, os);
+  log(1);
+  decide pass;                                   // passive — never blocks
+}
+
+// os code: 1 = Linux/macOS, 2 = Windows, 3 = Linux (large window), 4 = BSD/gear.
+fn os_guess(ttl, win) {
+  let base = 255;
+  if (ttl <= 64) base = 64;
+  else if (ttl <= 128) base = 128;
+  if (base == 64) {
+    if (win == 65535) return 3;
+    return 1;
+  }
+  if (base == 128) return 2;
+  return 4;
+}

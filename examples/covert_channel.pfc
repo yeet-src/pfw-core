@@ -1,0 +1,34 @@
+// Covert-channel detection in TCP header fields. Data can be smuggled where no
+// one looks: a non-zero urgent pointer with the URG flag clear (the pointer bytes
+// carry data, not a real urgent offset), or the TCP reserved bits set in the
+// data-offset byte. Both are abnormal for a conforming stack; we flag and drop.
+//
+// Header reads: TCP flags (l4+13), the data-offset/reserved byte (l4+12), and the
+// urgent pointer (be16 @ l4+18). Combines a classifier subroutine, bitfield
+// extraction across fields, console(), and drop.
+filter {
+  if (proto != 6) decide pass;
+
+  let flags = 0;
+  let doff = 0;
+  frame at (l4) (len = u8 @ 13, type = u8 @ 12, head = 20) up to 1 { flags = frame.len; doff = frame.type; }
+  let urg = 0;
+  frame at (l4) (len = be16 @ 18, head = 20) up to 1 { urg = frame.len; }
+
+  let cls = covert_class(flags, doff, urg);
+  if (cls == 0) decide pass;
+
+  console("covert header class=%d urg=%d sport=%d", cls, urg, sport);
+  log(1);
+  if (flow.count >= 3) decide ban("covert_repeat", 1800);
+  decide drop("covert_header");
+}
+
+// 1 = urgent pointer set but URG flag clear; 2 = TCP reserved bits set.
+fn covert_class(flags, doff, urg) {
+  let urgf = flags & 32;                            // 0x20 URG
+  if (urgf == 0) { if (urg > 0) return 1; }
+  let resv = doff & 14;                             // the three reserved bits
+  if (resv != 0) return 2;
+  return 0;
+}
