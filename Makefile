@@ -1,6 +1,6 @@
 # The eBPF backend of the pfw VM: the once-verified interpreter in bpf/pfw.bpf.c.
 #
-#   make bpf       compile bpf/*.bpf.c into bin/app.bpf.o
+#   make bpf       compile bpf/*.bpf.c into bin/vm.bpf.o
 #   make veristat  load it and let this kernel's verifier judge it (needs sudo)
 #   make clean-bpf
 #

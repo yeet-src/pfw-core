@@ -8,7 +8,7 @@
 # the linker merges the duplicates. vmlinux.h (CO-RE) is generated there.
 #
 # To add another independent object, give it its own link target alongside
-# bin/app.bpf.o below — there is intentionally no per-object magic here.
+# bin/vm.bpf.o below — there is intentionally no per-object magic here.
 
 # CLANG/BPFTOOL are normally resolved by build/toolchain.mk (vendored static
 # toolchain or shared cache), included before this file. These are the last
@@ -29,11 +29,11 @@ BPF_SRCS := $(wildcard bpf/*.bpf.c)
 # never mistaken for the loadable object in bin/.
 BPF_OBJS := $(patsubst bpf/%.bpf.c,.build/bpf/%.bpf.o,$(BPF_SRCS))
 # The single linked object. Its `.bpf.o` suffix is what the JS side loads
-# with `import program from "../../bin/app.bpf.o"` (the loader's
+# with `import program from "../../bin/vm.bpf.o"` (the loader's
 # BpfObjectRule matches on that suffix). yeetkit rewrites that specifier
 # at bundle time so it resolves next to the bundle rather than next to
 # the source file it was written in.
-BPF_OUT  := bin/app.bpf.o
+BPF_OUT  := bin/vm.bpf.o
 
 # Standalone objects. Every subdirectory of bpf/ (other than include/) is
 # its own loadable object, bin/<name>.bpf.o, linked from the units inside
@@ -51,7 +51,7 @@ BPF_CFLAGS ?= -g -O2 -Wall -target bpf -D__TARGET_ARCH_$(ARCH) -mcpu=v3 -I bpf/i
 # it, the build falls back to a host libbpf-dev on the default include path.
 BPF_CFLAGS += $(if $(BPF_SYSINCLUDE),-I$(BPF_SYSINCLUDE))
 
-# app.bpf.o is only built when a top-level unit exists to go in it.
+# vm.bpf.o is only built when a top-level unit exists to go in it.
 bpf: $(if $(BPF_SRCS),$(BPF_OUT)) $(BPF_STANDALONE)
 
 # `| toolchain` (order-only) ensures the vendored clang/bpftool are present in

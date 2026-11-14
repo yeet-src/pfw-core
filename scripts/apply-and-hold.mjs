@@ -33,7 +33,7 @@ function progValue(p, gen) {
 const c = compile(src);
 if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(1); }
 
-const control = await new BpfObject({ exe: `${root}/bin/app.bpf.o`, base: root })
+const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
   .bind("programs", { kind: "array" })
   .bind("ac_goto", { kind: "array" })
@@ -42,7 +42,7 @@ const control = await new BpfObject({ exe: `${root}/bin/app.bpf.o`, base: root }
   .bind("counters", { kind: "percpu_array" })
   .bind("decide_hist", { kind: "percpu_array" })
   .bind("flows", { kind: "lru_hash" })
-  .bind("app.bss", { kind: "data" })
+  .bind("vm.bss", { kind: "data" })
   .bind("tt_cells", { kind: "array" })
   .bind("decode_jmp", { kind: "prog_array" })
   .attach("pfw_decode", { kind: "prog_array", map: "decode_jmp", index: 0 })
@@ -63,7 +63,7 @@ for (const [k, next] of tables.edges) await acGoto.update(0 * LIMITS.AC_STATES *
 for (const [s, f] of tables.fails) await acFail.update(s, f & 0xffff);
 for (const [s, m] of tables.accepts) await acAccept.update(s, BigInt(m));
 await new ArrayMap(control, "programs").update(0, progValue(c.program, 1));
-await new DataSec(control, "app.bss").patch({ active: 0 });
+await new DataSec(control, "vm.bss").patch({ active: 0 });
 
 /* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict
  * enum, same numbers the reference uses) so the orchestrator reads the kernel's

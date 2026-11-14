@@ -22,7 +22,7 @@ KERNELS=${*:-"5.10-main 5.15-main 6.1-main 6.6-main 6.12-main bpf-next-main"}
 LVH_VERSION="${LVH_VERSION:-v0.0.30}"
 SSH_PORT="${SSH_PORT:-2222}"
 MON_PORT="${MON_PORT:-45454}"
-OBJ="${OBJ:-bin/app.bpf.o}"
+OBJ="${OBJ:-bin/vm.bpf.o}"
 
 case "$(uname -s)" in
 	Linux) ;;

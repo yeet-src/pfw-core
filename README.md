@@ -301,7 +301,7 @@ The rest, each a single-feature demonstration:
 ## Build & test
 
 ```sh
-make bpf              # compile the eBPF backend to bin/app.bpf.o
+make bpf              # compile the eBPF backend to bin/vm.bpf.o
 npm test              # the full host suite: test:node then test:unit
 npm run test:unit     # yeet test test/unit — behavioral conformance
 npm run test:node     # node file-reading guards (isa<->header sync, examples)
