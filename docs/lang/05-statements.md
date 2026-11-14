@@ -104,7 +104,9 @@ Both take compile-time constants.
 
 - `flow.state = N;` or `flow.state = N for SECONDS;` — set the connection's user
   state (optionally with a TTL after which it decays). Read with `flow.state`.
-- `flow.count` — a read-then-increment per-connection hit counter (an expression).
+- `flow.count` — a per-connection hit counter (an expression). Every read
+  increments it first and yields the new value, so the first read is 1; read it
+  once into a `let` if you need the value twice.
 - `src.state = N;` / `src.state = N for SECONDS;`, `src.count`, and the condition
   `src.rate(per_second, burst)` — the same three, keyed on the **source address**
   instead of the connection, so they hold across every connection a source opens.

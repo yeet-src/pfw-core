@@ -19,7 +19,13 @@ Pattern/`regex` references resolve regardless of declaration order. `decode`
 takes a built-in front-end (`h2` HPACK headers, `huffman` HPACK-Huffman) or the
 name of a loadable byte-transform table; it implies `reassemble`. The optional
 `PORT` on `reassemble`/`decode` restricts reassembly to that TCP destination port
-(`0`/omitted = every TCP flow).
+(`0`/omitted = every TCP flow). Guard the filter on the **same** port: traffic
+to any other port is not reassembled, and is matched per packet.
+
+`reassemble` follows a connection through a sliding 2048-byte window. `decode h2`
+parses cleartext HTTP/2 and shows the program each packet's completed header
+blocks as `name: value` lines (isa §8); a connection that is not HTTP/2 is
+matched as a plain stream.
 
 A `knob struct` is **sugar** that reserves consecutive knob slots for a set of
 related live controls (see [§4, Live control knobs](04-expressions.md)), read as

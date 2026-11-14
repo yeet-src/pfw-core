@@ -15,11 +15,13 @@ pattern ops, `& (PFW_NRULES - 1)` for rule ops. Multi-field operands pack into
 | `load` | `reg` = size `(0..15)` \| big-endian bit `16` |
 | `cidr` | `imm` = net (low 32, host order) \| prefix `<< 32` |
 | `dnat` | `imm` = ip (low 32, net order on the wire) \| port `<< 32` |
-| `rate` | `imm` = rate/sec (low 32) \| burst `<< 32` |
+| `rate` | `reg` = scope (0 flow, 1 source); `imm` = rate/sec (low 32) \| burst `<< 32` |
+| `scan` | `reg` bit 0 = fresh (`within`); `imm` = window length |
+| `sload` / `bump` | `reg` = scope (0 flow, 1 source) |
 | `arg` | `imm` = default (low 32) \| index `<< 32` (bits 32–47) |
 | `redact` | `reg` = pat id \| regex bit `<< 15`; `imm` = fill byte (low 8) \| rlen `<< 8` |
 | `replace` | `reg` = pat id \| regex bit `<< 15`; `imm` = repl pat id (low 6) \| rlen `<< 8` |
-| `sstore` | `reg` = TTL seconds; `imm` = new state value |
+| `sstore` | `reg` = TTL seconds; `imm` = new state value (low 32) \| scope `<< 32` |
 | `ban`/`rst`/`mark` | `reg` = rule / mark; `imm` = TTL seconds |
 | `findb`/`skipb` | `reg` = byte (low 8); `imm` = window / max run |
 
