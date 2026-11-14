@@ -1,142 +1,90 @@
 # 4. Instruction set
 
-All 62 opcodes. Encoding fields are `code`, `reg` (u32), `imm` (u64) — see §5.
-"Flags" lists what each op writes; blank means it touches none. `cur` = `%cur`.
+All **62 opcodes** (`OP_END = 0` … `OP_RET = 61`). Every instruction is one
+`struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
+[§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
+`reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
+`MAX_OPS` steps over `pfw_step`, and label jumps only go forward (the one
+exception is `ret`, which resumes at a popped return address — still bounded by
+the step budget). Flags are `ZF` (zero/equal), `CF` (carry/less-than,
+unsigned) and `FF` (fault); each entry states which it sets, consumes, or
+preserves.
 
-### Moves and arithmetic
+Full per-opcode detail — assembler syntax, exact `code`/`reg`/`imm` encoding,
+kernel + host semantics, flags, faults, maps touched, and examples — lives in the
+four category files:
 
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 1 | `mov_rc` | `reg` | `cur = r[reg]` | |
-| 2 | `mov_cr` | `reg` | `r[reg] = cur` (no-op if `reg == cur`) | |
-| 3 | `add_i` | `imm` | `cur += imm` | |
-| 4 | `sub_i` | `imm` | `cur -= imm` | |
-| 5 | `add_r` | `reg` | `cur += r[reg]` | |
-| 6 | `sub_r` | `reg` | `cur -= r[reg]` | |
-| 7 | `and_i` | `imm` | `cur &= imm` | |
-| 36 | `or_i` | `imm` | `cur |= imm` | |
-| 37 | `shl_i` | `imm` | `cur <<= (imm & 63)` | |
-| 38 | `shr_i` | `imm` | `cur >>= (imm & 63)` | |
+- [Arithmetic, moves, and loads](instructions/01-arithmetic-and-loads.md) — `end`, moves, integer arithmetic, `load`.
+- [Compare, branch, and scan](instructions/02-compare-branch-and-scan.md) — comparisons, the forward branches, and the match engine (`scan`/`mpos`/`cmpstr`/`findb`/`skipb`).
+- [Verdicts, flow state, and membership](instructions/03-verdict-flow-and-membership.md) — `decide` verdicts, events, per-flow state and the ring, and set membership.
+- [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, and `push`/`pop`/`call`/`ret`.
 
-### Load
+## Quick reference — all 62 opcodes
 
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 8 | `load` | `reg`, `imm` | `cur = load(cur + imm, size = reg & 15, big-endian if reg & 16)` | `FF` on OOB |
+(`summary` is the one-line semantics from `bpf/include/pfw.h`; follow the detail
+link for the complete entry.)
 
-`reg` packs the access: low 4 bits = byte size (1/2/4/8), bit 4 (`LOAD_BE = 16`) =
-big-endian. On an out-of-bounds read `cur` is unchanged and `FF` is set.
-
-### Compare and branch
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 9 | `cmp_i` | `imm` | `ZF = cur == imm`; `CF = cur < imm` | `ZF`,`CF` |
-| 10 | `cmp_r` | `reg` | `ZF = cur == r[reg]`; `CF = cur < r[reg]` | `ZF`,`CF` |
-| 11 | `test` | `imm` | `ZF = (m & imm) == 0` | `ZF` |
-| 12 | `jmp` | `imm` | `pc = imm` (forward) | |
-| 13 | `je` | `imm` | jump if `ZF` | |
-| 14 | `jne` | `imm` | jump if `!ZF` | |
-| 15 | `jb` | `imm` | jump if `CF` (unsigned `<`) | |
-| 16 | `jae` | `imm` | jump if `!CF` (unsigned `>=`) | |
-| 17 | `ja` | `imm` | jump if `!CF && !ZF` (unsigned `>`) | |
-| 18 | `jbe` | `imm` | jump if `CF || ZF` (unsigned `<=`) | |
-| 19 | `jf` | `imm` | jump if `FF`; **clears `FF`** when taken | `FF` cleared |
-
-A taken jump to a non-forward/out-of-range target fails closed (`V_PASS`,
-`faults++`).
-
-### Scan and match
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 20 | `scan` | `imm` | run the automaton (+ regex DFA) over `imm` bytes at `cur`; OR match bits into `%m`, record match end positions | sets `%m` |
-| 21 | `mpos` | `reg` | `cur = end offset of the first match of pattern reg`; `FF` if none | `FF` if none |
-| 22 | `cmpstr` | `reg` | `ZF = bytes at cur equal pattern reg` | `ZF` |
-| 23 | `findb` | `reg`, `imm` | `cur = offset of byte (reg & 0xff) within imm bytes`; `FF` if not found | `FF`/`!FF` |
-| 24 | `skipb` | `reg`, `imm` | advance `cur` past a run of byte `(reg & 0xff)`, at most `imm` (clamped to `PFW_PAT_CAP`) | |
-
-`scan`'s window is clamped to `SCAN_CAP = 2048`; it resets the regex DFA state and
-walks both automata in one pass. `cmpstr`/`mpos` take a pattern index in `reg`.
-
-### Verdicts, flow state, and events
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 0 | `end` | — | `verdict = PASS`, stop | |
-| 25 | `pass` | — | `verdict = PASS` | |
-| 26 | `drop` | `reg` | `verdict = DROP`, `rule = reg` | |
-| 27 | `count` | `reg` | `counters[reg]++` (non-terminating) | |
-| 28 | `log` | `imm` | snapshot `imm` bytes at `cur` (≤ `LOG_CAP = 256`) onto the next event | |
-| 29 | `ban` | `reg`, `imm` | `verdict = BAN`, `rule = reg`, mark flow `MARK_DROP` for `imm` s | |
-| 30 | `rst` | `reg`, `imm` | `verdict = RST`, `rule = reg`, mark flow `MARK_RST` for `imm` s | |
-| 31 | `flow` | — | `cur = the flow's current mark` | |
-| 32 | `mark` | `reg`, `imm` | set flow mark `= reg` for `imm` s | |
-| 33 | `sload` | — | `cur = flow.user_state` | |
-| 34 | `sstore` | `reg`, `imm` | `flow.user_state = imm` for `reg` seconds (0 = forever) | |
-| 35 | `bump` | — | `cur = ++flow.hits` | |
-| 39 | `cidr` | `imm` | `ZF = cur (IPv4, host order) ∈ net/prefix`; `imm = net(low32) | prefix<<32` | `ZF` |
-| 40 | `rpush` | — | push `cur` onto the flow ring (newest at head) | |
-| 41 | `rget` | — | `cur = ring entry at index cur` (0 = newest); `cur = 0` + `FF` if out of range | `FF` if OOR |
-| 42 | `rlen` | — | `cur = flow.ring_count` | |
-
-`count` and `log` do **not** stop the program (both fall through); every other
-verdict op is terminal.
-
-### Membership
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 46 | `lpm` | — | `ZF = cur (IPv4, host order) ∈ lpm trie` (longest-prefix) | `ZF` |
-| 47 | `hash` | — | `ZF = (cur & 0xffffffff) ∈ hashset` (exact) | `ZF` |
-| 48 | `bloom` | — | `ZF = (cur & 0xffffffff)` probably ∈ bloom (no false negatives) | `ZF` |
-| 49 | `lpm6` | — | `ZF = IPv6 source (read from the packet at l3+8) ∈ lpm6 trie`; IPv6 only | `ZF` |
-
-### Rewrite and steer (kernel-only effects)
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 43 | `redact` | `reg`, `imm` | overwrite every match of pattern `reg` in `[payload, end)` with fill byte `(imm & 0xff)` | |
-| 44 | `replace` | `reg`, `imm` | overwrite every match of pattern `reg` with pattern `(imm & 0x3f)` (same length) | |
-| 45 | `dnat` | `imm` | rewrite dst IPv4+port to `imm = ip(low32) | port<<32`; fix IP + L4 csums | |
-| 50 | `redirect` | `imm` | forward the packet out `ifindex = imm` (`bpf_redirect` → `XDP_REDIRECT`); terminal, overrides the verdict | |
-
-`redact`/`replace` only **record** a request (up to `RW_MAX = 4`); the
-`pfw_rewrite` tail-call stage applies them after matching. `reg` bit 15 marks a
-regex pattern (then `imm` bits 8–14 carry the fixed match length). These are
-host no-ops in the reference model (payload rewrite / forwarding aren't part of
-the host frame model); `rate`, membership, etc. are modelled via `exec` opts.
-
-### Rate limit
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 51 | `rate` | `imm` | per-flow token bucket; `ZF = 1` when **over** the limit. `imm = rate/sec(low32) | burst<<32` | `ZF` |
-
-Tokens are fixed-point (`× RL_SCALE = 1e6`); refill is `elapsed_ns × rate / 1000`,
-capped at `burst`. A fresh flow starts with a full bucket.
-
-### Runtime args, console, printk
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 52 | `arg` | `imm` | `cur = args[idx]` if `idx < argc` else default. `imm = default(low32) | idx(bits 32..47)` | |
-| 53 | `argc` | — | `cur = argc` (number of runtime args the host set) | |
-| 54 | `farg` | — | push `cur` as the next **numeric** format arg (≤ `FARGS_MAX = 4`) | |
-| 55 | `fargs` | `imm` | capture a `%s` string: copy up to `imm` bytes (≤ `STRARG_CAP = 256`) from the packet at `cur` (≤ `FSTR_MAX = 2`) | |
-| 56 | `console` | `imm` | emit a console event (format id `imm`) with the gathered args to `console_ring`; resets the arg buffers | |
-| 57 | `printk` | `imm` | `bpf_trace_printk` the in-kernel format `fmts[imm]` with up to 3 numeric fargs | |
-
-`console` is modelled on the host (messages collected and returned from `exec`);
-`printk` is a host no-op.
-
-### Data stack and subroutines
-
-| # | mnemonic | operands | semantics | flags |
-|---|---|---|---|---|
-| 58 | `push` | — | `stack[sp++] = cur` (no-op if full) | |
-| 59 | `pop` | — | `cur = stack[--sp]` (no-op if empty) | |
-| 60 | `call` | `imm` | `stack[sp++] = pc + 1`; `pc = imm` (may be backward) | |
-| 61 | `ret` | — | `pc = stack[--sp]` (no-op if empty) | |
-
----
+| # | opcode | summary | detail |
+|---:|---|---|---|
+| 0 | `OP_END` | — | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 1 | `OP_MOV_RC` | cur = r[reg] | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 2 | `OP_MOV_CR` | r[reg] = cur | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 3 | `OP_ADD_I` | cur += imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 4 | `OP_SUB_I` | cur -= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 5 | `OP_ADD_R` | cur += r[reg] | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 6 | `OP_SUB_R` | cur -= r[reg] | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 7 | `OP_AND_I` | cur &= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 8 | `OP_LOAD` | cur = load(cur + imm, size = reg & 15, big-endian if reg & 16) | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 9 | `OP_CMP_I` | ZF = cur == imm; CF = cur < imm | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 10 | `OP_CMP_R` | ZF = cur == r[reg]; CF = cur < r[reg] | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 11 | `OP_TEST` | ZF = (r[R_M] & imm) == 0 | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 12 | `OP_JMP` | pc = imm (forward only) | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 13 | `OP_JE` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 14 | `OP_JNE` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 15 | `OP_JB` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 16 | `OP_JAE` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 17 | `OP_JA` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 18 | `OP_JBE` | — | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 19 | `OP_JF` | jump if the fault flag is set | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 20 | `OP_SCAN` | run the automaton over imm bytes at cur | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 21 | `OP_MPOS` | cur = offset past the first match of pattern reg; fault if none | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 22 | `OP_CMPSTR` | ZF = bytes at cur equal pattern reg | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 23 | `OP_FINDB` | cur = offset of byte reg within imm bytes; fault if none | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 24 | `OP_SKIPB` | cur advances past a run of byte reg (at most imm) | [compare / branch / scan](instructions/02-compare-branch-and-scan.md) |
+| 25 | `OP_PASS` | — | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 26 | `OP_DROP` | rule = reg | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 27 | `OP_COUNT` | rule = reg | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 28 | `OP_LOG` | imm bytes at cur into the event | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 29 | `OP_BAN` | rule = reg, ttl seconds = imm: mark the flow, drop | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 30 | `OP_RST` | rule = reg, ttl seconds = imm: mark the flow, answer with a RST | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 31 | `OP_FLOW` | cur = the flow's mark | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 32 | `OP_MARK` | mark = reg, ttl seconds = imm | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 33 | `OP_SLOAD` | cur = this flow's user state | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 34 | `OP_SSTORE` | this flow's user state = imm | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 35 | `OP_BUMP` | cur = ++this flow's hit counter (per-connection rate limiting) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 36 | `OP_OR_I` | cur \|= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 37 | `OP_SHL_I` | cur <<= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 38 | `OP_SHR_I` | cur >>= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 39 | `OP_CIDR` | ZF = (cur in network/prefix); imm = net(low32, host order) \| prefix<<32 | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 40 | `OP_RPUSH` | push cur onto this flow's ring | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 41 | `OP_RGET` | cur = ring entry at index cur (0 = newest); cur=0 + fault if out of range | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 42 | `OP_RLEN` | cur = this flow's ring length | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 43 | `OP_REDACT` | overwrite every match of pattern reg in [cur, end) with fill byte imm | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 44 | `OP_REPLACE` | overwrite every match of pattern reg in [cur, end) with pattern imm (same length) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 45 | `OP_DNAT` | rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 46 | `OP_LPM` | ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 47 | `OP_HASH` | ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 48 | `OP_BLOOM` | ZF = cur (low 32 bits) is (probably) in the `bloom` filter | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 49 | `OP_LPM6` | ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 50 | `OP_REDIRECT` | forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 51 | `OP_RATE` | token-bucket rate limit on the flow: imm = rate/sec (low 32) \| burst (high 32); ZF = over the limit | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 52 | `OP_ARG` | cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) \| default (low 32) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 53 | `OP_ARGC` | cur = argc (number of runtime args the host set) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 54 | `OP_FARG` | push cur as the next numeric format argument (for console/printk) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 55 | `OP_FARGS` | capture a %s string: cur is a packet offset, copy up to imm bytes | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 56 | `OP_CONSOLE` | emit a console event to the host: imm = format id, args = the pushed fargs | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 57 | `OP_PRINTK` | bpf_trace_printk to the kernel trace pipe: imm = printk format id, up to 3 numeric fargs | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 58 | `OP_PUSH` | push cur onto the data stack (stack map), sp++ | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 59 | `OP_POP` | sp--, cur = top of the data stack | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 60 | `OP_CALL` | push the return pc onto the data stack, jump to imm (subroutine) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 61 | `OP_RET` | pop the data stack into pc (return from a subroutine) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
