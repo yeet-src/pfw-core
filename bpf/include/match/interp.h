@@ -77,6 +77,49 @@ static __noinline int do_rate(struct pfw_state *st, __u64 now, __u64 imm)
     return 1;
 }
 
+/* Substring search for a live host-set string knob in the payload window.
+ * Loads up to KNOB_SCAN payload bytes into st->kbuf once, then checks each start
+ * position for the needle (knob_strs[slot], length L<=KNOBSTR_CAP) with an
+ * unrolled, length-masked compare. __noinline so it keeps its own stack frame.
+ * Returns 1 if found. Non-reasm (reads the packet). */
+struct khas_ctx { struct pfw_state *st; const struct knob_str *ns; __u32 n; __u32 found; };
+static long khas_step(__u32 i, void *ctx_)
+{
+    struct khas_ctx *c = ctx_;
+    __u32 L = c->ns->len;
+    if (i + L > c->n)
+        return 1;                        /* no room for the needle from here on */
+    int eq = 1;
+#pragma unroll
+    for (int j = 0; j < KNOBSTR_CAP; j++) {
+        if ((__u32) j >= L) break;
+        if (c->st->kbuf[(i + j) & (KNOB_SCAN - 1)] != c->ns->b[j & (KNOBSTR_CAP - 1)]) { eq = 0; break; }
+    }
+    if (eq) { c->found = 1; return 1; }
+    return 0;
+}
+static __noinline int do_knobhas(struct pfw_ctx *pc, __u32 slot)
+{
+    struct pfw_state *st = pc->st;
+    __u32 k = slot & (PFW_KNOBSTRS - 1);
+    const struct knob_str *ns = bpf_map_lookup_elem(&knob_strs, &k);
+    if (!ns || ns->len == 0 || ns->len > KNOBSTR_CAP || pc->reasm)
+        return 0;
+    __u32 end = (__u32) st->r[R_END], off = (__u32) st->r[R_PAYLOAD];
+    if (off >= end)
+        return 0;
+    __u32 n = end - off;
+    if (n > KNOB_SCAN) n = KNOB_SCAN;
+    if (n < ns->len)
+        return 0;
+    __u32 ln = ((n - 1) & (KNOB_SCAN - 1)) + 1;   /* [1, KNOB_SCAN] for the load */
+    if (bpf_xdp_load_bytes(pc->xdp, off, st->kbuf, ln))
+        return 0;
+    struct khas_ctx c = { .st = st, .ns = ns, .n = n, .found = 0 };
+    bpf_loop(n, khas_step, &c, 0);
+    return c.found;
+}
+
 static long pfw_step(__u32 i, void *pctx)
 {
     struct pfw_ctx *c = pctx;
@@ -421,6 +464,9 @@ static long pfw_step(__u32 i, void *pctx)
         cur = v ? *v : 0;
         break;
     }
+    case OP_KNOBHAS: /* ZF = the live host-set string knob occurs in the payload window */
+        fl = (fl & FL_FF) | (do_knobhas(c, (__u32) imm) ? FL_ZF : 0);
+        break;
     case OP_FARG: /* push cur as the next console/printk format argument */
         if (st->fargn < FARGS_MAX)
             st->fargs[st->fargn++ & (FARGS_MAX - 1)] = cur;

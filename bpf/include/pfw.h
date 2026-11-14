@@ -22,6 +22,9 @@
 #define PFW_FMT_CAP  64   /* bytes per printk format string */
 #define STACK_CAP    64   /* data-stack depth (push/pop), power of two */
 #define PFW_KNOBS    32   /* live host-set control values (OP_KNOB / the `knobs` map) */
+#define PFW_KNOBSTRS 16   /* live host-set string knobs (OP_KNOBHAS / the `knob_strs` map) */
+#define KNOBSTR_CAP  64   /* bytes per string knob (the needle) */
+#define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -162,6 +165,7 @@ enum pfw_opcode {
     OP_CALL,    /* push the return pc onto the data stack, jump to imm (subroutine) */
     OP_RET,     /* pop the data stack into pc (return from a subroutine) */
     OP_KNOB,    /* cur = knobs[imm] — a live host-set control value (the `knobs` map) */
+    OP_KNOBHAS, /* ZF = the live host-set string knob_strs[imm] occurs in the payload window */
     OP_COUNT_OPCODES,
 };
 
@@ -263,6 +267,9 @@ struct pfw_event {
 
 /* The VM data stack (push/pop), one per CPU in the `stack` map. */
 struct vmstack { __u64 s[STACK_CAP]; };
+
+/* A live host-set string knob: the needle searched for by OP_KNOBHAS. */
+struct knob_str { __u32 len; __u8 b[KNOBSTR_CAP]; };
 
 /* A console() message: the format id, the numeric args, and the captured %s
  * strings. The host maps fmtid -> format string and prints it. */

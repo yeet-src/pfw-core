@@ -633,6 +633,9 @@ function codegen(ast) {
   const knobNames = []; // knob("name") control values, by slot (the host writes the `knobs` map by this slot)
   const knobDefaults = []; // the initial value seeded per slot (from `knob("x") ?? d`), by slot
   const internKnob = (name) => { const i = knobNames.indexOf(name); if (i >= 0) return i; if (knobNames.length >= LIMITS.KNOBS) return -1; return knobNames.push(name) - 1; };
+  const knobStrNames = []; // kstr("name") string knobs, by slot (the host writes the `knob_strs` map by this slot)
+  const internKnobStr = (name) => { const i = knobStrNames.indexOf(name); if (i >= 0) return i; if (knobStrNames.length >= LIMITS.KNOBSTRS) return -1; return knobStrNames.push(name) - 1; };
+  const kstrSlot = (e) => { if (e.args.length !== 1 || e.args[0].kind !== "string") die('kstr("name")', e.line); const s = internKnobStr(e.args[0].text); if (s < 0) die(`too many string knobs (max ${LIMITS.KNOBSTRS})`, e.line); return s; };
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
   const expanding = new Set();
   const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
@@ -878,6 +881,7 @@ function codegen(ast) {
       case "band": bandTest(e); return bld.je(L);
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.je(L); } // false when the routine returned 0
+        if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.jne(L); } // false when the host string isn't present
         if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.jne(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
         if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
@@ -915,6 +919,7 @@ function codegen(ast) {
       case "band": bandTest(e); return bld.jne(L);
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.jne(L); } // true when the routine returned nonzero
+        if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.je(L); } // true when the host string is present
         if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.je(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
         if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
@@ -1132,6 +1137,7 @@ function codegen(ast) {
   bld._printkFormats = printkFormats;
   bld._knobs = knobNames;
   bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);
+  bld._knobStrs = knobStrNames;
   return bld;
 }
 
@@ -1156,7 +1162,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */

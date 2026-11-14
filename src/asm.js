@@ -437,6 +437,10 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("knob is `knob $SLOT`");
         emit(OP.KNOB, 0, numberOf(a.text, "slot") & 0xffffffffn);
+      } else if (m === "knobhas") {
+        want(1);
+        if (a.kind !== "imm") fail("knobhas is `knobhas $SLOT`");
+        emit(OP.KNOBHAS, 0, numberOf(a.text, "slot") & 0xffffffffn);
       } else if (m === "farg") {
         want(0);
         emit(OP.FARG);

@@ -1,0 +1,22 @@
+// A live blocklist driven entirely by string knobs. Compile-time patterns are
+// fixed in the automaton; a STRING KNOB is a needle the host sets in the
+// `knob_strs` map and can change AT ANY TIME, matched against the payload by a
+// bounded search. So an operator (or an automated feed) pushes the currently-bad
+// host, URL token, or user-agent and this filter blocks it instantly — no
+// recompile, no reload. Pair with scalar knobs for a kill-switch / mode dial.
+//
+// Host side:  setKStr(control, "bad_host", "shop.evil.example")  // live
+//             setKStr(control, "bad_token", "DROP TABLE")
+//             setKnob(control, "enforce", 1)
+nocase;
+reassemble 8080;
+filter {
+  if (dport != 80) decide pass;
+  if (knob("enforce") ?? 1 == 0) decide pass;        // operator kill-switch
+
+  // Three live needles the host updates out of band:
+  if (kstr("bad_host"))  { log(1); decide rst("blocked_host", 0); }
+  if (kstr("bad_token")) { log(2); decide ban("blocked_token", 3600); }
+  if (kstr("bad_ua"))    { log(3); decide drop("blocked_ua"); }
+  decide pass;
+}

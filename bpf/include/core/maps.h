@@ -128,6 +128,14 @@ PFW_LINK struct {
     __type(value, __u64);
 } knobs SEC(".maps");
 
+/* Live host-set string knobs: the needle OP_KNOBHAS searches for in the payload. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_KNOBSTRS);
+    __type(key, __u32);
+    __type(value, struct knob_str);
+} knob_strs SEC(".maps");
+
 struct pfw_state {
     __u64 r[NREGS];
     __u32 pc;
@@ -174,6 +182,7 @@ struct pfw_state {
     __u8 fstr[FSTR_MAX][STRARG_CAP]; /* OP_FARGS captured %s strings */
     __u16 fslen[FSTR_MAX];
     __u32 fsn;
+    __u8 kbuf[KNOB_SCAN]; /* OP_KNOBHAS: the payload window loaded for the string search */
 };
 
 PFW_LINK struct {

@@ -119,6 +119,7 @@ export class Builder {
   arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
   argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
   knob(slot) { return this.op(OP.KNOB, 0, BigInt(slot)); } // cur = knobs[slot] (live host-set control)
+  knobhas(slot) { return this.op(OP.KNOBHAS, 0, BigInt(slot)); } // ZF = string knob[slot] occurs in the payload
   farg() { return this.op(OP.FARG); } // push cur as the next numeric console/printk format arg
   fargs(cap) { return this.op(OP.FARGS, 0, BigInt(cap)); } // capture a %s string from the packet at cur (up to cap bytes)
   console(fmtid) { return this.op(OP.CONSOLE, 0, BigInt(fmtid)); } // emit a console message (format id) to the host
@@ -253,6 +254,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
     case OP.ARGC: return `argc`;
     case OP.KNOB: return `knob ${op.imm}`;
+    case OP.KNOBHAS: return `knobhas ${op.imm}`;
     case OP.FARG: return `farg`;
     case OP.FARGS: return `fargs ${op.imm}`;
     case OP.CONSOLE: return `console ${op.imm}`;

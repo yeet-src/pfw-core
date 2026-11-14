@@ -164,6 +164,12 @@ yeet.test("knob reads a live host-set control value (0 when unset)", () => {
   expectRst("knob set", eq("        knob    $0", 5), { opts: { knobs: [5] } });
 });
 
+yeet.test("knobhas finds a host-set string in the payload", () => {
+  const frame = enc.encode("GET /x?evil=1");
+  expect("knobhas hit", `        knobhas $0\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.RST, { frame, opts: { knobStrs: ["evil"] } });
+  expect("knobhas miss", `        knobhas $0\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { frame, opts: { knobStrs: ["nope"] } });
+});
+
 /* ---- farg / fargs / console (format args + emit a console message) ---- */
 yeet.test("farg + fargs + console + printk assemble and run (falls through to pass)", () => {
   expect("console", `        and     $0, %cur\n        add     $7, %cur\n        farg\n        mov     %payload, %cur\n        fargs   $8\n        console $0\n        pass`, V.PASS);

@@ -49,6 +49,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
   .bind("stack", { kind: "percpu_array" })
   .bind("knobs", { kind: "array" })
+  .bind("knob_strs", { kind: "array" })
   .bind("programs", { kind: "array" })
   .bind("ac_goto", { kind: "array" })
   .bind("ac_fail", { kind: "array" })
@@ -151,6 +152,21 @@ await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shad
       const [name, val = "0"] = kv.split("=");
       const slot = slotOf(name);
       if (slot >= 0) await km.update(slot, BigInt(val));
+    }
+  }
+  /* String knobs: --kstr "name=needle,other=foo" writes the `knob_strs` map by the
+   * slot c.knobStrs[slot] === name. The needle is searched for in the payload. */
+  if (argv.kstr) {
+    const ksm = new ArrayMap(control, "knob_strs");
+    const slotOf = (name) => (c.knobStrs ?? []).indexOf(name);
+    for (const kv of String(argv.kstr).split(",").filter(Boolean)) {
+      const [name, ...rest] = kv.split("=");
+      const slot = slotOf(name);
+      if (slot >= 0) {
+        const b = Array.from(rest.join("="), (ch) => ch.charCodeAt(0) & 0xff).slice(0, LIMITS.KNOBSTR_CAP);
+        const len = b.length; while (b.length < LIMITS.KNOBSTR_CAP) b.push(0);
+        await ksm.update(slot, { len: len >>> 0, b });
+      }
     }
   }
 }
