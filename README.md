@@ -136,6 +136,7 @@ front-ends are submodules so their short constructor names don't collide.
 import { load, compile, Program, serializeProgram, build, machine } from "pfw-core";
 import * as C from "pfw-core/dsl.js";                 // the value builder
 import { when, guard, allOf, each, rules } from "pfw-core/fp.js";  // combinators
+import { PfwVm } from "pfw-core/loader";               // run it in the kernel (yeet runtime only)
 ```
 
 ### Compiling
@@ -290,51 +291,64 @@ The kernel applies state *writes* on the next packet (deferred), and the
 interpreter models that exactly: a `flow.state = N` write is visible on the
 following `exec`, not the one that made it.
 
-## Using it from a yeet probe (XDP)
+## Embedding it in a yeet program (XDP)
 
-The host and kernel run identical bytes. A probe compiles the rule, binds the
-shipped XDP object's maps, writes the artifacts, attaches, and reads events. The
-kernel object is `bin/vm.bpf.o` (built by `make bpf`).
+`pfw-core/loader` is the kernel side as one object. `PfwVm` loads the XDP
+interpreter, wires its stages, and gives the embedding program a lifecycle —
+**start**, apply, steer, read, **stop** — instead of two dozen map bindings.
 
 ```js
-import { compile, build } from "pfw-core";
-import { BpfObject, ArrayMap, LpmTrie, HashMap, BloomFilter, RingBuf } from "yeet:bpf";
+import { load } from "pfw-core";
+import { PfwVm } from "pfw-core/loader";      // yeet runtime only (it imports yeet:bpf)
 
-const c = compile(ruleSource);
-if (!c.ok) throw new Error(JSON.stringify(c.errors));
+const vm = new PfwVm({ iface: 2 });           // an ifindex, or several
+await vm.start();                             // attached; no program yet, so everything passes
 
-const control = await new BpfObject({ exe: "bin/vm.bpf.o", base: root })
-  .bind("programs", { kind: "array" })
-  .bind("ac_goto", { kind: "array" }).bind("ac_fail", { kind: "array" }).bind("ac_accept", { kind: "array" })
-  .bind("re_goto", { kind: "array" }).bind("re_accept", { kind: "array" })  // regex DFA
-  .bind("lpm", { kind: "lpm_trie" }).bind("lpm6", { kind: "lpm_trie" })      // src in set / set6
-  .bind("hashset", { kind: "hash" }).bind("bloom", { kind: "bloom_filter" })
-  .bind("flows", { kind: "lru_hash" }).bind("stack", { kind: "percpu_array" })
-  .bind("knobs", { kind: "array" }).bind("knob_strs", { kind: "array" })   // live control plane
-  .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
-  .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
-  .bind("vm.bss", { kind: "data" })
-  .attach("pfw_xdp", { kind: "xdp", ifindex: [ifindex] })
-  .start();
+await vm.apply(load(ruleSource), { knobs: { enforce: 1 }, argv: [8080] });
+vm.onVerdict((e) => console.log(e.verdict, e.rule, e.src, e.dport));
+vm.onConsole((line) => console.log(line));
 
-// write the program into programs[0] (the typed `pfw_prog` value — field order
-// per pfw.h; apply-and-hold's progValue() builds it), then the automaton tables:
-const t = build(c.patterns, c.nocase);
-// ... programs[0] = { nops, npats, ops, pats, args, argc, fmts, … } ...
-// ... write t.edges -> ac_goto, t.fails -> ac_fail, t.accepts -> ac_accept ...
-// ... if (c.regex) write c.regex.trans -> re_goto, c.regex.accept -> re_accept ...
-// ... populate lpm/hashset/bloom from your source/port sets ...
+await vm.setKnob("enforce", 0);               // steer the running program, no reload
+await vm.addCidrs(["203.0.113.0/24"]);        // `src in set`
+await vm.apply(load(nextRuleSource));         // atomic swap; flows and bans are kept
+console.log(await vm.stats());                // { seen, dropped, ..., rules: { name: hits } }
 
-await new RingBuf(control, "events").subscribe((e) => {/* verdict events */});
+await vm.stop();                              // detached; the hook is free again
 ```
 
-`scripts/apply-and-hold.mjs` is the **complete, working reference** for this: it
-binds every map, writes the program + AC tables + regex DFA + the membership sets
-+ the printk formats, seeds the knobs from `c.knobDefaults` (and applies `--knobs`
-/ `--kstr` into `knobs` / `knob_strs`), patches `vm.bss` globals (`active`,
-`shadow`), and streams verdict and `console()` events back. `test/kernel/*.mjs` drive it. The full map
-list and the `pfw_prog` / `pfw_event` / `pfw_console` layouts are in
-[`docs/isa.md`](docs/isa.md).
+| method | what it does |
+|---|---|
+| `new PfwVm({ iface, object, base })` | `iface`: ifindex or array (default 1). `object`: path to `vm.bpf.o` (default: the package's `bin/vm.bpf.o`) |
+| `start()` | load the object, attach every stage and the XDP entry. Passes all traffic until `apply`. Throws if already running or the hook is taken |
+| `stop()` | detach and release everything in the kernel — maps, flow and source state, bans. Harmless to call twice; `start()` works again after |
+| `running`, `program` | whether it is started; the compile result now enforcing |
+| `apply(program, opts)` | put a `Program`, a `compile()` result or pfw-C source into effect. Written to the idle generation, then one flip. `opts`: `argv`, `knobs`, `knobStrs`, `shadow` |
+| `clear()` | stop enforcing but stay attached (standing bans still apply) |
+| `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
+| `addCidrs` / `removeCidrs`, `addHash` / `removeHash`, `addBloom` | the host-loaded sets (`src in set`, `src6 in set6`, `x in hash`, `x in bloom`) |
+| `onVerdict(cb)`, `onConsole(cb)` | events; each returns an unsubscribe function. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
+| `stats()` | global counters since `start()` and hits per rule name |
+
+Things to know when embedding:
+
+- **One per interface.** The kernel allows a single XDP program per interface, so
+  a `PfwVm` owns the hook of the interfaces it starts on. A second `start()` on
+  the same interface — from another `PfwVm` or any other program — fails until
+  the first stops.
+- **One program at a time.** `apply` replaces the running program; it does not
+  add to it. Programs that must coexist have to be merged into one source.
+- **`stop()` forgets.** Bans, flow state and counters live in the object's maps
+  and go with it. `apply` and `clear` keep them.
+- **Knob values follow the name.** A value set with `setKnob` or `apply({ knobs })`
+  is remembered and re-applied to any later program that declares that knob.
+- **No version check yet** between this JS and the `vm.bpf.o` it loads: ship them
+  together. `npm pack` builds and includes `bin/vm.bpf.o` (`prepack` runs
+  `make bpf`); from a checkout, run `make bpf` first.
+
+`scripts/apply-and-hold.mjs` is a 50-line CLI over `PfwVm` that every kernel test
+drives, and `scripts/loader-lifecycle.mjs` walks the whole lifecycle. To bind the
+maps yourself instead, `src/loader.js` is the reference; the map list and the
+`pfw_prog` / `pfw_event` / `pfw_console` layouts are in [`docs/isa.md`](docs/isa.md).
 
 ## Examples
 
@@ -446,7 +460,7 @@ Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 `test:hash`, `test:bloom`, `test:lpm6`, `test:redirect`, `test:rate`, `test:argv`,
 `test:shadow`, `test:console`, `test:printk`, `test:stack`, `test:call`,
 `test:args`, `test:regex-rewrite`, `test:source`, `test:nat`, `test:reasm`,
-`test:h2`, and `test:examples-kernel`, which drives the shipped example files with
+`test:h2`, `test:loader` (the `PfwVm` lifecycle), and `test:examples-kernel`, which drives the shipped example files with
 curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
 

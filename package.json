@@ -19,6 +19,7 @@
     "./bytes": "./src/bytes/index.js",
     "./clang": "./src/clang/index.js",
     "./huffman": "./src/huffman/index.js",
+    "./loader": "./src/loader.js",
     "./program": "./src/program/index.js",
     "./*": "./src/*"
   },
@@ -30,6 +31,7 @@
     "test:kernel": "node test/kernel/diff.mjs",
     "gen:huff": "node src/huffman/index.js",
     "bpf": "make bpf",
+    "prepack": "make bpf",
     "test:rewrite": "node test/kernel/rewrite.mjs",
     "test:dnat": "node test/kernel/dnat.mjs",
     "test:lpm": "node test/kernel/lpm.mjs",
@@ -52,11 +54,13 @@
     "test:reasm": "node test/kernel/reasm.mjs",
     "test:h2": "node test/kernel/h2.mjs",
     "test:examples-kernel": "node test/kernel/examples.mjs",
+    "test:loader": "node test/kernel/loader.mjs",
         "test:knob": "node test/kernel/knob.mjs",
     "test:kstr": "node test/kernel/kstr.mjs"
   },
   "files": [
     "src",
+    "bin/vm.bpf.o",
     "bpf",
     "build",
     "examples",
