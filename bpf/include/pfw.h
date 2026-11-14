@@ -94,6 +94,8 @@ enum pfw_reg {
     R_SHADOW,    /* the shadow-mode flag (set from the host), readable as %shadow */
     R_SP,        /* data-stack pointer (push/pop), readable/writable as %sp */
     R_BP,        /* data-stack base pointer, readable/writable as %bp */
+    R_A0, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, /* subroutine argument registers (%a0..%a6) */
+    R_RV,        /* subroutine return-value register (%rv) */
     /* The file is padded to a power of two: pfw_step bounds the index
      * with `& (NREGS - 1)`, which is only a modulo when NREGS is one.
      * (At 20 the mask was 0b10011 and %dport read as %payload.) */

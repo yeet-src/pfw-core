@@ -23,6 +23,8 @@ export const REG = {
   s0: 8, s1: 9, s2: 10, s3: 11, m: 12, cur: 13, ifindex: 14, len: 15,
   s4: 16, s5: 17, s6: 18, s7: 19, src: 20, saddr: 20, // src is the assembler alias
   shadow: 21, sp: 22, bp: 23,
+  a0: 24, a1: 25, a2: 26, a3: 27, a4: 28, a5: 29, a6: 30, // subroutine argument registers
+  rv: 31, // subroutine return-value register
 };
 export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [v, k]));
 

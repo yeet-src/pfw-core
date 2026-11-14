@@ -33,7 +33,8 @@
     "test:console": "node test/kernel/console.mjs",
     "test:printk": "node test/kernel/printk.mjs",
     "test:stack": "node test/kernel/stack.mjs",
-    "test:call": "node test/kernel/call.mjs"
+    "test:call": "node test/kernel/call.mjs",
+    "test:args": "node test/kernel/args.mjs"
   },
   "files": [
     "src",

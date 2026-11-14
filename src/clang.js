@@ -36,8 +36,9 @@ import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { compileRegexes, fixedLength } from "#/regex.js";
 
-const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src", "shadow", "sp", "bp"]);
-const WRITABLE_REGS = new Set(["sp", "bp"]); // registers a program may assign to
+const ARGREGS = ["a0", "a1", "a2", "a3", "a4", "a5", "a6"];
+const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src", "shadow", "sp", "bp", ...ARGREGS, "rv"]);
+const WRITABLE_REGS = new Set(["sp", "bp", "rv", ...ARGREGS]); // registers a program may assign to
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
 
 class CError extends Error {
@@ -523,12 +524,16 @@ function parse(toks) {
     } else if (isKw("fn")) {
       next();
       const name = eat("ident").value;
-      eat("punct", "("); eat("punct", ")");
+      eat("punct", "(");
+      const params = [];
+      while (!isP(")")) { params.push(eat("ident").value); if (isP(",")) next(); else break; }
+      eat("punct", ")");
+      if (params.length > 7) err("a subroutine takes at most 7 params (a0..a6)");
       eat("punct", "{");
       const stmts = [];
       while (!isP("}")) stmts.push(parseStmt());
       eat("punct", "}");
-      functions.push({ name, stmts });
+      functions.push({ name, params, stmts });
     } else if (isKw("filter")) {
       next();
       eat("punct", "{");
@@ -570,6 +575,7 @@ function codegen(ast) {
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
   const masks = new Set();
   const funcs = new Set((ast.functions ?? []).map((f) => f.name)); // subroutine names (call/ret)
+  const funcArity = new Map((ast.functions ?? []).map((f) => [f.name, (f.params ?? []).length]));
   const consoleFormats = []; // console() format strings, by id (the host maps id -> string)
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
@@ -743,6 +749,7 @@ function codegen(ast) {
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
     if (e.kind === "call" && e.name === "pop") { if (e.args.length) die("pop() takes no args", e.line); return bld.pop(); }
+    if (e.kind === "call" && funcs.has(e.name)) return emitCall(e.name, e.args, true, e.line);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     die(`\`${e.kind === "ref" ? e.name : e.kind}\` is not a readable value`, e.line);
@@ -767,10 +774,22 @@ function codegen(ast) {
       bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
     }
     if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc"].includes(e.kind)) return value(e);
-    if (e.kind === "call" && e.name === "pop") return value(e);
+    if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     return loadPtr(e);
+  };
+
+  /* Emit a subroutine call: evaluate each arg into a temp (so a call-valued arg
+   * can't clobber an already-placed arg register), move temps into a0..aN, then
+   * call. As a value, the result comes back in %a0. */
+  const emitCall = (name, args, asValue, line) => {
+    const arity = funcArity.get(name) ?? 0;
+    if (args.length !== arity) die(`\`${name}\` takes ${arity} arg(s), got ${args.length}`, line);
+    const tmps = args.map((a) => { const t = allocScratch(`__ca${nTmp++}`, line); materialize(a); bld.movFromCur(t); return t; });
+    tmps.forEach((t, i) => { bld.movToCur(t); bld.movFromCur(REG[ARGREGS[i]]); });
+    bld.call(name);
+    if (asValue) bld.movToCur(REG.rv);
   };
 
   const cmpToFlags = (e) => {
@@ -800,6 +819,7 @@ function codegen(ast) {
       case "inset6": { bld.lpm6(); return bld.jne(L); }
       case "band": bandTest(e); return bld.je(L);
       case "call":
+        if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.je(L); } // false when the routine returned 0
         if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.jne(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
         if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
@@ -836,6 +856,7 @@ function codegen(ast) {
       case "inset6": { bld.lpm6(); return bld.je(L); }
       case "band": bandTest(e); return bld.jne(L);
       case "call":
+        if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.jne(L); } // true when the routine returned nonzero
         if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.je(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
         if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
@@ -969,10 +990,7 @@ function codegen(ast) {
           }
           return bld.console(id);
         }
-        if (funcs.has(c.name)) {
-          if (c.args.length) die(`\`${c.name}()\` is a subroutine and takes no args (pass values in registers or on the stack)`, s.line);
-          return bld.call(c.name);
-        }
+        if (funcs.has(c.name)) return emitCall(c.name, c.args, false, s.line);
         if (c.name === "push") {
           if (c.args.length !== 1) die("push(value)", s.line);
           materialize(c.args[0]); return bld.push();
@@ -1012,7 +1030,10 @@ function codegen(ast) {
    * control never falls into them). A call jumps here; ret pops back. */
   for (const fn of ast.functions ?? []) {
     bld.label(fn.name);
+    const saved = []; // bind each param to its arg register for the body, then restore
+    (fn.params ?? []).forEach((p, i) => { saved.push([p, scratch.get(p)]); scratch.set(p, REG[ARGREGS[i]]); });
     fn.stmts.forEach(stmt);
+    for (const [p, prev] of saved) { if (prev === undefined) scratch.delete(p); else scratch.set(p, prev); }
     bld.ret();
   }
   bld._consoleFormats = consoleFormats;
