@@ -1,25 +1,33 @@
-// HTTP/2 Rapid Reset (CVE-2023-44487). A client opens a stream (HEADERS) and
-// immediately cancels it (RST_STREAM), over and over — cheap for the client,
-// expensive for the server, which does the request setup each time. The HPACK
-// decode front-end normalizes the HTTP/2 stream, and since stream churn shows up
-// as a very high per-connection message cadence, we rate-limit it and escalate:
-// a connection sustaining the churn is banned.
+// HTTP/2 Rapid Reset (CVE-2023-44487). The client opens a stream (HEADERS) and
+// cancels it at once (RST_STREAM), over and over: cheap for the client, costly
+// for the server, which sets each request up before learning it was cancelled.
 //
-// Combines: the h2 decode stage (implies reassembly), the token bucket (rate) as
-// a cadence guard, flow.count escalation, console(), and drop/ban.
+// `decode h2` parses the connection's frames, and besides the decoded header
+// lines it puts one ":frame: rst_stream" line in the view for every RST_STREAM
+// frame the packet carried. So the attack's actual signal — cancellations — is
+// what this limits: a packet carrying RST_STREAM spends a token, and a
+// connection cancelling faster than the bucket refills is reset. A source that
+// keeps coming back is banned by address.
+//
+// The unit is "packets that carry a cancellation", not individual frames: many
+// RST_STREAM frames coalesced into one packet spend one token. Tune the rate to
+// what your clients legitimately do (a browser cancels a handful per page).
+//
+// Combines: the h2 decode stage, the token bucket, per-source strikes
+// (src.count survives a reconnect; flow.count would not), rst and ban.
 nocase;
 decode h2 8080;
+pattern cancel = ":frame: rst_stream";
 filter {
   if (proto != 6) decide pass;
-  if (len == 0) decide pass;
+  if (len == 0) decide pass;                 // no header block or RST_STREAM completed in this packet
 
-  // >100 h2 messages/sec on one connection is stream churn, not real use
-  if (rate(100, 200)) {
-    let strikes = flow.count;
-    log(5);
-    console("h2 rapid-reset :%d strikes=%d", sport, strikes);
-    if (strikes >= 10) decide ban("rapid_reset", 300);
-    decide drop("h2_stream_flood");
+  if (scan(payload, 2048) & cancel) {
+    if (rate(20, 40)) {                      // more than 20 cancelling packets/s, after a burst of 40
+      log(64);
+      if (src.count >= 3) decide ban("rapid_reset", 300);   // third connection cut: ban the address
+      decide rst("h2_stream_churn", 0);
+    }
   }
   decide pass;
 }

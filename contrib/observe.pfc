@@ -1,0 +1,23 @@
+// A passive tap (no blocking): tag traffic with counters and events for the
+// userspace side to read, without ever changing a verdict.
+//
+// `count("name");` as a *statement* bumps a named counter and keeps going;
+// `decide count("name");` is the *verdict* form (tally, then stop). `log(n)`
+// pushes an event onto the ring buffer. A program that never drops/resets is a
+// pure observer — useful for measuring a rule before you arm it.
+nocase;
+pattern bot = "GPTBot", claudebot = "ClaudeBot";
+filter {
+  if (proto != 6) decide pass;
+
+  // Counting by port works on any traffic. Matching CONTENT does not: on :443
+  // the payload is ciphertext, so that connection is tallied and left alone.
+  if (dport == 443) { count("https"); decide pass; }
+  if (dport == 80) count("http");    // statement: tally and continue
+
+  if (scan(payload, 1460) & (bot | claudebot)) {
+    log(7);                            // event: "saw an AI crawler"
+    decide count("ai_crawler");        // verdict: tally this one, then stop
+  }
+  decide pass;
+}

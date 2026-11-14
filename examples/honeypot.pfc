@@ -1,42 +1,47 @@
-// Tarpit/honeypot diversion. Rather than just dropping attackers (which tells them
-// nothing and frees them to move on), confirmed tooling and persistent probers are
-// transparently steered to a sandbox box: dnat() rewrites the destination to the
-// honeypot and redirect() forwards the packet out the sandbox interface, so the
-// attacker keeps "working" a fake target while we watch. First-time soft probes are
-// just reset; divert kicks in on a named tool or after a few strikes.
+// Honeypot diversion. Dropping an attacker tells them they were seen and frees
+// them to move on; steering them to a decoy keeps them busy on a fake target
+// while you watch. Once a source reveals itself — a scanning tool's signature, or
+// repeated probing for well-known secrets — its NEXT connections are transparently
+// answered by a honeypot instead of the real service.
 //
-// Combines: reassembly, a subroutine triaging severity over one scan, cursor
-// parsing (after Host:), per-connection strikes (flow.count), dnat()+redirect()
-// steering, console(), and rst escalation.
+// Why "next": a TCP connection cannot be moved mid-stream — by the time a request
+// has shown its hand, the handshake was completed with the real server, and the
+// honeypot has no socket for that connection. So the revealing connection is
+// reset, the SOURCE is flagged (src.state, keyed on the address, so it holds for
+// any port it reconnects from), and from then on every packet of every connection
+// it opens, starting with the SYN, is dnat()ed to the honeypot.
+//
+// dnat is two-way: the kernel records each diverted connection and rewrites the
+// honeypot's replies back to the address the client dialled, so the client sees
+// an ordinary connection to the real service. Deployment: the honeypot must be
+// routable from this host (the rewritten packet is passed to the stack to
+// forward), and its replies must come back through an interface this program is
+// attached to. IPv4 TCP/UDP.
+//
+// Combines: per-source state and strikes (src.state / src.count), a severity
+// triage over one scan, two-way dnat, and rst.
 nocase;
-reassemble 8080;
 pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap scripting engine";
 pattern p_env = "/.env", p_git = "/.git/", p_login = "/wp-login";
-pattern host = "host:";
-
-// 2 = named tool, 1 = soft probe
-fn triage() {
-  mask m = scan(payload, 1460);
-  if (any(m, sqlmap, nikto, nmap)) return 2;
-  if (any(m, p_env, p_git, p_login)) return 1;
-  return 0;
-}
-
 filter {
   if (proto != 6) decide pass;
   if (dport != 80) decide pass;
 
-  let sev = triage();
-  if (sev == 0) decide pass;
-
-  let strikes = flow.count;
-  log(7);
-  console("honeypot sev=%d strikes=%d sport=%d", sev, strikes, sport);
-
-  // confirmed tool, or a prober past 3 strikes: divert to the sandbox
-  if (sev == 2 || strikes >= 3) {
-    dnat("10.99.0.2", 8080);     // the honeypot listener
-    redirect(5);                  // out the sandbox veth (terminal)
+  // A flagged source: divert the whole connection, from the SYN on.
+  if (src.state == 1) {
+    dnat("10.99.0.2", 8080);                 // the honeypot listener
+    decide pass;
   }
-  decide rst("probe", 0);         // early soft probes just get reset
+
+  mask m = scan(payload, 1460);
+  if (any(m, sqlmap, nikto, nmap)) {         // a named tool: flag at once
+    src.state = 1 for 3600;
+    log(64);
+    decide rst("tool", 0);
+  }
+  if (any(m, p_env, p_git, p_login)) {       // a soft probe: reset, flag on the third
+    if (src.count >= 3) src.state = 1 for 3600;
+    decide rst("probe", 0);
+  }
+  decide pass;
 }

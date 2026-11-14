@@ -1,21 +1,24 @@
-// Redirect: steer selected traffic out another interface instead of letting it
-// reach the local stack. `redirect(ifindex)` lowers to bpf_redirect(ifindex),
-// which returns XDP_REDIRECT — the packet leaves via that interface's TX path.
-// It is terminal (it takes precedence over the verdict) and does not compose
-// with redact/replace.
+// Steer a one-way datagram stream to another box. `dnat(ip, port)` rewrites the
+// destination (and fixes the IP and UDP checksums); `redirect(ifindex)` then
+// forwards the packet straight out another interface (bpf_redirect, XDP_REDIRECT)
+// instead of handing it to the local stack. redirect is terminal — it takes
+// precedence over the verdict — and does not compose with redact/replace.
 //
-// Here: anything matching a known crawler user-agent on :80 is rewritten to a
-// scrubbing/honeypot box (DNAT) and forwarded out interface 5 (e.g. the veth to
-// a sandbox namespace); everything else is delivered normally. The ifindex is a
-// property of the host, so the layer that compiles this program fills it in.
-pattern bot = "GPTBot";
-
+// Here: syslog from anything outside the trusted ranges is not delivered to the
+// real collector; it is rewritten to a quarantine collector and sent out
+// interface 5 (say, the veth into an analysis namespace). Trusted senders are
+// untouched. The ifindex is a property of the host, so whatever deploys the
+// program fills it in.
+//
+// For a request/reply protocol or TCP, use dnat alone and let the stack route:
+// dnat is two-way (replies are translated back) — see honeypot.pfc.
 filter {
-  if (proto != 6) decide pass;          // TCP only
-  if (dport != 80) decide pass;
-  if (scan(payload, 256) & bot) {
-    dnat("10.99.0.2", 8080);            // rewrite dst to the sandbox listener
-    redirect(5);                         // and forward it out ifindex 5
-  }
-  decide pass;                           // non-bots reach the stack unchanged
+  if (proto != 17) decide pass;          // UDP
+  if (dport != 514) decide pass;         // syslog
+  if (src in "10.0.0.0/8") decide pass;  // trusted senders reach the real collector
+  if (src in "192.168.0.0/16") decide pass;
+
+  dnat("10.99.0.2", 5514);               // the quarantine collector
+  redirect(5);                            // out the analysis interface
+  decide pass;
 }

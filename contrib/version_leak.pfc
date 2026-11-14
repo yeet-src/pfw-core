@@ -1,0 +1,39 @@
+// Strip framework/runtime fingerprints from responses. Known version headers are
+// redacted in place (filled over), so a scanner can't map "PHP/8.1.2" or
+// "ASP.NET 4.0.30319" to a CVE list. Headers we don't have an exact cover for are
+// surfaced on the console with their live value (via after() + %s), and counted
+// per flow, so the redaction list can be grown from what's actually leaking.
+//
+// Combines: multiple in-place redact() of fixed literals, a header-probe detector,
+// after() cursor to read the leaked value, console() + log() telemetry, and
+// per-flow counting. Response side on a gateway.
+// Plaintext hop only: this must sit BEHIND the TLS terminator. On :443 the payload
+// is ciphertext and nothing here can match.
+nocase;
+pattern php = "X-Powered-By: PHP/8.1.2";            // exact fingerprint -> redact
+pattern asp = "X-AspNet-Version: 4.0.30319";        // exact fingerprint -> redact
+pattern xpow = "x-powered-by:";                      // generic probes (unknown values)
+pattern xasp = "x-aspnet-version:", xruntime = "x-runtime:";
+
+// true if a version-leaking header is present (beyond the ones we redact exactly)
+fn leaks_version() {
+  if (any(scan(payload, 512), xpow, xasp, xruntime)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 8080) decide pass;
+
+  // redact the exact fingerprints we know, in place
+  redact(php, '-');
+  redact(asp, '-');
+
+  // report anything else still leaking a version, with the live value
+  if (leaks_version()) {
+    let hits = flow.count;
+    console("version header leaking: %s (hit %d)", after(xpow), hits);
+    log(2);
+  }
+  decide pass;
+}

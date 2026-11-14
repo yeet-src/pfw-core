@@ -1,0 +1,33 @@
+// Path traversal via normalization bypass. A plain "../" filter misses the
+// encodings that servers still collapse back to it: "....//" (defeats strip-once),
+// "..%2f"/"..%5c", overlong-UTF-8 "..%c0%af" / "%c1%9c", double-encoding
+// "%252e%252e%252f", and the servlet path-parameter trick "..;/". This rule hunts
+// the ENCODED traversal forms (the ones a WAF regex for "../" skips) and the
+// sensitive targets they reach, scores them, and escalates a scanning source.
+//
+// Non-trivial: distinct from the plain path_traversal example — it targets the
+// obfuscated/encoded variants specifically, correlated with the payoff files.
+nocase;
+reassemble 8080;
+pattern t_multi = "....//", t_enc = "..%2f", t_back = "..%5c";
+pattern t_over = "%c0%af", t_utf = "%c1%9c", t_dbl = "%252e", t_semi = "..;/";
+pattern tgt_passwd = "/etc/passwd", tgt_env = "/proc/self/environ", tgt_win = "win.ini", tgt_shadow = "/etc/shadow";
+
+fn score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, t_multi, t_enc, t_back, t_over, t_utf, t_dbl, t_semi)) s = s + 2; // encoded traversal
+  if (any(m, tgt_passwd, tgt_env, tgt_win, tgt_shadow)) s = s + 2;             // the payoff target
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  let s = score();
+  if (s >= 2) {
+    log(1);
+    if (src.count >= 3) decide ban("path_bypass", 1800);   // a scanner sweeping encodings
+    decide rst("path_bypass", 0);
+  }
+  decide pass;
+}

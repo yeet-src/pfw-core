@@ -1,62 +1,82 @@
 // One firewall image, many tenants. The SAME compiled bytecode is deployed per
 // customer and tuned entirely with load-time args (no recompile): which port to
-// guard, the max request size, a strict-vs-permissive mode, and how many strikes
-// before a ban. Each concern is a subroutine, so the policy reads as a pipeline
-// and the knobs are all in one place.
+// guard, how long a request line may be, a strict-vs-permissive mode, and how
+// many strikes a source gets before a ban. Each concern is a subroutine, so the
+// policy reads as a pipeline and the knobs are all in one place.
+//   argv[0] = port to guard                (default 80)
+//   argv[1] = max request-line bytes       (default 1024)
+//   argv[2] = strict mode 1/0              (default 0)
+//   argv[3] = strikes before a source ban  (default 5)
 //
-// Combines: argv-driven thresholds in comparisons (NOT as op args), subroutines
-// with args + return values, request classification, mode-dependent escalation,
-// and console() tracing keyed by tenant behaviour.
-//   argv[0] = port to guard         (default 80)
-//   argv[1] = max request bytes     (default 8192)
-//   argv[2] = strict mode 1/0       (default 0)
-//   argv[3] = strikes before ban    (default 5)
+// Per packet rather than reassembled: `reassemble PORT` wants a compile-time
+// port, and the port here is a runtime arg. The scan automaton still carries
+// across in-order segments of a connection. Plaintext hop only. The signatures
+// are deliberately few — this example is about argv, not coverage.
+//
+// Shows: argv-driven thresholds in comparisons (argv is not usable as an op
+// argument), subroutines with args + return values, the cursor measuring a
+// field, per-source strikes (src.count), mode-dependent escalation, console().
 nocase;
-reassemble 8080;
-pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap", masscan = "masscan";
-pattern sqli_a = "union select", sqli_b = "' or '1'='1", trav = "../";
+pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap scripting engine", masscan = "masscan";
+pattern sqli_a = "union select", sqli_b = "union+select", sqli_c = "union%20select";
+pattern trav = "../", trav_e = "..%2f";
+pattern m_get = "GET ", m_post = "POST ", m_put = "PUT ", m_del = "DELETE ", m_head = "HEAD ";
 
-// A known scanner user-agent / tool fingerprint anywhere in the request.
+// A scanner that names itself anywhere in the request (User-Agent, usually).
 fn is_scanner(ptr) {
   if (any(scan(ptr, 1024), sqlmap, nikto, nmap, masscan)) return 1;
   return 0;
 }
 
-// A generic attack signature (SQLi / traversal) in the request.
-fn is_attack(ptr) {
-  if (any(scan(ptr, 1024), sqli_a, sqli_b, trav)) return 1;
+// Does this segment begin an HTTP request?
+fn is_request(ptr) {
+  if (starts(ptr, m_get) || starts(ptr, m_post) || starts(ptr, m_put) || starts(ptr, m_del) || starts(ptr, m_head)) return 1;
   return 0;
 }
 
-// Oversize relative to this tenant's configured ceiling.
-fn too_big(limit) { if (len > limit) return 1; return 0; }
+// Over this tenant's configured ceiling?
+fn too_long(n, limit) { if (n > limit) return 1; return 0; }
 
 filter {
   if (proto != 6) decide pass;
   if (dport != argv[0] ?? 80) decide pass;      // tenant's port
   if (len == 0) decide pass;
 
-  let strict = argv[2] ?? 0;
-  let ban_at = argv[3] ?? 5;
-
   // Scanners: always banned, every tenant.
   if (is_scanner(payload)) {
     console("tenant scanner port=%d sport=%d", dport, sport);
     decide ban("scanner", 3600);
   }
+  if (!is_request(payload)) decide pass;        // a body / continuation segment
 
-  // Attacks: reset, and escalate a persistent attacker to a ban.
-  if (is_attack(payload)) {
+  // The request line runs to the first CR. (No CR in the window: the line is at
+  // least the whole segment long.)
+  ptr eol = find(payload, '\r', 2048);
+  let line = eol - payload;
+  if (line == 0) line = len;
+
+  // Attacks: a UNION SELECT anywhere, or a dot-dot segment in the request line
+  // itself (`../` in a body or a Referer is ordinary). Reset, and ban a source
+  // that keeps at it across connections.
+  mask m = scan(payload, 1024);
+  let attack = 0;
+  if (any(m, sqli_a, sqli_b, sqli_c)) attack = 1;
+  if (any(m, trav)) { let at = after(trav); if (at < eol) attack = 1; }
+  if (any(m, trav_e)) { let at = after(trav_e); if (at < eol) attack = 1; }
+  if (attack == 1) {
+    let strikes = src.count;
+    let ban_at = argv[3] ?? 5;
     log(1);
-    if (flow.count >= ban_at) decide ban("attack_repeat", 1800);
+    if (strikes >= ban_at) decide ban("attack_repeat", 1800);
     decide rst("attack", 0);
   }
 
-  // Oversize: strict tenants reset, permissive tenants only tally.
-  if (too_big(argv[1] ?? 8192)) {
-    console("tenant oversize port=%d len=%d strict=%d", dport, len, strict);
-    if (strict == 1) decide rst("oversize", 0);
-    count("oversize_seen");
+  // Over-long request line: strict tenants reset, permissive tenants only tally.
+  if (too_long(line, argv[1] ?? 1024)) {
+    let strict = argv[2] ?? 0;
+    console("tenant long request line port=%d bytes=%d strict=%d", dport, line, strict);
+    if (strict == 1) decide rst("uri_too_long", 0);
+    count("uri_too_long_seen");
   }
   decide pass;
 }

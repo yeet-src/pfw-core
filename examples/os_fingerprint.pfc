@@ -1,44 +1,51 @@
-// Passive OS fingerprinting (p0f-lite) from the SYN. No payload needed: the
-// initial TTL and advertised TCP window betray the stack. Observed TTL is the
-// initial value minus hop count, so we bucket it up to the nearest common initial
-// (64 Linux/macOS, 128 Windows, 255 BSD/network gear) and fold in a couple of
-// well-known initial window sizes, then trace the guess to the host dashboard.
+// Passive OS fingerprinting (p0f-lite) from the opening SYN. No payload needed:
+// the IP TTL and the advertised TCP window betray the stack. The observed TTL is
+// the initial value minus the hop count, so it is rounded up to the nearest
+// common initial (64, 128, 255) and combined with one well-known initial window:
+//   TTL <= 64,  window 65535   macOS / iOS / FreeBSD
+//   TTL <= 64,  anything else  Linux / Android
+//   TTL <= 128                 Windows
+//   TTL  > 128                 network gear, Solaris
+// Two fields make a coarse guess, not p0f: no TCP-option order, no MSS, and a
+// host more than 64 hops out of a 128-TTL stack is misfiled. IPv4 only. It never
+// blocks; the guess goes to a per-OS counter and a console line.
 //
-// Header reads: IP TTL at l3+8, TCP window at l4+14, TCP flags at l4+13 (read via
-// `frame at (...)`, the VM's bounded header-load path). Combines a subroutine with
-// a return value, bitfield extraction, and console() telemetry. Observe-only.
+// The header reads use `frame at (ptr)` with `up to 1`, the bounded field-load
+// path: `len = TYPE @ OFF` reads one field of the header at ptr. The TCP header
+// is located from the IPv4 IHL nibble rather than taken from `l4`, which both
+// shows the arithmetic and lets the host interpreter (it has no L2 framing; l3
+// is offset 0) run this over a raw IPv4 packet.
 filter {
   if (proto != 6) decide pass;
 
-  let ttl = 255;
+  let vihl = 0;
+  frame at (l3) (len = u8 @ 0, head = 20) up to 1 { vihl = frame.len; }
+  let ver = vihl >> 4;
+  if (ver != 4) decide pass;                     // IPv4 only (TTL sits elsewhere in v6)
+  let hl = vihl & 15;
+  hl = hl << 2;                                  // IHL is in 32-bit words
+  if (hl < 20) decide pass;
+  let tcp = l3 + hl;
+
+  let ttl = 0;
   frame at (l3) (len = u8 @ 8, head = 20) up to 1 { ttl = frame.len; }
-  let win = 0;
-  frame at (l4) (len = be16 @ 14, head = 20) up to 1 { win = frame.len; }
   let fl = 0;
-  frame at (l4) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+  frame at (tcp) (len = u8 @ 13, head = 20) up to 1 { fl = frame.len; }
+  let win = 0;
+  frame at (tcp) (len = be16 @ 14, head = 20) up to 1 { win = frame.len; }
 
-  // fingerprint only the opening SYN (SYN set, ACK clear) — the window is the
-  // advertised initial there.
-  let syn = fl & 2;
-  let ack = fl & 16;
-  if (syn != 2) decide pass;
-  if (ack != 0) decide pass;
+  // fingerprint only the opening SYN (SYN set, ACK clear): that window is the
+  // stack's advertised initial one.
+  let synack = fl & 18;
+  if (synack != 2) decide pass;
 
-  let os = os_guess(ttl, win);
-  console("osfp sport=%d ttl=%d win=%d os=%d", sport, ttl, win, os);
-  log(1);
-  decide pass;                                   // passive — never blocks
-}
-
-// os code: 1 = Linux/macOS, 2 = Windows, 3 = Linux (large window), 4 = BSD/gear.
-fn os_guess(ttl, win) {
-  let base = 255;
-  if (ttl <= 64) base = 64;
-  else if (ttl <= 128) base = 128;
-  if (base == 64) {
-    if (win == 65535) return 3;
-    return 1;
+  console("osfp sport=%d ttl=%d win=%d", sport, ttl, win);
+  if (ttl <= 64) {
+    if (win == 65535) { count("os_macos_bsd"); decide pass; }
+    count("os_linux");
+    decide pass;
   }
-  if (base == 128) return 2;
-  return 4;
+  if (ttl <= 128) { count("os_windows"); decide pass; }
+  count("os_other");
+  decide pass;                                   // passive — never blocks
 }

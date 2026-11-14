@@ -1,0 +1,43 @@
+// Block verbose error/stack-trace leakage in responses. A 500 page that spills a
+// Java/Python/PHP/.NET trace or an Oracle error hands an attacker the framework,
+// file paths, query structure, and sometimes credentials. This classifies the
+// trace by language, logs which family fired, and resets the connection.
+//
+// Combines: per-language detector subroutine returning a class code, multi-literal
+// any(), per-flow counting, console() with the class, and rst. Response side.
+// Plaintext hop only: this must sit BEHIND the TLS terminator. On :443 the payload
+// is ciphertext and nothing here can match.
+// Response side: `src` here is the SERVER, so this never bans — a source ban would
+// blocklist your own web tier. It cuts the leaking response and counts it.
+nocase;
+pattern java = "at java.", java2 = "nested exception", jsp = "javax.servlet";
+pattern py = "traceback (most recent call last)", py2 = "file \"/";
+pattern php1 = "fatal error:", php2 = "<b>warning</b>:", php3 = "stack trace:";
+pattern ora = "ora-0", mysql = "you have an error in your sql syntax", pg = "pg::syntaxerror";
+pattern dotnet = "system.", dotnet2 = "stack trace] ";
+
+// classify the trace family in the response; 0 = none
+fn trace_class() {
+  mask m = scan(payload, 1460);
+  if (any(m, java, java2, jsp)) return 1;
+  if (any(m, py, py2)) return 2;
+  if (any(m, php1, php2, php3)) return 3;
+  if (any(m, ora, mysql, pg)) return 4;        // DB errors: worst — schema leaks
+  if (any(m, dotnet, dotnet2)) return 5;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (sport != 80 && sport != 8080) decide pass;
+  if (len == 0) decide pass;
+
+  let klass = trace_class();
+  if (klass > 0) {
+    let hits = flow.count;
+    console("error leak class=%d sport=%d hit=%d", klass, sport, hits);
+    log(1);
+    decide rst("error_leak", 0);                         // cut the leak
+  }
+  decide pass;
+}

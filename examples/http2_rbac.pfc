@@ -1,9 +1,14 @@
-// HTTP/2 role-based access control. `decode h2` runs the HPACK front-end so the
-// matcher sees the decoded pseudo-headers as plaintext ":method: GET\n:path: /..".
-// We enforce method x path rules on the decoded view: no mutating method against
-// an /admin path, /internal only from trusted networks, and a Bearer token
-// required for the write APIs — the kind of gateway policy you'd otherwise need a
-// full proxy to apply, here before the stream is reassembled upstream.
+// HTTP/2 role-based access control. `decode h2` HPACK-decodes each completed
+// request header block (Huffman and the dynamic table included), so the matcher
+// sees the pseudo-headers as plaintext lines — ":method: POST\n:path: /admin/x\n".
+// The rules below are method x path policy on that view: no mutating method
+// against an /admin path, /internal only from trusted networks, and a Bearer
+// token required to write to /api/ — gateway policy applied without a proxy.
+//
+// The view holds the header blocks completed by ONE packet. That is one request
+// in the common case; when a client packs several requests into one packet their
+// lines are matched together, so these rules can only over-block, never miss.
+// Plaintext HTTP/2 (h2c) only — TLS-wrapped h2 is ciphertext at XDP.
 //
 // Combines: the h2 decode stage, one scan over the decoded headers, any() across
 // method/path pseudo-headers, and CIDR membership.
@@ -13,6 +18,7 @@ pattern x_post = ":method: post", x_put = ":method: put", x_del = ":method: dele
 pattern x_admin = ":path: /admin", x_internal = ":path: /internal", x_api = ":path: /api/";
 pattern x_bearer = "authorization: bearer ";
 filter {
+  if (len == 0) decide pass;                  // nothing decoded in this packet
   mask m = scan(payload, 2048);
 
   if (any(m, x_admin)) {

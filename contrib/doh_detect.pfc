@@ -1,0 +1,60 @@
+// DNS-over-HTTPS detection — restore the DNS visibility DoH deliberately hides.
+//
+// What can and cannot be seen. A DoH exchange is an HTTPS request, so on :443
+// its RFC 8484 tells — the `application/dns-message` media type, the
+// `/dns-query` path, the `?dns=` GET form — are all CIPHERTEXT. (An earlier
+// version of this file scanned for them on :443; it could never match.) Two
+// things do work, and they are separate rules here:
+//
+//   :443  the ClientHello's server name is cleartext, so a connection to a KNOWN
+//         public DoH resolver can be recognised by name (here by scanning the
+//         hello; examples/tls_sni.pfc parses to the extension). This is a list —
+//         it catches the resolvers named below and nothing else — and Encrypted
+//         Client Hello defeats it.
+//   :8080 on a plaintext hop behind your own TLS terminator (you front the web
+//         tier and want to know if it is being used as a DoH endpoint), the
+//         RFC 8484 tells are readable and matched directly.
+//
+// Policy is shadow-aware: observe while tuning, then enforce by resetting, so
+// clients fall back to the resolver your DNS policy controls.
+//
+// Shows: a `frame` field read to recognise a ClientHello, nocase scans, a
+// subroutine returning a confidence tier, `shadow`-gated enforcement, console().
+nocase;
+reassemble 8080;
+pattern dmsg = "application/dns-message", dpath = "/dns-query", dget = "?dns=";
+pattern r_google = "dns.google", r_cf = "cloudflare-dns.com", r_quad9 = "dns.quad9.net";
+pattern r_nextdns = "dns.nextdns.io", r_adguard = "dns.adguard-dns.com", r_opendns = "doh.opendns.com";
+
+fn doh_tier() {
+  mask m = scan(payload, 1460);
+  if (any(m, dmsg)) return 2;          // the DoH content type — high confidence
+  if (any(m, dpath, dget)) return 1;   // the path / GET form
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (len == 0) decide pass;
+
+  if (dport == 443) {
+    // TLS record type 22 (handshake) whose message type is 1 (ClientHello)
+    let kind = 0;
+    frame (type = be16 @ 0, len = u8 @ 5, head = 6) up to 1 { kind = frame.type; if (frame.len != 1) kind = 0; }
+    if (kind != 0x1603) decide pass;
+    if (!any(scan(payload, 2048), r_google, r_cf, r_quad9, r_nextdns, r_adguard, r_opendns)) decide pass;
+    console("DoH resolver in SNI sport=%d", sport);
+    log(1);
+    if (shadow == 1) decide pass;      // observe-only while rolling out
+    decide rst("doh_resolver_sni", 0);
+  }
+
+  if (dport != 8080) decide pass;
+  let tier = doh_tier();
+  if (tier == 0) decide pass;
+  console("DoH request tier=%d dport=%d", tier, dport);
+  log(1);
+  if (shadow == 1) decide pass;        // observe-only while rolling out
+  if (tier == 2) decide rst("doh_block", 0);
+  decide pass;                         // tier 1 is logged but allowed
+}

@@ -1,39 +1,51 @@
 // JSON nesting-depth guard — a pushdown automaton running at XDP. People don't
-// expect a firewall to *parse* structure, but this one does: it walks the body
-// with a bounded loop and, in byte order, pushes the data stack on every opening
-// `{` and pops on every closing `}`. %sp IS the live nesting depth; the deepest
-// point reached is remembered. A document nested past the limit — a classic
-// parser-DoS / "JSON bomb" that stack-overflows a recursive-descent parser — is
-// dropped before it ever reaches the application.
+// expect a firewall to *parse* structure, but this one does: it walks the request
+// body with a bounded loop and, in byte order, pushes the data stack on every
+// opening `{` or `[` and pops on every closing `}` or `]`. %sp IS the live
+// nesting depth; the deepest point reached is remembered. A document nested past
+// the limit — the "JSON bomb" that overflows a recursive-descent parser — is
+// dropped before it reaches the application.
 //
-// Each step finds the next opener and the next closer from the cursor (findb
+// Each step finds the next opener and the next closer from the cursor (find
 // leaves the cursor unchanged on a miss, so a result == cursor that isn't really
 // a delimiter is normalized to a large sentinel), takes whichever comes first,
-// and advances past it. Showcases: the data stack (push/pop + %sp as a live
-// counter), a bounded repeat loop, cursor arithmetic, and starts() as a 1-byte
-// probe. The `{`/`}` probes are named patterns so the loop unroll reuses them.
+// and advances past it.
+//
+// Limits, stated plainly: it counts brackets, it does not tokenize — a bracket
+// inside a JSON string counts too (so it can over-count, never under-count); it
+// reads the stream through the 2048-byte reassembly window, from the first blank
+// line in it, and follows only the first 64 brackets — so a bomb hidden behind
+// 64 flat brackets is not caught here.
+//
+// Shows: the data stack (push/pop, %sp as a live counter), a bounded `repeat`
+// loop, cursor arithmetic, after() to find the body, starts() as a 1-byte probe.
 reassemble 8080;
-pattern ob = "{", cb = "}";
+pattern oc = "{", cc = "}", os = "[", cs = "]";
+pattern body = "\r\n\r\n";
 filter {
-  if (dport != 80) decide pass;
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
   if (len == 0) decide pass;
 
-  ptr p = payload;
+  if (!(scan(payload, 2048) & body)) decide pass;   // headers not complete yet
+  ptr p = after(body);                               // first byte after the headers
   let maxd = 0;
   let big = 1000000;
 
-  repeat (96) {
+  repeat (64) {
     let o = find(p, '{', 2048);
-    if (o == p) { if (!starts(p, ob)) o = big; }     // miss -> sentinel
+    if (o == p) { if (!starts(p, oc)) o = big; }     // miss -> sentinel
+    let t = find(p, '[', 2048);
+    if (t == p) { if (!starts(p, os)) t = big; }
+    if (t < o) o = t;                                // nearest opener of either kind
     let c = find(p, '}', 2048);
-    if (c == p) { if (!starts(p, cb)) c = big; }
+    if (c == p) { if (!starts(p, cc)) c = big; }
+    t = find(p, ']', 2048);
+    if (t == p) { if (!starts(p, cs)) t = big; }
+    if (t < c) c = t;                                // nearest closer of either kind
 
-    if (o < big) {
-      if (o <= c) { push(1); if (sp > maxd) maxd = sp; p = o + 1; }   // opener first -> descend
-      else { if (sp > 0) { let d = pop(); } p = c + 1; }              // closer first -> ascend
-    } else {
-      if (c < big) { if (sp > 0) { let d = pop(); } p = c + 1; }
-    }
+    if (o < c) { push(1); if (sp > maxd) maxd = sp; p = o + 1; }      // opener first -> descend
+    else { if (c < big) { if (sp > 0) { let d = pop(); } p = c + 1; } } // closer first -> ascend
   }
 
   if (maxd > 16) { log(1); decide drop("json_too_deep"); }

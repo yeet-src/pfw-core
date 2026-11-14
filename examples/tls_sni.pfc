@@ -1,35 +1,85 @@
-// Block TLS connections by SNI, with per-source escalation and handshake-flood
-// throttling. The Server Name Indication in a ClientHello is CLEARTEXT, so a scan
-// over the reassembled handshake catches a client reaching for malware C2, an
-// exfil endpoint, a .onion front or a DGA/punycode label — before the encrypted
-// session exists. A subroutine factors the SNI check; repeat offenders on a flow
-// graduate from reset to a source ban.
+// Block TLS connections by SNI. The server name in a ClientHello is CLEARTEXT,
+// so the destination a client is reaching for can be read before any encrypted
+// session exists. Rather than scanning the handshake for strings, this PARSES
+// it: TLS record -> handshake header -> ClientHello body, stepping over the
+// variable-length session id, cipher-suite list and compression list, then
+// walking the extensions to server_name (type 0) and matching the blocklist
+// inside that one extension. A blocked name resets the connection and gives the
+// source a strike; three strikes ban the source. ClientHellos are also
+// rate-limited per source (a handshake flood is cheap for the sender).
 //
-// Combines: reassembly, a fn with a pointer arg + return, multi-pattern any(),
-// rate(), per-connection flow.count escalation, and console()/log().
+// Limits: matching is by substring within the server_name extension. A
+// ClientHello larger than one segment (a post-quantum key share makes it ~1.5 KB)
+// may carry server_name in its second segment; that segment cannot be parsed
+// from its middle, so it is scanned whole for the same names. Encrypted Client
+// Hello hides the real name entirely, and a client can simply omit or lie in
+// SNI — this controls well-behaved clients and known malware, nothing more.
+//
+// Shows: `frame` used as a parser (fixed-offset field reads with `up to 1`,
+// pointer arithmetic over length-prefixed fields, a type/length extension walk),
+// a macro for the shared verdict, flow.state as a two-packet latch, src.rate and
+// src.count, rst vs ban.
 nocase;
-reassemble 443;
-pattern c2 = "c2.evil.example", exfil = "exfil.badhost.net", onion = ".onion", dga = "xn--d";
+pattern c2 = "c2.evil.example", exfil = "exfil.badhost.net", onion = ".onion";
 
-fn blocked_sni(p) {
-  mask m = scan(p, 1024);
-  if (any(m, c2, exfil)) return 1;        // known-bad destinations
-  if (any(m, onion)) return 1;            // tor / hidden-service fronting
-  if (any(m, dga)) return 1;              // punycode / DGA-looking label
-  return 0;
+macro blocked {
+  log(1);
+  if (src.count >= 3) decide ban("sni_repeat", 3600);   // strikes for this source, on any connection
+  decide rst("blocked_sni", 0);
+}
+
+// Pass this segment; if the hello runs on into the next one, arm the latch so
+// that segment is scanned too. The scan automaton carries across segments of a
+// connection, so a name cut in two by the boundary still matches.
+macro more {
+  if (total > len) flow.state = 1 for 5;
+  decide pass;
 }
 
 filter {
   if (proto != 6) decide pass;
   if (dport != 443) decide pass;
+  if (len == 0) decide pass;
 
-  if (rate(20, 40)) { log(2); decide drop("tls_handshake_flood"); }
-
-  if (blocked_sni(payload)) {
-    let strike = flow.count;
-    console("blocked SNI sport=%d strike=%d", sport, strike);
-    if (strike >= 3) decide ban("sni_repeat", 3600);
-    decide rst("blocked_sni", 0);
+  // Second segment of a long ClientHello (armed below): scan it whole.
+  if (flow.state == 1) {
+    flow.state = 0;
+    if (any(scan(payload, 2048), c2, exfil, onion)) blocked;
+    decide pass;
   }
-  decide pass;
+
+  // TLS record header: content_type(1) version(2) length(2). 22 = handshake.
+  let rec = 0;
+  frame (type = u8 @ 0, len = be16 @ 3, head = 5) up to 1 { rec = frame.type; }
+  if (rec != 22) decide pass;
+
+  // Handshake header: msg_type(1) length(3). 1 = ClientHello.
+  let p = payload + 5;
+  let hs = 0;
+  let hello = 0;
+  frame at (p) (type = u8 @ 0, len = be24 @ 1, head = 4) up to 1 { hs = frame.type; hello = frame.len; }
+  if (hs != 1) decide pass;
+  let total = hello + 9;                        // record header + handshake header + body
+
+  if (src.rate(20, 40)) { log(2); decide drop("tls_handshake_flood"); }
+
+  // ClientHello body: legacy_version(2) random(32), then three length-prefixed
+  // fields to step over. `frame.data + frame.len` is the byte after each.
+  p = p + 38;
+  let ok = 0;
+  frame at (p) (len = u8 @ 0, head = 1) up to 1 { p = frame.data + frame.len; ok = ok + 1; }    // session_id
+  frame at (p) (len = be16 @ 0, head = 2) up to 1 { p = frame.data + frame.len; ok = ok + 1; }  // cipher_suites
+  frame at (p) (len = u8 @ 0, head = 1) up to 1 { p = frame.data + frame.len; ok = ok + 1; }    // compression_methods
+  if (ok != 3) more;                            // cut short by the segment boundary
+  p = p + 2;                                    // extensions<2>: skip the total length
+
+  // Extensions: type(2) length(2) data. Inside the body `end` is narrowed to the
+  // one extension, so the scan cannot run past server_name.
+  frame at (p) (type = be16 @ 0, len = be16 @ 2, head = 4) up to 24 {
+    if (frame.type == 0) {                      // server_name
+      if (any(scan(frame.data, 512), c2, exfil, onion)) blocked;
+      more;                                     // allowed (unless the name was cut short)
+    }
+  }
+  more;                                         // no server_name in this segment
 }

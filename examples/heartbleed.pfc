@@ -1,23 +1,48 @@
 // Heartbleed (CVE-2014-0160). A TLS heartbeat request carries a claimed payload
-// length; OpenSSL copied that many bytes back without checking it against the
-// record, leaking memory. We parse the heartbeat record and its inner message and
-// flag the overread directly: a claimed heartbeat payload length larger than the
-// record that contains it. The attacker's source is banned.
+// length; vulnerable OpenSSL echoed that many bytes without checking the claim
+// against the record that carried it, leaking memory. This walks the TLS records
+// in a segment and applies the RFC 6520 rule the bug skipped: a heartbeat
+// request whose type(1) + length(2) + claimed payload + 16 bytes of padding
+// cannot fit in its record is an overread, and the source is banned.
 //
-// Combines: nested `frame` parsing (TLS record -> heartbeat message), saving the
-// outer record length in a local, and comparing the claimed length against it.
+// The check only means something while the heartbeat is in CLEARTEXT, which is
+// how the exploit sends it (mid-handshake, before any keys). Once the client has
+// sent ChangeCipherSpec the record body is ciphertext, so the flow is marked and
+// later heartbeat records are left alone rather than misread. A TLS 1.3 session
+// never shows a heartbeat record on the wire at all. Records are walked from the
+// start of each segment (up to 4); a record header that straddles two segments
+// is not followed.
+//
+// Shows: `frame` walking length-prefixed records, a second frame read at a saved
+// pointer, locals carried out of the loop, flow.state as a one-bit latch.
 filter {
   if (proto != 6) decide pass;
   if (dport != 443) decide pass;
+  if (len == 0) decide pass;
 
-  // TLS record: content_type(1) | version(2) | length(2) | fragment...
-  frame (type = u8 @ 0, len = be16 @ 3, head = 5) up to 1 {
-    if (frame.type == 24) {                       // heartbeat content type
-      let reclen = frame.len;                      // bytes actually in the record
-      // Heartbeat message: type(1) | payload_length(2) | payload... — read the
-      // claimed payload length (@1). If it exceeds the record, that is the overread.
-      frame at frame.data (len = be16 @ 1, head = 3) up to 1 {
-        if (frame.len > reclen) { log(1); console("heartbleed: claim %d > rec %d", frame.len, reclen); decide ban("heartbleed", 86400); }
+  let ccs = 0;                          // ChangeCipherSpec seen in this segment
+  let hb = 0;                           // pointer to a cleartext heartbeat message
+  let reclen = 0;                       // ... and the length of its record
+
+  // TLS record: content_type(1) | version(2) | length(2) | fragment. Reading the
+  // type as be16 takes the version's major byte with it: 0x14 0x03 is
+  // ChangeCipherSpec, 0x18 0x03 is heartbeat — a stricter match than one byte.
+  frame (type = be16 @ 0, len = be16 @ 3, head = 5) up to 4 {
+    if (frame.type == 0x1403) ccs = 1;
+    if (frame.type == 0x1803 && ccs == 0 && hb == 0) { hb = frame.data; reclen = frame.len; }
+  }
+  if (ccs == 1) flow.state = 1 for 3600;        // from the next packet on: encrypted
+  if (hb == 0) decide pass;
+  if (flow.state == 1) decide pass;             // encrypted heartbeat: nothing to read
+
+  // Heartbeat message: type(1) | payload_length(2) | payload | padding(>=16).
+  frame at (hb) (type = u8 @ 0, len = be16 @ 1, head = 3) up to 1 {
+    if (frame.type == 1) {                      // heartbeat_request
+      let need = frame.len + 19;
+      if (need > reclen) {
+        log(1);
+        console("heartbleed: claims %d payload bytes in a %d-byte record", frame.len, reclen);
+        decide ban("heartbleed", 86400);
       }
     }
   }

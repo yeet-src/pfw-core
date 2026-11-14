@@ -1,0 +1,36 @@
+// Fake search-engine crawler. Scrapers and attackers love to claim they're
+// Googlebot/Bingbot/Applebot to dodge rate limits and bot rules. The real ones
+// publish their IP ranges; impostors don't come from them. If the User-Agent
+// claims a major crawler but the source is NOT in the verified-crawler CIDR set
+// (host-loaded into `set`), it's lying — reset it, and ban the ones that persist.
+//
+// Combines: reassembly, a subroutine detecting the crawler claim over one scan,
+// source-set membership (src in set / LPM trie), per-source strikes, console(),
+// and rst -> ban escalation.
+nocase;
+reassemble 8080;
+pattern googlebot = "googlebot", bingbot = "bingbot", applebot = "applebot";
+pattern duckbot = "duckduckbot", yandexbot = "yandexbot";
+
+fn claims_crawler() {
+  mask m = scan(payload, 1024);
+  if (any(m, googlebot, bingbot, applebot)) return 1;
+  if (any(m, duckbot, yandexbot)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+
+  if (claims_crawler()) {
+    if (src in set) decide pass;        // from a published crawler range: genuine
+
+    let strikes = src.count;
+    log(8);
+    console("fake crawler from unverified src, strikes=%d sport=%d", strikes, sport);
+    if (strikes >= 2) decide ban("fake_crawler", 7200);
+    decide rst("fake_crawler", 0);
+  }
+  decide pass;
+}

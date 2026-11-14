@@ -1,0 +1,41 @@
+// Tor exit-node policy with tiered response. The host loads the current Tor exit
+// list into `set` (refreshed from the directory every few minutes). Blanket-
+// blocking Tor is often wrong, so this is policy-driven: argv[0] picks the mode
+// (0 = observe only, 1 = block sensitive paths, 2 = ban outright), and only the
+// auth/checkout/admin paths are treated as sensitive. A Tor source that keeps
+// probing sensitive paths is escalated to a ban regardless of mode.
+//
+// Combines: host-loaded `set`, argv-driven policy, subroutines returning booleans,
+// multi-pattern path classification, per-source escalation, and console().
+//   argv[0] = mode: 0 observe, 1 block-sensitive, 2 ban  (default 1)
+nocase;
+reassemble 8080;
+pattern p_admin = "/admin", p_login = "/login", p_checkout = "/checkout", p_api_key = "apikey";
+
+fn is_tor() { if (src in set) return 1; return 0; }
+
+fn hits_sensitive() {
+  mask m = scan(payload, 1024);
+  if (any(m, p_admin, p_login, p_checkout, p_api_key)) return 1;
+  return 0;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  if (!is_tor()) decide pass;
+
+  let mode = argv[0] ?? 1;
+  let sensitive = hits_sensitive();
+  console("tor src sport=%d mode=%d sensitive=%d", sport, mode, sensitive);
+
+  if (mode == 2) decide ban("tor_block_all", 1800);
+  if (mode == 0) { log(1); decide pass; }           // observe: tag and allow
+
+  // mode 1: block sensitive paths, escalate persistent probers.
+  if (sensitive == 1) {
+    if (src.count >= 3) decide ban("tor_probe_repeat", 3600);
+    decide rst("tor_sensitive", 0);
+  }
+  decide pass;
+}

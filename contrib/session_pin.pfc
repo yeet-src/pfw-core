@@ -1,0 +1,65 @@
+// Session pinning: one TCP connection, one session. The first request on a
+// connection that carries a `session=` cookie pins the first 8 bytes of its
+// value; every later request on the SAME connection must present the same 8
+// bytes, or the connection is reset. A token that changes mid-connection is what
+// request smuggling, a desynchronised keep-alive, or a client replaying someone
+// else's cookie on its own connection looks like.
+//
+// (An earlier version pinned the source port. A flow is keyed by its ports, so
+// that value cannot change within one — the rule could never fire.)
+//
+// The cookie is found with the cursor, not with scan/after: a scan's match mask
+// accumulates over the connection and after() only reports a pattern's FIRST
+// match on it, so it cannot locate the cookie in the second request. Instead a
+// bounded loop walks the header lines to "Cookie:", then the `; `-separated
+// cookies to "session=", and a `frame ... up to 1` reads 8 bytes there as two
+// big-endian words. They are kept in the per-flow ring.
+//
+// Per packet: a request must begin a segment, with its Cookie header in that
+// segment. Do not put this behind a proxy that multiplexes different users onto
+// one upstream connection — there a changing token is normal. Plaintext hop only.
+nocase;
+pattern h_cookie = "cookie: ", sess = "session=";
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  if (len == 0) decide pass;
+
+  // walk the header lines to "Cookie: "
+  let p = payload;
+  let ck = 0;
+  repeat (32) {
+    if (ck == 0) {
+      let nl = find(p, '\n', 2048);
+      if (nl != p) {
+        p = nl + 1;
+        if (starts(p, h_cookie)) ck = p + 8;
+      }
+    }
+  }
+  if (ck == 0) decide pass;                       // no Cookie header in this segment
+
+  // walk the cookies on that line to "session="
+  let eol = find(ck, '\r', 2048);
+  let v = 0;
+  repeat (12) {
+    if (v == 0) {
+      if (starts(ck, sess)) v = ck + 8;
+      else {
+        let semi = find(ck, ';', 1024);
+        if (semi != ck) { if (semi < eol) ck = semi + 2; }
+      }
+    }
+  }
+  if (v == 0) decide pass;                        // no session cookie
+
+  // the first 8 bytes of the value, as two 32-bit words (0 if fewer than 8 remain)
+  let hi = 0;
+  let lo = 0;
+  frame at (v) (type = be32 @ 0, len = be32 @ 4, head = 8) up to 1 { hi = frame.type; lo = frame.len; }
+
+  if (ring.len == 0) { ring.push(hi); ring.push(lo); decide pass; }   // first sight: pin it
+  if (ring.get(1) != hi) { log(1); decide rst("session_changed", 0); }
+  if (ring.get(0) != lo) { log(1); decide rst("session_changed", 0); }
+  decide pass;
+}

@@ -1,0 +1,40 @@
+// Webshell detection: catch PHP/JSP/ASP shell code being uploaded or invoked. A
+// single signature is weak (benign code calls functions too), so a subroutine
+// scores the *combination* that characterises a shell: a dynamic-exec sink
+// (eval/assert/system/...) together with an input source ($_GET/$_POST/request) or
+// an obfuscation wrapper (base64_decode/gzinflate). High combined score bans the
+// source; a lone sink is reset and counted.
+//
+// Combines: reassembly, nocase, a reused mask, any()/seq() across sink+source+wrap
+// groups, a scoring subroutine, arithmetic, per-source escalation, console/log.
+nocase;
+reassemble 8080;
+pattern p_eval = "eval(", p_assert = "assert(", p_system = "system(", p_passthru = "passthru(";
+pattern p_shellexec = "shell_exec(", p_popen = "popen(", p_exec = "exec(", p_proc = "proc_open(";
+pattern src_get = "$_get", src_post = "$_post", src_req = "$_request", src_cookie = "$_cookie";
+pattern wrap_b64 = "base64_decode(", wrap_gz = "gzinflate(", wrap_rot = "str_rot13(", wrap_create = "create_function(";
+pattern jsp_rt = "runtime.getruntime", jsp_pb = "processbuilder";
+
+fn shell_score() {
+  mask m = scan(payload, 2048);
+  let s = 0;
+  if (any(m, p_eval, p_assert, p_system, p_passthru, p_shellexec, p_popen, p_exec, p_proc)) s = s + 2; // a sink
+  if (any(m, src_get, src_post, src_req, src_cookie)) s = s + 1;          // attacker-controlled source
+  if (any(m, wrap_b64, wrap_gz, wrap_rot, wrap_create)) s = s + 2;        // obfuscation wrapper
+  if (any(m, jsp_rt, jsp_pb)) s = s + 2;                                   // JSP/Java command exec
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+
+  let score = shell_score();
+  if (score == 0) decide pass;
+  let strikes = src.count;                 // one read: every read increments
+  console("webshell score=%d sport=%d strikes=%d", score, sport, strikes);
+  log(1);
+  if (score >= 3) decide ban("webshell", 7200);          // sink + source/wrapper = a real shell
+  if (strikes >= 2) decide ban("webshell_repeat", 7200);
+  decide rst("webshell_suspect", 0);
+}

@@ -1,0 +1,46 @@
+// OS command-injection filter. Endpoints that shell out (ping tools, converters,
+// legacy CGI) are subverted by metacharacters that chain a second command:
+// `; cat /etc/passwd`, `| nc`, backticks, `$(id)`, `&& curl`. This scores a request
+// on shell metacharacter sequences AND on the payload commands they usually carry
+// (so a lone `;` doesn't false-positive, but `;` near `cat /etc/` or a reverse
+// shell does), then escalates a repeat offender to a source ban.
+//
+// Combines: one reused scan, multi-signal scoring with arithmetic and a subroutine,
+// correlation of metachar + command, severity tiers, escalation, console().
+nocase;
+reassemble 8080;
+pattern s_semi = ";", s_pipe = "|", s_and = "&&", s_backtick = "`", s_dollar = "$(";
+pattern c_passwd = "/etc/passwd", c_cat = "cat ", c_nc = "nc ", c_curl = "curl ", c_wget = "wget ";
+pattern c_id = "$(id", c_sh = "/bin/sh", c_bash = "bash -i", c_whoami = "whoami";
+
+fn metachar_present() {
+  mask m = scan(payload, 1460);
+  if (any(m, s_semi, s_pipe, s_and, s_backtick, s_dollar)) return 1;
+  return 0;
+}
+
+fn command_present() {
+  mask m = scan(payload, 1460);
+  let s = 0;
+  if (any(m, c_passwd, c_cat, c_nc, c_curl, c_wget)) s = s + 1;
+  if (any(m, c_id, c_sh, c_bash, c_whoami)) s = s + 3;       // reverse shell / recon
+  return s;
+}
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  if (len == 0) decide pass;
+
+  // A metacharacter alone is noise; a metacharacter PLUS a real command is the attack.
+  if (!metachar_present()) decide pass;
+  let cmd = command_present();
+  if (cmd == 0) decide pass;
+
+  let strikes = src.count;                 // one read: every read increments
+  console("cmdinj cmd_score=%d sport=%d strikes=%d", cmd, sport, strikes);
+  log(1);
+  if (cmd >= 3) decide ban("cmdinj_shell", 3600);            // reverse shell -> ban
+  if (strikes >= 3) decide ban("cmdinj_repeat", 1800);
+  decide rst("cmdinj", 0);
+}

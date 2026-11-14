@@ -1,0 +1,54 @@
+// Evasion-resistant path-traversal detector. Attackers hide "../" behind percent-
+// and overlong-encodings (%2e%2e, ..%2f, double-encoded %252e, overlong %c0%ae)
+// to slip past naive string matches. Two layers, both confined to the PATH — the
+// request target up to its `?`:
+//   1. one scan for encoded DOT-DOT sequences. Not a bare %2f or %2e: an encoded
+//      slash or dot is routine in redirect and tracking parameters
+//      (`?next=%2Fhome`), and on its own is no traversal;
+//   2. a bounded loop that walks the path segment by segment (splitting on '/')
+//      and flags any segment that begins with "..".
+// The query string is deliberately out of scope here: `?file=../x` is the
+// application's parameter to validate, and flagging dots there misfires on
+// ordinary URLs.
+//
+// after(pat) is the position of the first match of `pat`, so "is it in the path"
+// is a comparison against the cursor that found the `?`. Plaintext hop. It parses
+// the request line at the start of the reassembly window.
+nocase;
+reassemble 8080;
+pattern e_dd = "%2e%2e", e_d1 = "%2e.", e_d2 = ".%2e", e_sl = "..%2f", e_bs = "..%5c";
+pattern e_dbl = "%252e", e_over = "%c0%ae", e_over2 = "%c0%2e";
+pattern dd = "..", slash = "/";
+
+macro in_path { if (at <= stop) { log(1); decide drop("encoded_traversal"); } }
+
+filter {
+  if (proto != 6) decide pass;
+  if (dport != 8080) decide pass;
+  let big = 1000000;
+  ptr p = find(payload, ' ', 8); skip(p, ' ');     // step over the method to the URI
+  if (!starts(p, slash)) decide pass;               // not an origin-form request line
+
+  // the path ends at the first '?', or at the space before "HTTP/1.1"
+  let stop = find(p, ' ', 2048);
+  let q = find(p, '?', 2048);
+  if (q != p) { if (q < stop) stop = q; }           // find leaves the cursor on a miss
+
+  mask m = scan(payload, 2048);
+  let at = 0;
+  if (any(m, e_dd))    { at = after(e_dd);    in_path; }
+  if (any(m, e_d1))    { at = after(e_d1);    in_path; }
+  if (any(m, e_d2))    { at = after(e_d2);    in_path; }
+  if (any(m, e_sl))    { at = after(e_sl);    in_path; }
+  if (any(m, e_bs))    { at = after(e_bs);    in_path; }
+  if (any(m, e_dbl))   { at = after(e_dbl);   in_path; }
+  if (any(m, e_over))  { at = after(e_over);  in_path; }
+  if (any(m, e_over2)) { at = after(e_over2); in_path; }
+
+  repeat (32) {
+    let o = find(p, '/', 1024);
+    if (o == p) { if (!starts(p, slash)) o = big; }
+    if (o < stop) { p = o + 1; if (starts(p, dd)) decide drop("path_traversal"); }
+  }
+  decide pass;
+}
