@@ -1,61 +1,52 @@
-/* Pattern matching — one Aho-Corasick scan into the match mask, interrogated by
- * band (one pattern), the or-mask `(a|b|c)`, any/all/seq, and a reusable `mask`
- * variable. Also anchored compare via starts (pattern ref and inline literal). */
-import { fromC, V } from "./helpers.mjs";
+/* match / switch / break. `match` runs exactly one arm (no fall-through), with
+ * block-delimited `case V [, V] { ... }` and optional `default { ... }`. `switch`
+ * is C-style: `case V:` statement lists that fall through until `break;`. Both
+ * evaluate the scrutinee once; no new opcodes (compare + forward jumps). */
+import { compile } from "#/clang.js";
+import { toProgram } from "#/program.js";
 
-const v = (src, payload = "") => {
-  const b = new TextEncoder().encode(payload);
-  return fromC(src).run(b, {}, { dport: 80 }).verdict;
-};
+const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
+const prog = (src) => { const c = compile(src); if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors)); return toProgram(c); };
 
-yeet.test("band: a single pattern in the window", () => {
-  const s = `pattern bot = "GPTBot"; filter { if (scan(payload, 256) & bot) return rst("b", 0); return pass; }`;
-  eq(v(s, "x GPTBot y"), V.RST, "present");
-  eq(v(s, "x Chrome y"), V.PASS, "absent");
+yeet.test("match runs exactly one arm (no fall-through)", () => {
+  const p = prog(`filter { match (dport) { case 22 { return drop("ssh"); } case 80, 443 { return rst("web", 0); } default { return pass; } } }`);
+  eq(p.exec(enc("x"), { dport: 22 }).verdict, "drop", "22");
+  eq(p.exec(enc("x"), { dport: 80 }).verdict, "rst", "80 (shared arm)");
+  eq(p.exec(enc("x"), { dport: 443 }).verdict, "rst", "443 (shared arm)");
+  eq(p.exec(enc("x"), { dport: 8080 }).verdict, "pass", "default");
 });
 
-yeet.test("or-mask (a | b | c): any of several", () => {
-  const s = `pattern a="foo", b="bar", c="baz"; filter { if (scan(payload,256) & (a|b|c)) return drop("m"); return pass; }`;
-  eq(v(s, "has bar"), V.DROP, "middle");
-  eq(v(s, "has qux"), V.PASS, "none");
+yeet.test("match without a matching arm and no default falls through to the rest", () => {
+  const p = prog(`filter { match (dport) { case 1 { return drop("x"); } } return pass; }`);
+  eq(p.exec(enc("x"), { dport: 9 }).verdict, "pass", "no arm, no default");
+  eq(p.exec(enc("x"), { dport: 1 }).verdict, "drop", "arm 1");
 });
 
-yeet.test("any / all over a scan", () => {
-  const anyP = `pattern a="foo", b="bar"; filter { if (any(scan(payload,256), a, b)) return drop("x"); return pass; }`;
-  eq(v(anyP, "has bar"), V.DROP, "any one"); eq(v(anyP, "has baz"), V.PASS, "any none");
-  const allP = `pattern a="foo", b="bar"; filter { if (all(scan(payload,256), a, b)) return drop("x"); return pass; }`;
-  eq(v(allP, "foo and bar"), V.DROP, "all both"); eq(v(allP, "foo only"), V.PASS, "all one");
+yeet.test("switch falls through until break", () => {
+  // case 1 has no break -> falls into case 2
+  const p = prog(`filter { switch (dport) { case 1: count("a"); case 2: return drop("one_or_two"); default: return pass; } }`);
+  eq(p.exec(enc("x"), { dport: 1 }).verdict, "drop", "1 falls into 2");
+  eq(p.exec(enc("x"), { dport: 2 }).verdict, "drop", "2");
+  eq(p.exec(enc("x"), { dport: 9 }).verdict, "pass", "default");
 });
 
-yeet.test("seq: patterns in left-to-right order", () => {
-  const s = `pattern a="AAA", b="BBB"; filter { if (seq(scan(payload,256), a, b)) return drop("x"); return pass; }`;
-  eq(v(s, "AAA then BBB"), V.DROP, "in order");
-  eq(v(s, "BBB then AAA"), V.PASS, "out of order");
-  eq(v(s, "AAA only"), V.PASS, "second missing");
+yeet.test("break exits the switch", () => {
+  const p = prog(`filter { switch (dport) { case 1: return rst("one", 0); case 2: count("two"); break; default: return drop("d"); } return pass; }`);
+  eq(p.exec(enc("x"), { dport: 2 }).verdict, "pass", "2: counts then break -> pass");
+  eq(p.exec(enc("x"), { dport: 9 }).verdict, "drop", "default");
+  eq(p.exec(enc("x"), { dport: 1 }).verdict, "rst", "1");
 });
 
-yeet.test("a mask variable: one scan, interrogated several ways", () => {
-  const s = `pattern a="foo", b="bar", c="baz";
-    filter { mask m = scan(payload, 256);
-      if (seq(m, a, b) && any(m, c)) return rst("all3", 0);
-      if (any(m, a, b)) return drop("some");
-      return pass; }`;
-  eq(v(s, "foo bar baz"), V.RST, "seq foo<bar and baz present");
-  eq(v(s, "foo bar"), V.DROP, "some (no baz)");
-  eq(v(s, "bar foo"), V.DROP, "any but not in seq order");
-  eq(v(s, "nothing"), V.PASS, "none");
+yeet.test("match works on flow.state and on a subroutine param", () => {
+  const p = prog(`fn classify(s) { match (s) { case 0 { return 10; } case 1 { return 20; } default { return 0; } } }
+                  filter { if (classify(dport) == 20) return drop("one"); return pass; }`);
+  eq(p.exec(enc("x"), { dport: 1 }).verdict, "drop", "param match -> 20");
+  eq(p.exec(enc("x"), { dport: 5 }).verdict, "pass", "default -> 0");
 });
 
-yeet.test("starts: anchored compare (pattern ref and inline literal)", () => {
-  const ref = `pattern g="GET"; filter { if (starts(payload, g)) return drop("m"); return pass; }`;
-  eq(v(ref, "GET /"), V.DROP, "ref hit"); eq(v(ref, "POST /"), V.PASS, "ref miss");
-  const lit = `filter { if (starts(payload, "PUT")) return drop("m"); return pass; }`;
-  eq(v(lit, "PUT /x"), V.DROP, "literal hit"); eq(v(lit, "GET /x"), V.PASS, "literal miss");
-});
-
-yeet.test("scan window bound: a match past the limit is not seen", () => {
-  const s = `pattern bot="BOT"; filter { if (scan(payload, 4) & bot) return drop("m"); return pass; }`;
-  eq(v(s, "BOT here"), V.DROP, "within 4");
-  eq(v(s, "....BOT"), V.PASS, "beyond 4");
+yeet.test("break outside a switch/match is a compile error", () => {
+  const r = compile(`filter { break; return pass; }`);
+  if (r.ok) throw new Error("expected a break-outside error");
+  if (!JSON.stringify(r.errors).includes("break")) throw new Error("wrong error: " + JSON.stringify(r.errors));
 });

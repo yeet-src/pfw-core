@@ -50,7 +50,7 @@ class CError extends Error {
 
 /* ---- lexer --------------------------------------------------------------- */
 
-const PUNCT = ["??", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "<", ">", "!", "&", "|", "+", "-", "(", ")", "{", "}", "[", "]", ";", ",", "=", ".", "@"];
+const PUNCT = ["??", "==", "!=", "<=", ">=", "&&", "||", "<<", ">>", "<", ">", "!", "&", "|", "+", "-", "(", ")", "{", "}", "[", "]", ";", ",", "=", ".", "@", ":"];
 
 function lex(src) {
   const toks = [];
@@ -368,6 +368,39 @@ function parse(toks) {
       }
       return { kind: "if", cond, then, els, line: t.line };
     }
+    if (isKw("match")) {
+      // no fall-through: exactly one arm runs. `case V[, V] { ... }` / `default { ... }`
+      next(); eat("punct", "("); const scrut = parseArith(); eat("punct", ")"); eat("punct", "{");
+      const arms = []; let def = null;
+      while (!isP("}")) {
+        if (isKw("default")) { next(); def = parseStmt(); }
+        else if (isKw("case")) {
+          next(); const values = [parsePrimary()];
+          while (isP(",")) { next(); values.push(parsePrimary()); }
+          arms.push({ values, body: parseStmt() });
+        } else err("match arms are `case V { ... }` or `default { ... }`");
+      }
+      eat("punct", "}");
+      return { kind: "match", scrut, arms, default: def, line: t.line };
+    }
+    if (isKw("switch")) {
+      // C-style fall-through: `case V:` statement lists, `break;` to exit
+      next(); eat("punct", "("); const scrut = parseArith(); eat("punct", ")"); eat("punct", "{");
+      const entries = [];
+      const body = () => { const stmts = []; while (!isP("}") && !isKw("case") && !isKw("default")) stmts.push(parseStmt()); return stmts; };
+      while (!isP("}")) {
+        if (isKw("case")) {
+          next(); const values = [parsePrimary()];
+          while (isP(",")) { next(); values.push(parsePrimary()); }
+          eat("punct", ":"); entries.push({ values, stmts: body() });
+        } else if (isKw("default")) {
+          next(); eat("punct", ":"); entries.push({ default: true, stmts: body() });
+        } else err("switch body is `case V:` or `default:`");
+      }
+      eat("punct", "}");
+      return { kind: "switch", scrut, entries, line: t.line };
+    }
+    if (isKw("break")) { next(); eat("punct", ";"); return { kind: "break", line: t.line }; }
     if (isKw("return")) {
       next();
       // verdict form: return pass|drop|count|ban|rst [ (...) ] ;
@@ -580,6 +613,7 @@ function codegen(ast) {
   const regexDefs = new Map(ast.patterns.filter((p) => p.def.kind === "regex").map((p) => [p.name, p.def.src]));
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
   const masks = new Set();
+  const breakStack = []; // enclosing match/switch end labels, for `break`
   const funcs = new Set((ast.functions ?? []).map((f) => f.name)); // subroutine names (call/ret)
   const funcArity = new Map((ast.functions ?? []).map((f) => [f.name, (f.params ?? []).length]));
   const consoleFormats = []; // console() format strings, by id (the host maps id -> string)
@@ -894,6 +928,39 @@ function codegen(ast) {
       }
       case "return": return verdict(s);
       case "freturn": materialize(s.value); bld.movFromCur(REG.rv); return bld.ret(); // return <expr> from a subroutine
+      case "break": {
+        if (!breakStack.length) die("`break` outside a switch/match", s.line);
+        return bld.jmp(breakStack[breakStack.length - 1]);
+      }
+      case "match": {
+        // evaluate the scrutinee once, dispatch forward to the matching arm; one arm runs
+        const tmp = allocScratch(`__m${nTmp++}`, s.line);
+        materialize(s.scrut); bld.movFromCur(tmp);
+        const end = fresh();
+        const armL = s.arms.map(() => fresh());
+        const defL = s.default ? fresh() : end;
+        s.arms.forEach((arm, i) => { for (const v of arm.values) { bld.movToCur(tmp); bld.cmpImm(immVal(v)); bld.je(armL[i]); } });
+        bld.jmp(defL);
+        breakStack.push(end);
+        s.arms.forEach((arm, i) => { bld.label(armL[i]); stmt(arm.body); bld.jmp(end); });
+        if (s.default) { bld.label(defL); stmt(s.default); bld.jmp(end); }
+        breakStack.pop();
+        return bld.label(end);
+      }
+      case "switch": {
+        // like match, but arms are laid out sequentially so control falls through; `break` exits
+        const tmp = allocScratch(`__sw${nTmp++}`, s.line);
+        materialize(s.scrut); bld.movFromCur(tmp);
+        const end = fresh();
+        const entL = s.entries.map(() => fresh());
+        const defIdx = s.entries.findIndex((e) => e.default);
+        s.entries.forEach((e, i) => { if (!e.default) for (const v of e.values) { bld.movToCur(tmp); bld.cmpImm(immVal(v)); bld.je(entL[i]); } });
+        bld.jmp(defIdx >= 0 ? entL[defIdx] : end);
+        breakStack.push(end);
+        s.entries.forEach((e, i) => { bld.label(entL[i]); e.stmts.forEach(stmt); }); // no jmp between -> fall-through
+        breakStack.pop();
+        return bld.label(end);
+      }
       case "macrocall": {
         const m = macroMap.get(s.name);
         if (!m) die(`\`${s.name}\` is not a macro or a statement`, s.line);

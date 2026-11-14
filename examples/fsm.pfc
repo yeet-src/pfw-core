@@ -1,0 +1,29 @@
+// A protocol state machine with `match`. A connection must greet, then
+// authenticate, before any command is allowed; each per-connection phase is one
+// arm of match(flow.state). `match` runs exactly one arm (no fall-through), so the
+// phase handlers can't leak into each other — much clearer than an if/else chain
+// on flow.state. (`switch` with C-style fall-through is also available when you
+// want several labels to share code; see test/unit/match.test.mjs.)
+//
+// Combines: reassembly, a per-connection state machine (flow.state with a TTL),
+// cursor-anchored command matching (starts), and match dispatch.
+reassemble 7000;
+pattern helo = "HELO", auth = "AUTH ", admin = "CONFIG";
+filter {
+  if (len == 0) return pass;                         // ignore pure ACKs
+  match (flow.state) {
+    case 0 {                                         // new connection: must greet first
+      if (starts(payload, helo)) { flow.state = 1 for 60; return pass; }
+      return drop("no_greeting");
+    }
+    case 1 {                                         // greeted: must authenticate next
+      if (starts(payload, auth)) { flow.state = 2 for 300; return pass; }
+      return drop("not_authenticated");
+    }
+    case 2 {                                         // authenticated: commands allowed, admin gated
+      if (starts(payload, admin)) return rst("admin_blocked", 0);
+      return pass;
+    }
+    default { return drop("bad_state"); }
+  }
+}
