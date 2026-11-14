@@ -68,6 +68,8 @@ export const starts = (ptr, pat) => ({ kind: "call", name: "starts", args: [E(pt
 export const any = (first, ...pats) => ({ kind: "call", name: "any", args: [E(first), ...pats.map(E)] });
 export const all = (first, ...pats) => ({ kind: "call", name: "all", args: [E(first), ...pats.map(E)] });
 export const seq = (first, ...pats) => ({ kind: "call", name: "seq", args: [E(first), ...pats.map(E)] });
+/** rate(perSecond, burst): condition, true when the flow is over the token-bucket limit. */
+export const rate = (perSecond, burst) => ({ kind: "call", name: "rate", args: [num(perSecond), num(burst)] });
 
 const chr = (c) => (typeof c === "string" && c.length === 1 ? { kind: "char", text: c } : num(c));
 const ruleArg = (r) => { if (typeof r !== "string") throw new Error("rule must be a name (string)"); return { kind: "string", text: r }; };

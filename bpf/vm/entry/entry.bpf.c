@@ -159,6 +159,9 @@ int pfw_xdp(struct xdp_md *ctx)
     st->state_ttl = 0;
     st->hits = f ? f->hits : 0;
     st->set_hits = 0;
+    st->rl_tokens = f ? f->rl_tokens : 0;
+    st->rl_ts = f ? f->rl_ts : 0;
+    st->set_rl = 0;
     st->rw_n = 0;
     st->redirect_if = 0;
     st->log_len = 0;

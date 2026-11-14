@@ -24,6 +24,7 @@ struct pfw_ctx {
     __u32 count;    /* skipb: bytes skipped */
     __u32 re_state; /* rescan: current regex DFA state, carried across bytes */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */
+    __u64 now;      /* packet-time ktime ns, for OP_RATE */
     struct flow *flow; /* the flow whose reasm buffer backs reads in reasm mode */
 };
 

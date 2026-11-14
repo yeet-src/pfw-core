@@ -1,0 +1,20 @@
+// Time-based rate limit (token bucket). Unlike rate_limit.pfc, which caps the
+// cumulative number of segments on a connection, `rate(per_second, burst)` is a
+// real rate: a bucket of `burst` tokens that refills at `per_second` tokens/sec.
+// Each packet spends one token; `rate(...)` is true when the bucket is empty
+// (the flow is over its allowed rate), so this drops the excess and lets the
+// flow resume as the bucket refills. State (tokens + last-refill time) lives in
+// the flow, keyed on the connection.
+//
+// Here: allow bursts of up to 20 requests, then a steady 5 requests/sec per
+// connection on :80; drop anything faster.
+filter {
+  if (proto != 6) return pass;          // TCP
+  if (dport != 80) return pass;
+  if (len == 0) return pass;            // don't spend tokens on pure ACKs
+  if (rate(5, 20)) {
+    log(2);                             // over the limit -> tell userspace
+    return drop("too_fast");
+  }
+  return pass;
+}

@@ -38,7 +38,7 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
         .nops = prog->nops > PFW_MAX_OPS ? PFW_MAX_OPS : prog->nops,
         .gen = gen, .mark = f ? f->mark : 0,
         .user_state = (f && (!f->state_expires || f->state_expires > now)) ? f->user_state : 0,
-        .reasm = use_reasm, .flow = f,
+        .reasm = use_reasm, .now = now, .flow = f,
     };
     ran++;
     __u64 t0 = bpf_ktime_get_ns();
@@ -56,8 +56,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;
 
-    if (keyed && (p.proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits)) {
-        if (!f && (st->set_mark || st->set_state || st->set_hits || p.end > p.payload)) {
+    if (keyed && (p.proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl)) {
+        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || p.end > p.payload)) {
             bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
             f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
@@ -65,6 +65,7 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
         if (f) {
             if (p.proto == IPPROTO_TCP) { f->ac_state = st->ac_state; f->mask = st->r[R_M]; f->gen = prog->gen; }
             if (st->set_state) { f->user_state = st->new_state; f->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
+            if (st->set_rl) { f->rl_tokens = st->rl_tokens; f->rl_ts = st->rl_ts; }
             if (st->set_hits) f->hits = st->hits;
             if (st->set_mark) { f->mark = st->set_mark; f->rule = st->rule; f->expires = st->ttl ? now + (__u64) st->ttl * 1000000000ULL : 0; }
         }

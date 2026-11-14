@@ -409,6 +409,12 @@ export function assemble(source) {
       } else if (m === "lpm6") {
         want(0);
         emit(OP.LPM6);
+      } else if (m === "rate") {
+        want(2);
+        if (a.kind !== "imm" || b.kind !== "imm") fail("rate is `rate $PER_SECOND, $BURST`");
+        const r = numberOf(a.text, "per_second"), bu = numberOf(b.text, "burst");
+        if (r < 1n || r > 0xffffffffn || bu < 1n || bu > 0xffffffffn) fail("rate args must be positive u32");
+        emit(OP.RATE, 0, (r & 0xffffffffn) | (bu << 32n));
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");

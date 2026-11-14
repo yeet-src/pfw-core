@@ -14,6 +14,7 @@
 #define BLOOM_MAX    65536 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
+#define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
@@ -136,6 +137,7 @@ enum pfw_opcode {
     OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
     OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
     OP_REDIRECT,/* forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path */
+    OP_RATE,    /* token-bucket rate limit on the flow: imm = rate/sec (low 32) | burst (high 32); ZF = over the limit */
     OP_COUNT_OPCODES,
 };
 
@@ -193,6 +195,8 @@ struct flow {
     __u32 user_state; /* a per-connection state the program sets and reads */
     __u32 hits;       /* per-connection hit counter, for rate limiting */
     __u64 state_expires; /* ktime ns when user_state reverts to 0 (0 = never) */
+    __u64 rl_tokens;  /* OP_RATE token bucket: tokens scaled by RL_SCALE (1e6) */
+    __u64 rl_ts;      /* OP_RATE last-refill ktime ns (0 = bucket not yet seeded) */
     /* Per-flow ring (P3): insertion-ordered, fixed capacity, newest-wins
      * indexing — rpush/rget/rlen. The shape of the HPACK dynamic table and of
      * per-identity rate-limit history. Fixed u32 entries for now. */

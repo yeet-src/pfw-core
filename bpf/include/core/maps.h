@@ -137,6 +137,9 @@ struct pfw_state {
     __u32 rw_n;
     struct { __u32 pat, repl, mode, fill, woff; } rw[RW_MAX];
     __u32 redirect_if; /* OP_REDIRECT target ifindex; 0 = no redirect (ifindex 0 is never valid) */
+    __u64 rl_tokens;   /* OP_RATE token bucket (scaled x RL_SCALE), loaded from / written back to the flow */
+    __u64 rl_ts;       /* OP_RATE last-refill ktime ns */
+    __u32 set_rl;      /* 1 = write rl_tokens/rl_ts back to the flow */
 };
 
 PFW_LINK struct {

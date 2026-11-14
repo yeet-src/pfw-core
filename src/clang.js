@@ -586,6 +586,14 @@ function codegen(ast) {
     die("expected a pattern name", e.line);
   };
 
+  const rateArgs = (e) => {
+    if (e.args.length !== 2) die("rate(per_second, burst)", e.line);
+    const r = Number(immVal(e.args[0])), b = Number(immVal(e.args[1]));
+    if (!Number.isInteger(r) || r < 1 || r > 0xffffffff) die("rate per_second must be a positive integer", e.line);
+    if (!Number.isInteger(b) || b < 1 || b > 0xffffffff) die("rate burst must be a positive integer", e.line);
+    return [r, b];
+  };
+
   const matchGroup = (e, min) => {
     const args = e.args;
     if (!args.length) die(`${e.name}(...) needs a scan or mask, then patterns`, e.line);
@@ -760,6 +768,7 @@ function codegen(ast) {
       case "inset6": { bld.lpm6(); return bld.jne(L); }
       case "band": bandTest(e); return bld.je(L);
       case "call":
+        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.jne(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
         if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
         if (e.name === "seq") {
@@ -795,6 +804,7 @@ function codegen(ast) {
       case "inset6": { bld.lpm6(); return bld.je(L); }
       case "band": bandTest(e); return bld.jne(L);
       case "call":
+        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b); return bld.je(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
         if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
         if (e.name === "starts") { loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.je(L); }

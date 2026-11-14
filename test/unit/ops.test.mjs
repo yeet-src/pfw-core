@@ -152,6 +152,11 @@ yeet.test("redirect assembles and runs (no-op in the host model)", () => {
   if (r.verdict !== V.PASS) throw new Error("redirect should fall through to pass in the host model: " + r.verdict);
 });
 
+/* ---- rate (token bucket; no bucket in opts -> allowed, falls through) ---- */
+yeet.test("rate assembles and runs (no bucket -> allowed -> pass)", () => {
+  expect("rate", `        rate    $10, $20\n        je      over\n        pass\n over:  rst     $1, $0`, V.PASS);
+});
+
 /* ---- lpm (set membership; trie is host-loaded, empty here -> no match) ---- */
 yeet.test("lpm assembles and runs (empty set -> pass)", () => {
   expect("lpm", `        mov     %src, %cur\n        lpm\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { saddr: (10 << 24) | 1 } });

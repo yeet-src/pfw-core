@@ -47,6 +47,35 @@ static __noinline void do_dnat(struct xdp_md *xdp, struct pfw_state *st, __u64 i
     }
 }
 
+/* Token-bucket rate limiter over the flow's rl_tokens/rl_ts (carried in st,
+ * written back to the flow in finish()). Tokens are fixed-point x RL_SCALE.
+ * Refill = elapsed_ns * rate / (1e9 / RL_SCALE) = elapsed_ns * rate / 1000,
+ * which avoids both floats and overflow for sane rates. Returns 1 when the
+ * packet is OVER the limit (no token to spend), 0 when allowed. __noinline so
+ * the 64-bit math stays out of pfw_step's stack frame. */
+static __noinline int do_rate(struct pfw_state *st, __u64 now, __u64 imm)
+{
+    __u64 rate = (__u32) imm;                 /* tokens per second */
+    __u64 cap = (__u32) (imm >> 32) * RL_SCALE; /* bucket capacity, scaled */
+    __u64 tokens;
+    if (st->rl_ts == 0) {                     /* first sight of this flow: full bucket */
+        tokens = cap;
+    } else {
+        __u64 elapsed = now > st->rl_ts ? now - st->rl_ts : 0;
+        __u64 refill = elapsed * rate / 1000; /* ns * (tok/s) / 1000 = tokens x RL_SCALE */
+        tokens = st->rl_tokens + refill;
+        if (tokens > cap) tokens = cap;
+    }
+    st->rl_ts = now;
+    st->set_rl = 1;
+    if (tokens >= RL_SCALE) {                 /* spend one token: allowed */
+        st->rl_tokens = tokens - RL_SCALE;
+        return 0;
+    }
+    st->rl_tokens = tokens;                   /* over the limit */
+    return 1;
+}
+
 static long pfw_step(__u32 i, void *pctx)
 {
     struct pfw_ctx *c = pctx;
@@ -367,6 +396,12 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (v ? FL_ZF : 0);
         break;
     }
+    case OP_RATE:
+        /* Token-bucket rate limit on this flow. ZF = 1 when over the limit
+         * (the packet consumed no token). __noinline so the 64-bit refill math
+         * gets its own frame. imm = rate/sec (low 32) | burst (high 32). */
+        fl = (fl & FL_FF) | (do_rate(st, c->now, imm) ? FL_ZF : 0);
+        break;
     case OP_REDIRECT:
         /* Record the target ifindex; the actual bpf_redirect() is issued in
          * finish() on the pass path (it returns XDP_REDIRECT, which must be the
