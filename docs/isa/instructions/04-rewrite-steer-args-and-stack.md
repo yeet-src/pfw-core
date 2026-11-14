@@ -283,9 +283,60 @@ depth is `STACK_CAP = 64`.
 
 ---
 
+## Live control knobs
+
+*Knobs* are a named control plane the host rewrites **while the program runs** —
+unlike `argv` (positional and fixed at load), a knob is read fresh from a map on
+every packet, so the host can retune or re-target a running program with no
+reload and no recompile. The compiler assigns each name a slot; the loader writes
+the slot. Two kinds: numeric knobs (`OP_KNOB`, the `knobs` map) and string knobs
+(`OP_KNOBHAS`, the `knob_strs` map).
+
+### 62 — `OP_KNOB` (`knob $SLOT`)
+
+- **Assembler:** `knob $0` (slot 0–`PFW_KNOBS-1`).
+- **Encoding:** `code = 62`, `reg = 0`, `imm` = slot.
+- **Operation:** `cur = knobs[imm & (PFW_KNOBS-1)]` — the current value at that
+  slot of the `knobs` array map. The host reads `opts.knobs` (by name → slot).
+  Zero-initialized, so an unset knob reads `0`; the loader seeds a declared
+  default (`knob("x") ?? d`) into the slot at load time, which the host may later
+  overwrite with any value (including `0`).
+- **Flags:** none (writes `%cur`). **Maps:** `knobs` (array of `__u64`,
+  `PFW_KNOBS = 32` slots, shared — not per-CPU).
+- **Operation lowered from:** `knob("name")` / `knob("name") ?? default`, and a
+  `knob struct` field read `Name.field` (sugar for consecutive slots).
+- **Example:** `if (len > knob("cap")) decide drop("too_big");` — the host raises
+  or lowers `cap` live.
+- **Notes:** like `argv`, a knob is a plain value (comparisons / arithmetic /
+  thresholds); it is **not** accepted where `rate`/`dnat`/`redirect` require a
+  compile-time literal.
+
+### 63 — `OP_KNOBHAS` (`knobhas $SLOT`)
+
+- **Assembler:** `knobhas $0` (slot 0–`PFW_KNOBSTRS-1`).
+- **Encoding:** `code = 63`, `reg = 0`, `imm` = slot.
+- **Operation:** `ZF = knob_strs[imm]` occurs in the payload — a bounded
+  substring search of the host-set needle over the first `KNOB_SCAN = 256` bytes
+  of the payload (loaded into `st->kbuf` once per use). An empty/unset string
+  knob never matches. `ZF = 1` when the needle is found (same sense as
+  `OP_HASH`/`OP_LPM` membership).
+- **Flags:** sets `ZF` (preserves `FF`). **Maps:** `knob_strs` (array of
+  `struct knob_str { __u32 len; __u8 b[KNOBSTR_CAP]; }`, `PFW_KNOBSTRS = 16`
+  slots, `KNOBSTR_CAP = 64` bytes per needle).
+- **Operation lowered from:** `kstr("name")` used as a condition.
+- **Example:** `if (kstr("bad_host")) decide rst("blocked", 0);` — push the
+  current bad host/token and block it without a reload.
+- **Notes:** the search window is fixed (`KNOB_SCAN`, a power of two for the
+  verifier); needles are capped at `KNOBSTR_CAP` bytes. Unlike compile-time
+  `pattern`s (baked into the Aho-Corasick automaton), a string knob is set and
+  changed live.
+
+---
+
 ### Flag summary for this group
 
-Only `OP_RATE` touches a flag (sets `ZF` = over-limit, preserves `FF`). `OP_ARG`,
-`OP_ARGC`, and `OP_POP` write `%cur`. Everything else here is a pure side effect
+Only `OP_RATE` and `OP_KNOBHAS` touch a flag (`OP_RATE` sets `ZF` = over-limit,
+`OP_KNOBHAS` sets `ZF` = needle found; both preserve `FF`). `OP_ARG`, `OP_ARGC`,
+`OP_POP`, and `OP_KNOB` write `%cur`. Everything else here is a pure side effect
 (packet write, ring emit, stack/pc change) and leaves `%cur` and the flags as
 they were.

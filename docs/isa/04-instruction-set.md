@@ -1,6 +1,6 @@
 # 4. Instruction set
 
-All **62 opcodes** (`OP_END = 0` … `OP_RET = 61`). Every instruction is one
+All **64 opcodes** (`OP_END = 0` … `OP_KNOBHAS = 63`). Every instruction is one
 `struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
 [§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
 `reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
@@ -17,9 +17,9 @@ four category files:
 - [Arithmetic, moves, and loads](instructions/01-arithmetic-and-loads.md) — `end`, moves, integer arithmetic, `load`.
 - [Compare, branch, and scan](instructions/02-compare-branch-and-scan.md) — comparisons, the forward branches, and the match engine (`scan`/`mpos`/`cmpstr`/`findb`/`skipb`).
 - [Verdicts, flow state, and membership](instructions/03-verdict-flow-and-membership.md) — `decide` verdicts, events, per-flow state and the ring, and set membership.
-- [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, and `push`/`pop`/`call`/`ret`.
+- [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, `push`/`pop`/`call`/`ret`, and the live `knob`/`knobhas` control plane.
 
-## Quick reference — all 62 opcodes
+## Quick reference — all 64 opcodes
 
 (`summary` is the one-line semantics from `bpf/include/pfw.h`; follow the detail
 link for the complete entry.)
@@ -88,3 +88,5 @@ link for the complete entry.)
 | 59 | `OP_POP` | sp--, cur = top of the data stack | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 60 | `OP_CALL` | push the return pc onto the data stack, jump to imm (subroutine) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 61 | `OP_RET` | pop the data stack into pc (return from a subroutine) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 62 | `OP_KNOB` | cur = knobs[imm] — a live host-set control value (the `knobs` map) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 63 | `OP_KNOBHAS` | ZF = the live host-set string knob_strs[imm] occurs in the payload window | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |

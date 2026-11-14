@@ -9,7 +9,7 @@ enums agree.
 
 Counts, verified against `src/isa.js`:
 
-- **62 opcodes** (`OP_END = 0` … `OP_RET = 61`; `OP_COUNT_OPCODES = 62`).
+- **64 opcodes** (`OP_END = 0` … `OP_KNOBHAS = 63`; `OP_COUNT_OPCODES = 64`).
 - **32 physical registers** (indices `0`–`31`, `NREGS = 32`). The host register
   map has **33 names** because `%src` is an assembler alias for `%saddr`
   (both index 20).

@@ -14,7 +14,9 @@
   caller-saved.
 - `console`: ≤ 4 numeric args + ≤ 2 `%s` (packet pointer). `printk`: ≤ 3 numeric
   args, no `%s`.
-- `argv` is not a `rate`/`dnat`/`redirect` argument (those need constants).
+- `argv` and `knob("…")` are not `rate`/`dnat`/`redirect` arguments (those need
+  constants). `knob("x") ?? d` seeds `d` at load; it is overridable to `0`, not an
+  if-zero default. `kstr("…")` is a condition only.
 
 **Budgets** (`LIMITS` in `src/isa.js`, mirrored in `bpf/include/pfw.h`)
 
@@ -31,6 +33,8 @@
 | data-stack depth | 64 |
 | rules (named verdicts) | 64 |
 | runtime args (`argv`) | 16 |
+| numeric knobs (`knob`) | 32 |
+| string knobs (`kstr`) | 16 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |
 | `console` %s capture | 256 B |
 | `printk` formats / length | 8 / 64 B |

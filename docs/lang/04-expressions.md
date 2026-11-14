@@ -106,6 +106,34 @@ if (len > argv[1] ?? 8192) decide drop("oversize");
 It is **not** usable as an argument to `rate` / `dnat` / `redirect` (those take
 compile-time constants).
 
+### Live control knobs
+
+Where `argv` is positional and fixed at load, a **knob** is a *named* control the
+host rewrites while the program runs — read fresh on every packet, so the host
+retunes or re-targets a running rule with no reload. The compiler assigns each
+name a slot; `compile()` exposes the `name → slot` bindings so a loader knows what
+to write.
+
+- `knob("name")` — reads the current numeric value (unset reads `0`). Usable
+  anywhere a value is (comparisons, arithmetic, thresholds), but **not** as a
+  `rate`/`dnat`/`redirect` argument.
+- `knob("name") ?? default` — the loader seeds `default` into the slot at load
+  time. It is a seeded initial value, **not** a run-time if-zero, so the host can
+  still override it to any value, `0` included.
+- `kstr("name")` — a **condition**, true when the host-set string for that name
+  occurs in the payload (a bounded substring search over the first 256 bytes).
+  Change the needle and the match changes — block a bad host/token with no reload.
+
+```c
+if (knob("block") == 1) decide drop("kill_switch");  // flip live
+if (len > knob("cap") ?? 8192) decide drop("oversize");
+if (kstr("bad_host")) decide rst("blocked", 0);      // live blocklist entry
+```
+
+Related names are grouped with a `knob struct` declaration and read as fields
+(`cfg.rate`) — see [§2 Program structure](02-program-structure.md). Up to 32
+numeric knobs and 16 string knobs per program.
+
 ### `rate`
 
 `rate(per_sec, burst)` is a per-flow token-bucket **condition**, true when the

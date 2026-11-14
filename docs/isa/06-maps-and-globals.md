@@ -13,6 +13,8 @@
 | `hashset` | HASH | u32 → u32 | `x in hash` |
 | `bloom` | BLOOM_FILTER | u32 value | `x in bloom` (`map_extra = 5`) |
 | `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
+| `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 32`) |
+| `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 16`) |
 | `state` | PERCPU_ARRAY (1) | u32 → `pfw_state` | per-CPU execution state |
 | `stack` | PERCPU_ARRAY (1) | u32 → `vmstack` | the data stack |
 | `counters` | PERCPU_ARRAY (64) | u32 → u64 | per-rule counters |
@@ -42,6 +44,22 @@ struct pfw_console {                    // console_ring
     __u64 nums[FARGS_MAX];              // numeric args
     __u16 slen[FSTR_MAX]; __u8 strs[FSTR_MAX][STRARG_CAP];  // %s args
 };
+struct knob_str { __u32 len; __u8 b[KNOBSTR_CAP]; };  // knob_strs: a live needle
 ```
+
+### The live control plane (`knobs` / `knob_strs`)
+
+Both knob maps are **plain ARRAY** maps the host rewrites at any time — a running
+program picks up the new value on the next packet, with no reload. The compiler
+maps each name to a slot (`compile()` returns `knobs[slot] = name`,
+`knobStrs[slot] = name`, and `knobDefaults[slot]` for a declared default); the
+loader seeds defaults and writes host-supplied values into those slots.
+
+- `knobs` — `PFW_KNOBS = 32` `__u64` slots. `OP_KNOB` reads one into `%cur`.
+  Zero-initialized (unset = `0`); a `knob("x") ?? d` default is written by the
+  loader, not applied at run time, so the host can still override it to `0`.
+- `knob_strs` — `PFW_KNOBSTRS = 16` `struct knob_str` slots, each a length +
+  `KNOBSTR_CAP = 64`-byte needle. `OP_KNOBHAS` searches it over the first
+  `KNOB_SCAN = 256` payload bytes (copied into `pfw_state.kbuf`) and sets `ZF`.
 
 ---

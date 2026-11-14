@@ -7,10 +7,12 @@ item        = "nocase" ";"
             | "decode" ident [ number ] ";"
             | "pattern" patdecl { "," patdecl } ";"
             | "regex" ident "=" string ";"
+            | "knob" "struct" ident "{" knobfield { "," knobfield } "}" ";"
             | "macro" ident "{" { stmt } "}"
             | "fn" ident "(" [ ident { "," ident } ] ")" "{" { stmt } "}"
             | "filter" "{" { stmt } "}" ;      (* required, once *)
 patdecl     = ident "=" ( string | "{" bytelist "}" ) ;
+knobfield   = ident [ "??" (number|char) ] ;
 
 stmt        = block | if | match | switch | "break" ";"
             | "decide" verdict ";" | "return" arith ";"
@@ -39,6 +41,8 @@ primary     = number | char | string | ident | "(" expr ")" | "!" primary
             | "flow" "." ("state"|"count") | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
             | "argv" "[" number "]" [ "??" (number|char) ] | "argc"
+            | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
+            | ident "." ident                  (* knob struct field *)
             | ident "(" [ args ] ")" ;         (* call *)
 ```
 
