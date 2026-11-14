@@ -8,6 +8,7 @@
 #define PFW_MAX_OPS  8192 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
+#define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
@@ -125,6 +126,7 @@ enum pfw_opcode {
     OP_REDACT,  /* overwrite every match of pattern reg in [cur, end) with fill byte imm */
     OP_REPLACE, /* overwrite every match of pattern reg in [cur, end) with pattern imm (same length) */
     OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums */
+    OP_LPM,     /* ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) */
     OP_COUNT_OPCODES,
 };
 

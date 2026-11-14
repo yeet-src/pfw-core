@@ -1,0 +1,10 @@
+// Source-address set membership (P5, set form): drop any source in a host-loaded
+// CIDR trie. Unlike `src in "10.0.0.0/8"` (one inline network), `src in set`
+// tests the source against a whole LPM trie of prefixes the host loads and
+// updates at runtime — a blocklist of thousands of CIDRs matched in one lookup,
+// longest-prefix wins. The set is populated out-of-band (not in the program).
+filter {
+  if (proto != 6) return pass;
+  if (src in set) return drop("blocklist");
+  return pass;
+}

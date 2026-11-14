@@ -24,7 +24,7 @@ export function machine({ asm, tables }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0 } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [] } = {}) {
     const end = frame.length;
     const r = new Array(32).fill(0n);
     r[REG.payload] = BigInt(payload); r[REG.end] = BigInt(end); r[REG.proto] = BigInt(proto);
@@ -187,6 +187,7 @@ export function machine({ asm, tables }) {
         case OP.BAN: verdict = V.BAN; rule = reg; break;
         case OP.RST: verdict = V.RST; rule = reg; break;
         case OP.DNAT: break; /* kernel-only: rewrites packet headers, which the host frame model (payload-only) has not got */
+        case OP.LPM: zf = set.some((c) => (cur & c.mask) === (c.net & c.mask)); cf = false; break; /* src in the CIDR set */
         default: throw new Error("op not modelled: " + code);
       }
       r[REG.cur] = cur;

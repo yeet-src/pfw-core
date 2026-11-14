@@ -19,6 +19,13 @@ import { machine, V } from "#/interp.js";
 
 const VNAME = { [V.PASS]: "pass", [V.DROP]: "drop", [V.BAN]: "ban", [V.RST]: "rst" };
 const ipToU32 = (s) => s.split(".").reduce((a, o) => ((a << 8) | (Number(o) & 0xff)) >>> 0, 0) >>> 0;
+/* "A.B.C.D/prefix" -> { net, mask } as BigInt (host order), for `src in set`. */
+const cidrNetMask = (cidr) => {
+  const [ip, p = "32"] = String(cidr).split("/");
+  const prefix = Number(p);
+  const mask = prefix === 0 ? 0n : (prefix >= 32 ? 0xffffffffn : (0xffffffffn << BigInt(32 - prefix)) & 0xffffffffn);
+  return { net: BigInt(ipToU32(ip)) & 0xffffffffn, mask };
+};
 
 export class Program {
   /* `compiled` is the object compile()/compileAst() returns on success. */
@@ -40,13 +47,14 @@ export class Program {
   bytes(gen = 0) { return serializeProgram(this.program, gen); }
 
   /** Run the program through the reference interpreter.
-   *  frame: the bytes; opts: { payload=0, proto=6, dport=80, src|saddr, flow } */
+   *  frame: the bytes; opts: { payload=0, proto=6, dport=80, src|saddr, flow, set } */
   exec(frame, opts = {}) {
     this._run ??= machine({ asm: { program: this.program }, tables: this.tables() });
     const { payload = 0, proto = 6, dport = 80, flow = {} } = opts;
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
+    const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
-    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr });
+    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set });
     return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow };
   }
 }

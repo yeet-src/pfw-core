@@ -7,7 +7,7 @@
  *
  *   yeet run scripts/apply-and-hold.mjs --src <base64 pfw-C> [--iface N] [--hold S]
  */
-import { ArrayMap, BpfObject, DataSec, RingBuf } from "yeet:bpf";
+import { ArrayMap, BpfObject, DataSec, LpmTrie, RingBuf } from "yeet:bpf";
 import { compile } from "#/clang.js";
 import { build } from "#/ac.js";
 import { LIMITS } from "#/isa.js";
@@ -44,6 +44,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("flows", { kind: "lru_hash" })
   .bind("vm.bss", { kind: "data" })
   .bind("tt_cells", { kind: "array" })
+  .bind("lpm", { kind: "lpm_trie" })
   .bind("decode_jmp", { kind: "prog_array" })
   .attach("pfw_decode", { kind: "prog_array", map: "decode_jmp", index: 0 })
   .attach("pfw_match", { kind: "prog_array", map: "decode_jmp", index: 1 })
@@ -64,6 +65,16 @@ for (const [k, next] of tables.edges) await acGoto.update(0 * LIMITS.AC_STATES *
 for (const [s, f] of tables.fails) await acFail.update(s, f & 0xffff);
 for (const [s, m] of tables.accepts) await acAccept.update(s, BigInt(m));
 await new ArrayMap(control, "programs").update(0, progValue(c.program, 1));
+
+/* Populate the `src in set` CIDR trie from --set "10.0.0.0/8,192.168.1.0/24". */
+if (argv.set) {
+  const trie = new LpmTrie(control, "lpm");
+  for (const cidr of String(argv.set).split(",").filter(Boolean)) {
+    const [ip, p = "32"] = cidr.split("/");
+    const data = ip.split(".").map((o) => Number(o) & 0xff);
+    await trie.update({ prefixlen: Number(p), data }, 1);
+  }
+}
 await new DataSec(control, "vm.bss").patch({ active: 0 });
 
 /* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict

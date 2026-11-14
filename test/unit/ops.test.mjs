@@ -143,6 +143,11 @@ yeet.test("dnat assembles and runs (no-op in the host model)", () => {
   if (r.verdict !== V.PASS) throw new Error("dnat should fall through to pass in the host model: " + r.verdict);
 });
 
+/* ---- lpm (set membership; trie is host-loaded, empty here -> no match) ---- */
+yeet.test("lpm assembles and runs (empty set -> pass)", () => {
+  expect("lpm", `        mov     %src, %cur\n        lpm\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { saddr: (10 << 24) | 1 } });
+});
+
 /* ---- coverage gate ---- */
 yeet.test("every opcode was exercised", () => {
   const miss = Object.entries(OP).filter(([, v]) => !used.has(v)).map(([k]) => k);

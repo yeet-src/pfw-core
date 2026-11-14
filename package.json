@@ -19,7 +19,8 @@
     "gen:huff": "node src/huffman.js",
     "bpf": "make bpf",
     "test:rewrite": "node test/kernel/rewrite.mjs",
-    "test:dnat": "node test/kernel/dnat.mjs"
+    "test:dnat": "node test/kernel/dnat.mjs",
+    "test:lpm": "node test/kernel/lpm.mjs"
   },
   "files": [
     "src",

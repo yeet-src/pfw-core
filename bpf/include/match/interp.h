@@ -328,6 +328,16 @@ static long pfw_step(__u32 i, void *pctx)
         if (!c->reasm)
             do_dnat(c->xdp, st, imm);
         break;
+    case OP_LPM: {
+        /* ZF = cur (an IPv4 address, host order) is in the lpm_trie CIDR set.
+         * LPM key data is the address in network byte order (matched MSB-first). */
+        struct lpm_key key = { .prefixlen = 32 };
+        __be32 a = bpf_htonl((__u32) cur);
+        __builtin_memcpy(key.data, &a, 4);
+        __u32 *v = bpf_map_lookup_elem(&lpm, &key);
+        fl = (fl & FL_FF) | (v ? FL_ZF : 0);
+        break;
+    }
     default:
         st->verdict = V_PASS;
         faults++;

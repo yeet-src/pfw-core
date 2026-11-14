@@ -282,9 +282,9 @@ function parse(toks) {
     let e = parseMaskOperand();
     if (peek().type === "ident" && peek().value === "in") {
       next();
-      if (peek().type !== "string") err('`in` wants a "A.B.C.D/PREFIX" literal');
-      const cidr = next().value;
-      return { kind: "incidr", a: e, cidr, line: e.line };
+      if (peek().type === "string") return { kind: "incidr", a: e, cidr: next().value, line: e.line };
+      if (peek().type === "ident" && peek().value === "set") { next(); return { kind: "inset", a: e, line: e.line }; }
+      err('`in` wants a "A.B.C.D/PREFIX" literal or `set`');
     }
     if (isP("&")) {
       next();
@@ -742,6 +742,7 @@ function codegen(ast) {
       case "or": { const cont = fresh(); jumpIfTrue(e.a, cont); jumpIfFalse(e.b, L); bld.label(cont); return; }
       case "cmp": cmpToFlags(e); return bld[INV[e.op]](L);
       case "incidr": { value(e.a); const { net, prefix } = cidrParts(e.cidr, e.line); bld.cidr(net, prefix); return bld.jne(L); }
+      case "inset": { value(e.a); bld.lpm(); return bld.jne(L); }
       case "band": bandTest(e); return bld.je(L);
       case "call":
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
@@ -773,6 +774,7 @@ function codegen(ast) {
       case "and": { const cont = fresh(); jumpIfFalse(e.a, cont); jumpIfTrue(e.b, L); bld.label(cont); return; }
       case "cmp": cmpToFlags(e); return bld[DIR[e.op]](L);
       case "incidr": { value(e.a); const { net, prefix } = cidrParts(e.cidr, e.line); bld.cidr(net, prefix); return bld.je(L); }
+      case "inset": { value(e.a); bld.lpm(); return bld.je(L); }
       case "band": bandTest(e); return bld.jne(L);
       case "call":
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }

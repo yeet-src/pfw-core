@@ -156,6 +156,17 @@ PFW_LINK struct {
     __type(value, __u32);
 } tt_cells SEC(".maps");
 
+/* IPv4 CIDR set for `src in set` (P5, set form): one host-loaded LPM trie,
+ * longest-prefix match. Key is {prefixlen, 4 address bytes (network order)}. */
+struct lpm_key { __u32 prefixlen; __u8 data[4]; };
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+    __uint(max_entries, LPM_MAX);
+    __type(key, struct lpm_key);
+    __type(value, __u32);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} lpm SEC(".maps");
+
 /* A zeroed flow lives in rodata, not on the 512-byte BPF stack: the flow
  * struct now carries a REASM_CAP buffer and will not fit as a local. */
 PFW_LINK const struct flow zero_flow;
