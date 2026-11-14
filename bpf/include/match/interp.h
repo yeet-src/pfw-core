@@ -339,6 +339,13 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (v ? FL_ZF : 0);
         break;
     }
+    case OP_HASH: {
+        /* ZF = cur (low 32 bits) is a key in the hashset. */
+        __u32 k = (__u32) cur;
+        __u32 *v = bpf_map_lookup_elem(&hashset, &k);
+        fl = (fl & FL_FF) | (v ? FL_ZF : 0);
+        break;
+    }
     default:
         st->verdict = V_PASS;
         faults++;

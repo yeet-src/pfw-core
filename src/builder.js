@@ -110,6 +110,7 @@ export class Builder {
   // DNAT: rewrite dst IPv4 (host-order u32) + port into imm (ip low 32, port bits 32..47).
   dnat(ip, port) { return this.op(OP.DNAT, 0, (BigInt(ip >>> 0) & 0xffffffffn) | (BigInt(port & 0xffff) << 32n)); }
   lpm() { return this.op(OP.LPM); } // ZF = %cur is in the lpm CIDR set
+  hash() { return this.op(OP.HASH); } // ZF = %cur is a key in the hashset
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -236,7 +237,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;
     case OP.MARK: return `mark ${op.reg} ${op.imm}s`;
     case OP.SSTORE: return op.reg ? `sstore ${op.imm}, ${op.reg}s` : `sstore ${op.imm}`;
-    case OP.PASS: case OP.FLOW: case OP.SLOAD: case OP.BUMP: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.END:
+    case OP.PASS: case OP.FLOW: case OP.SLOAD: case OP.BUMP: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.HASH: case OP.END:
       return name;
     default: return op.imm ? `${name} ${op.imm}` : name;
   }

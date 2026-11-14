@@ -167,6 +167,15 @@ PFW_LINK struct {
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } lpm SEC(".maps");
 
+/* Exact-set membership for `x in hash`: a host-loaded set of u32 keys (ports,
+ * 32-bit hashes/fingerprints, …). Value is unused (presence is the answer). */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, HASH_MAX);
+    __type(key, __u32);
+    __type(value, __u32);
+} hashset SEC(".maps");
+
 /* Regex DFA (fuzzy matching): a complete transition table (re_goto, key =
  * gen*RE_STATES*256 + state*256 + byte -> next state) and a per-state accept
  * bitmask (re_accept). The host builds these from `regex` patterns; the scan's

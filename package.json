@@ -21,7 +21,8 @@
     "test:rewrite": "node test/kernel/rewrite.mjs",
     "test:dnat": "node test/kernel/dnat.mjs",
     "test:lpm": "node test/kernel/lpm.mjs",
-    "test:regex": "node test/kernel/regex.mjs"
+    "test:regex": "node test/kernel/regex.mjs",
+    "test:hash": "node test/kernel/hash.mjs"
   },
   "files": [
     "src",

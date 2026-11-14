@@ -7,7 +7,7 @@
  *
  *   yeet run scripts/apply-and-hold.mjs --src <base64 pfw-C> [--iface N] [--hold S]
  */
-import { ArrayMap, BpfObject, DataSec, LpmTrie, RingBuf } from "yeet:bpf";
+import { ArrayMap, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
 import { compile } from "#/clang.js";
 import { build } from "#/ac.js";
 import { LIMITS } from "#/isa.js";
@@ -45,6 +45,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("vm.bss", { kind: "data" })
   .bind("tt_cells", { kind: "array" })
   .bind("lpm", { kind: "lpm_trie" })
+  .bind("hashset", { kind: "hash" })
   .bind("re_goto", { kind: "array" })
   .bind("re_accept", { kind: "array" })
   .bind("decode_jmp", { kind: "prog_array" })
@@ -77,6 +78,12 @@ if (c.regex) {
     for (let b = 0; b < 256; b++) if (row[b]) await reGoto.update(0 * LIMITS.RE_STATES * 256 + s * 256 + b, row[b] & 0xffff);
     if (c.regex.accept[s]) await reAccept.update(0 * LIMITS.RE_STATES + s, BigInt(c.regex.accept[s]));
   }
+}
+
+/* Populate the `x in hash` exact set from --hashset "80,443,8080". */
+if (argv.hashset) {
+  const h = new HashMap(control, "hashset");
+  for (const v of String(argv.hashset).split(",").filter(Boolean)) await h.update((Number(v) >>> 0), 1);
 }
 
 /* Populate the `src in set` CIDR trie from --set "10.0.0.0/8,192.168.1.0/24". */

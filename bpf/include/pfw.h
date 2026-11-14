@@ -9,6 +9,7 @@
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
 #define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
+#define HASH_MAX     16384 /* max keys in the `x in hash` exact set (hashset) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -128,6 +129,7 @@ enum pfw_opcode {
     OP_REPLACE, /* overwrite every match of pattern reg in [cur, end) with pattern imm (same length) */
     OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums */
     OP_LPM,     /* ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) */
+    OP_HASH,    /* ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) */
     OP_COUNT_OPCODES,
 };
 
