@@ -48,10 +48,8 @@ static __always_inline int stage_reset(struct xdp_md *ctx, struct pkt *p, struct
  * packet does not parse or the state map is missing. A stage body follows, then
  * `bpf_tail_call(ctx, &decode_jmp, SLOT_NEXT); return XDP_PASS;`. */
 #define PFW_STAGE_ENTER(ctx)                                        \
-    void *data = (void *) (long) (ctx)->data;                       \
-    void *data_end = (void *) (long) (ctx)->data_end;               \
     struct pkt p = {};                                              \
-    if (!parse(data, data_end, &p)) return XDP_PASS;                \
+    if (!parse((ctx), &p)) return XDP_PASS;                         \
     __u32 zero = 0;                                                 \
     struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);      \
     if (!st) { passed++; return XDP_PASS; }                         \

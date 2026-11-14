@@ -5,7 +5,7 @@
  * element. This unit is the entry (pfw_xdp) and the matcher (pfw_match); the
  * tail-call decode stages are their own units under decode/.
  *
- * The machinery lives in bpf/include/<topic>/*.h, one responsibility each. The
+ * The machinery lives in topic folders under bpf/include/, one each. The
  * `static __always_inline` helpers inline into each program (the verifier sees
  * the same code as a single file); maps are defined once in core/maps.bpf.c and
  * referenced extern; send_rst is a real cross-unit function (action/rst.h). Each
@@ -39,10 +39,8 @@ char LICENSE[] SEC("license") = "GPL";
 SEC("xdp")
 int pfw_match(struct xdp_md *ctx)
 {
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
     struct pkt p = {};
-    if (!parse(data, data_end, &p)) { passed++; return XDP_PASS; }
+    if (!parse(ctx, &p)) { passed++; return XDP_PASS; }
     __u32 gen = active & (PFW_GENS - 1);
     struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &gen);
     if (!prog || prog->nops == 0) return XDP_PASS;
@@ -75,10 +73,8 @@ int pfw_xdp(struct xdp_md *ctx)
     if (!prog || prog->nops == 0)
         return XDP_PASS;
 
-    void *data = (void *) (long) ctx->data;
-    void *data_end = (void *) (long) ctx->data_end;
     struct pkt p = {};
-    if (!parse(data, data_end, &p)) {
+    if (!parse(ctx, &p)) {
         passed++;
         return XDP_PASS;
     }
