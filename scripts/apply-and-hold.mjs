@@ -45,6 +45,7 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("vm.bss", { kind: "data" })
   .bind("tt_cells", { kind: "array" })
   .bind("lpm", { kind: "lpm_trie" })
+  .bind("lpm6", { kind: "lpm_trie" })
   .bind("hashset", { kind: "hash" })
   .bind("bloom", { kind: "bloom_filter" })
   .bind("re_goto", { kind: "array" })
@@ -100,6 +101,23 @@ if (argv.set) {
     const [ip, p = "32"] = cidr.split("/");
     const data = ip.split(".").map((o) => Number(o) & 0xff);
     await trie.update({ prefixlen: Number(p), data }, 1);
+  }
+}
+
+/* Populate the `src6 in set6` IPv6 trie from --set6 "2001:db8::/32,::1/128". */
+if (argv.set6) {
+  const trie = new LpmTrie(control, "lpm6");
+  const toBytes = (ip) => {
+    const [head, tail] = ip.split("::");
+    const h = head ? head.split(":") : [], t = tail !== undefined ? (tail ? tail.split(":") : []) : null;
+    const groups = t === null ? h : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
+    const b = [];
+    for (const g of groups) { const n = parseInt(g || "0", 16) & 0xffff; b.push((n >> 8) & 0xff, n & 0xff); }
+    return b;
+  };
+  for (const cidr of String(argv.set6).split(",").filter(Boolean)) {
+    const [ip, p = "128"] = cidr.split("/");
+    await trie.update({ prefixlen: Number(p), data: toBytes(ip) }, 1);
   }
 }
 await new DataSec(control, "vm.bss").patch({ active: 0 });

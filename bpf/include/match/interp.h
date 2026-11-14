@@ -353,6 +353,20 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (bpf_map_peek_elem(&bloom, &e) == 0 ? FL_ZF : 0);
         break;
     }
+    case OP_LPM6: {
+        /* ZF = the IPv6 source (read from the packet, l3+8, 16 bytes network
+         * order) is in the lpm6 CIDR set. IPv6 only (version nibble == 6). */
+        __u32 l3 = (__u32) st->r[R_L3];
+        __u8 ver = 0;
+        if (bpf_xdp_load_bytes(c->xdp, l3, &ver, 1) || (ver >> 4) != 6)
+            break;
+        struct lpm6_key key = { .prefixlen = 128 };
+        if (bpf_xdp_load_bytes(c->xdp, l3 + 8, key.data, 16))
+            break;
+        __u32 *v = bpf_map_lookup_elem(&lpm6, &key);
+        fl = (fl & FL_FF) | (v ? FL_ZF : 0);
+        break;
+    }
     default:
         st->verdict = V_PASS;
         faults++;

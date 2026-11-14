@@ -24,7 +24,7 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [] } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [] } = {}) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
@@ -197,6 +197,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.LPM: zf = set.some((c) => (cur & c.mask) === (c.net & c.mask)); cf = false; break; /* src in the CIDR set */
         case OP.HASH: zf = hashset.has(cur & 0xffffffffn); cf = false; break; /* x in the exact hash set */
         case OP.BLOOM: zf = bloom.has(cur & 0xffffffffn); cf = false; break; /* x (probably) in the bloom set (modelled exact) */
+        case OP.LPM6: zf = set6.some((c) => (src6 & c.mask) === (c.net & c.mask)); cf = false; break; /* IPv6 src in the CIDR set */
         default: throw new Error("op not modelled: " + code);
       }
       r[REG.cur] = cur;

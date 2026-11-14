@@ -9,6 +9,7 @@
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
 #define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
+#define LPM6_MAX     4096 /* max prefixes in the `src6 in set6` IPv6 CIDR trie (lpm6) */
 #define HASH_MAX     16384 /* max keys in the `x in hash` exact set (hashset) */
 #define BLOOM_MAX    65536 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
@@ -133,6 +134,7 @@ enum pfw_opcode {
     OP_LPM,     /* ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) */
     OP_HASH,    /* ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) */
     OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
+    OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
     OP_COUNT_OPCODES,
 };
 

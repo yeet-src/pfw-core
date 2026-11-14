@@ -167,6 +167,17 @@ PFW_LINK struct {
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } lpm SEC(".maps");
 
+/* IPv6 CIDR set for `src6 in set6`: one host-loaded LPM trie over 16-byte
+ * addresses (network order), longest-prefix match. */
+struct lpm6_key { __u32 prefixlen; __u8 data[16]; };
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+    __uint(max_entries, LPM6_MAX);
+    __type(key, struct lpm6_key);
+    __type(value, __u32);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} lpm6 SEC(".maps");
+
 /* Exact-set membership for `x in hash`: a host-loaded set of u32 keys (ports,
  * 32-bit hashes/fingerprints, …). Value is unused (presence is the answer). */
 PFW_LINK struct {

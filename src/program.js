@@ -19,6 +19,23 @@ import { machine, V } from "#/interp.js";
 
 const VNAME = { [V.PASS]: "pass", [V.DROP]: "drop", [V.BAN]: "ban", [V.RST]: "rst" };
 const ipToU32 = (s) => s.split(".").reduce((a, o) => ((a << 8) | (Number(o) & 0xff)) >>> 0, 0) >>> 0;
+/* "2001:db8::1" -> 128-bit BigInt (handles one "::" run). */
+const ip6ToBig = (s) => {
+  const [head, tail] = s.split("::");
+  const h = head ? head.split(":") : [], t = tail !== undefined ? (tail ? tail.split(":") : []) : null;
+  const groups = t === null ? h : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
+  let v = 0n;
+  for (const g of groups) v = (v << 16n) | BigInt(parseInt(g || "0", 16) & 0xffff);
+  return v & ((1n << 128n) - 1n);
+};
+/* "2001:db8::/32" -> { net, mask } as 128-bit BigInt, for `src6 in set6`. */
+const cidr6NetMask = (cidr) => {
+  const [ip, p = "128"] = String(cidr).split("/");
+  const prefix = Number(p);
+  const full = (1n << 128n) - 1n;
+  const mask = prefix === 0 ? 0n : (full << BigInt(128 - prefix)) & full;
+  return { net: ip6ToBig(ip) & full, mask };
+};
 /* "A.B.C.D/prefix" -> { net, mask } as BigInt (host order), for `src in set`. */
 const cidrNetMask = (cidr) => {
   const [ip, p = "32"] = String(cidr).split("/");
@@ -55,7 +72,8 @@ export class Program {
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
     const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
-    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [] });
+    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
+      src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask) });
     return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow };
   }
 }

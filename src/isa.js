@@ -6,7 +6,7 @@ export const OP = {
   SCAN: 20, MPOS: 21, CMPSTR: 22, FINDB: 23, SKIPB: 24,
   PASS: 25, DROP: 26, COUNT: 27, LOG: 28, BAN: 29, RST: 30, FLOW: 31, MARK: 32, SLOAD: 33, SSTORE: 34,
   BUMP: 35, OR_I: 36, SHL_I: 37, SHR_I: 38, CIDR: 39, RPUSH: 40, RGET: 41, RLEN: 42,
-  REDACT: 43, REPLACE: 44, DNAT: 45, LPM: 46, HASH: 47, BLOOM: 48,
+  REDACT: 43, REPLACE: 44, DNAT: 45, LPM: 46, HASH: 47, BLOOM: 48, LPM6: 49,
 };
 
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each

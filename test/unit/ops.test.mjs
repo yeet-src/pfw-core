@@ -158,6 +158,11 @@ yeet.test("bloom assembles and runs (empty filter -> pass)", () => {
   expect("bloom", `        mov     %dport, %cur\n        bloom\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { dport: 1234 } });
 });
 
+/* ---- lpm6 (IPv6 set; host-loaded, empty here -> no match) ---- */
+yeet.test("lpm6 assembles and runs (empty set -> pass; non-v6 frame -> pass)", () => {
+  expect("lpm6", `        lpm6\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS);
+});
+
 /* ---- coverage gate ---- */
 yeet.test("every opcode was exercised", () => {
   const miss = Object.entries(OP).filter(([, v]) => !used.has(v)).map(([k]) => k);

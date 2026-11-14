@@ -56,6 +56,7 @@ export const inCidr = (a, cidr) => ({ kind: "incidr", a: E(a), cidr }); // `a in
 export const inSet = (a) => ({ kind: "inset", a: E(a) }); // `a in set` — the lpm_trie CIDR set
 export const inHash = (a) => ({ kind: "inhash", a: E(a) }); // `a in hash` — the exact hashset
 export const inBloom = (a) => ({ kind: "inbloom", a: E(a) }); // `a in bloom` — the probabilistic set
+export const inSet6 = () => ({ kind: "inset6", a: { kind: "num", text: "0" } }); // `src6 in set6` — the IPv6 CIDR set
 
 const arith = (op) => (a, b) => ({ kind: "arith", op, a: E(a), b: E(b) });
 export const add = arith("+"), sub = arith("-"), bor = arith("|"), bitand = arith("&"), shl = arith("<<"), shr = arith(">>");
