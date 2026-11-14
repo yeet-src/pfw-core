@@ -41,11 +41,50 @@ Keyed on the 5-tuple `struct flow_key` (`saddr[16]`, `daddr[16]`, `sport`,
 | `rl_tokens`, `rl_ts` | `rate` | token-bucket state |
 | `ring[16]`, `ring_head`, `ring_count` | `ring.push/get/len` (`rpush`/`rget`/`rlen`) | newest-wins ring (`RING_CAP = 16`) |
 | `ac_state`, `mask`, `gen` | `scan` / `%m` | automaton state carried across TCP segments |
-| `reasm*`, `filled`, `synned` | reassembly mode | contiguous-prefix TCP reassembly (`REASM_CAP = 2048`) |
+| `reasm*`, `filled`, `synned` | reassembly mode | a sliding `REASM_CAP = 2048`-byte window over the TCP stream (below) |
+| `h2_mode`, `h2_skip`, `h2_ins`, `h2_new` | `decode h2` | frame-parsing state (§8) |
 
 State **writes are deferred**: a `flow.state = N` (etc.) is written back after the
 program finishes, so it is visible on the *next* packet, not the one that set it.
 The reference interpreter models this exactly.
+
+### Per-source state
+
+Keyed on the source address alone (`struct src_key`: `addr[16]`, `family`) in the
+`sources` LRU hash (`SRC_MAX = 65536`). A flow entry dies with its 4-tuple; a
+source entry survives a reconnect from a new port. Each `struct source` carries:
+
+| field | op surface | meaning |
+|---|---|---|
+| `mark`, `rule`, `expires` | `ban` | the source ban: every packet from the address is dropped at the entry, on any port or protocol, until the TTL |
+| `user_state`, `state_expires` | `src.state` (`sload`/`sstore`, source scope) | a per-source state with a TTL |
+| `hits` | `src.count` (`bump`, source scope) | per-source hit counter |
+| `rl_tokens`, `rl_ts` | `src.rate` (`rate`, source scope) | one token bucket per source |
+
+These are the per-flow ops with the scope operand set (`reg = SCOPE_SRC` for
+`sload`/`bump`/`rate`, bit 32 of `imm` for `sstore`); writes are deferred the
+same way. An address is easy to spoof on a connectionless protocol: per-source
+state is only as trustworthy as the source address.
+
+### TCP reassembly
+
+In reassembly mode each segment is placed at its sequence offset in the flow's
+window, first-wins on overlap (the Linux policy), and the program inspects the
+contiguous prefix. The window **slides**: when the next in-order segment does not
+fit, the window shifts forward to make room, keeping the last `REASM_KEEP = 64`
+bytes (the maximum pattern length) so a pattern straddling the edge is still seen
+whole. A connection is therefore followed for its whole life.
+
+| situation | behaviour |
+|---|---|
+| out-of-order segment inside the window | placed; inspected once the gap fills |
+| out-of-order segment beyond the window | **dropped**, not reset — the sender retransmits it after the window has moved (`reasm_held`) |
+| a flow first seen mid-stream (no SYN) | reset (`reasm_midjoin`) |
+| one segment larger than the window | its first `REASM_CAP` bytes are inspected, the rest is not (`reasm_trunc`) — the same reach a per-packet `scan` has. Does not occur at a 1500-byte MTU |
+| a FIN segment carrying data | inspected like any other |
+
+`decode h2` connections do not slide here; the h2 stage consumes whole frames
+itself (§8).
 
 ### Host-loaded lookup maps
 

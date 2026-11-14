@@ -55,13 +55,13 @@ link for the complete entry.)
 | 26 | `OP_DROP` | rule = reg | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 27 | `OP_COUNT` | rule = reg | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 28 | `OP_LOG` | imm bytes at cur into the event | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
-| 29 | `OP_BAN` | rule = reg, ttl seconds = imm: mark the flow, drop | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 29 | `OP_BAN` | rule = reg, ttl seconds = imm: ban the source address (and mark the flow), drop | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 30 | `OP_RST` | rule = reg, ttl seconds = imm: mark the flow, answer with a RST | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 31 | `OP_FLOW` | cur = the flow's mark | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 32 | `OP_MARK` | mark = reg, ttl seconds = imm | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
-| 33 | `OP_SLOAD` | cur = this flow's user state | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
-| 34 | `OP_SSTORE` | this flow's user state = imm | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
-| 35 | `OP_BUMP` | cur = ++this flow's hit counter (per-connection rate limiting) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 33 | `OP_SLOAD` | cur = user state; reg = scope (this flow / the source) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 34 | `OP_SSTORE` | user state = imm low 32; reg = ttl; imm bit 32 = scope | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 35 | `OP_BUMP` | cur = ++hit counter; reg = scope (flow.count / src.count) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 36 | `OP_OR_I` | cur \|= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
 | 37 | `OP_SHL_I` | cur <<= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
 | 38 | `OP_SHR_I` | cur >>= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
@@ -77,7 +77,7 @@ link for the complete entry.)
 | 48 | `OP_BLOOM` | ZF = cur (low 32 bits) is (probably) in the `bloom` filter | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 49 | `OP_LPM6` | ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 50 | `OP_REDIRECT` | forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
-| 51 | `OP_RATE` | token-bucket rate limit on the flow: imm = rate/sec (low 32) \| burst (high 32); ZF = over the limit | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 51 | `OP_RATE` | token-bucket rate limit: imm = rate/sec (low 32) \| burst (high 32); reg = scope; ZF = over the limit | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 52 | `OP_ARG` | cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) \| default (low 32) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 53 | `OP_ARGC` | cur = argc (number of runtime args the host set) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 54 | `OP_FARG` | push cur as the next numeric format argument (for console/printk) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |

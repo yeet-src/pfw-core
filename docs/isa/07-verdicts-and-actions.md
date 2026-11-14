@@ -6,8 +6,8 @@
 | verdict | XDP action | side effects |
 |---|---|---|
 | `PASS` (or none) | `XDP_PASS` (or tail-call the rewrite stage if `rw_n`) | — |
-| `DROP` | `XDP_DROP` | `count_rule`, `dropped++` |
-| `BAN` | `XDP_DROP` | flow marked `MARK_DROP` for the TTL; later packets dropped at the entry fast path |
+| `DROP` | `XDP_DROP` | `count_rule`, `dropped++`. In reassembly/decode mode the **connection** is marked `MARK_DROP` too: TCP would retransmit the dropped segment after its bytes were consumed or slid out of the window, and it would then pass |
+| `BAN` | `XDP_DROP` | the **source address** is marked `MARK_DROP` in `sources` for the TTL (and so is the flow); every later packet from that address is dropped at the entry |
 | `RST` | `XDP_TX` (IPv4 TCP: a crafted RST) else `XDP_DROP` | flow marked `MARK_RST` for the TTL |
 
 Overrides and fast paths:
@@ -17,6 +17,12 @@ Overrides and fast paths:
 - **Shadow mode**: when `shadow` is set, a `DROP`/`BAN`/`RST` is still counted,
   logged, and its flow mark written, but the packet is returned `XDP_PASS`
   (`shadowed++`). `%shadow` also exposes the flag to the program.
+- **Source ban**: the first check after parsing. A packet whose source address
+  carries a live ban is dropped (`src_enforced++`) whatever its port or protocol;
+  an expired ban is lifted there. Shadow mode passes it and plants no ban.
+- **Reverse NAT**: a packet that is the reply on a connection `dnat` diverted has
+  its source restored to the address the client dialled and is passed; the
+  program does not run on it (`nat_reversed++`).
 - **Entry fast path**: before running the program, an established flow already
   carrying `MARK_DROP`/`MARK_RST` (and not expired) is enforced immediately
   (dropped or RST), honouring shadow mode. A fresh TCP SYN clears a stale mark in

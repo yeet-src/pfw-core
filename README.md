@@ -47,11 +47,19 @@ It can:
   (`find`/`skip`), anchor a compare (`starts`), jump past a marker (`after`),
   read big/little-endian integers (`load`), and unroll a bounded loop over
   length-prefixed records (`frame ... up to N`).
-- **Decode before matching** — normalize the stream through a front-end
-  (`decode h2` HPACK, `decode huffman`, or a loadable byte-transform table) so
-  signatures match the decoded bytes.
+- **Follow a TCP stream** — `reassemble` matches the stream, not the packet,
+  through a sliding window: a connection is followed for its whole life, and a
+  signature split across segments (or across the window's edge) is seen whole.
+- **Decode before matching** — normalize the stream through a front-end so
+  signatures match the decoded bytes. `decode h2` parses cleartext HTTP/2 frames
+  and HPACK (Huffman strings, the per-connection dynamic table, CONTINUATION) into
+  `name: value` lines; also `decode huffman`, or a loadable byte-transform table.
+- **Anchor a match** — `within(ptr, N)` reports only the patterns inside that
+  window (a header value, a frame), where `scan` accumulates.
 - **Keep per-connection state** — a user state machine (`flow.state`, with TTL),
   a hit counter (`flow.count`), and a 16-slot ring (`ring.push/get/len`).
+- **Keep per-source state** — the same, keyed on the source address so it
+  survives a reconnect: `src.state`, `src.count`, `src.rate(per_sec, burst)`.
 - **Match the source** — inline CIDR (`src in "10.0.0.0/8"`), a host-loaded v4/v6
   CIDR trie (`src in set`, `src6 in set6`), an exact set (`x in hash`), or a
   Bloom filter (`x in bloom`).
@@ -59,7 +67,8 @@ It can:
 - **Rewrite the packet** — overwrite a match in place: `redact(pat[, 'c'])` fills
   it, `replace(pat, "same-length")` swaps it (literal patterns, or fixed-length
   regex); the L4 checksum is fixed up.
-- **Steer the packet** — `dnat("a.b.c.d", port)` rewrites the destination,
+- **Steer the packet** — `dnat("a.b.c.d", port)` rewrites the destination (two-way:
+  replies are translated back, so a TCP connection diverted from its SYN works),
   `redirect(ifindex)` forwards it out another interface (`XDP_REDIRECT`).
 - **Factor logic into subroutines** — `fn name(a, b) { ... return <expr>; }`,
   called as a value/condition/statement; args in `%a0..%a6`, result in `%rv`;
@@ -78,7 +87,8 @@ It can:
   host (with a JS callback), `printk(...)` writes to the kernel trace pipe, and
   `log(n)` snapshots payload bytes onto a verdict event.
 - **Act** — `decide pass | drop | rst | ban | count` (`rst` sends a TCP reset,
-  `ban` blocklists the source for a TTL, `count` is a non-blocking tally).
+  `ban` bans the source address — every port, every connection — for a TTL,
+  `count` is a non-blocking tally).
 
 ## What to expect
 
@@ -320,8 +330,45 @@ list and the `pfw_prog` / `pfw_event` / `pfw_console` layouts are in
 
 ## Examples
 
-136 complete pfw-C programs live in [`examples/`](examples); every one is compiled
-by `npm run test:node`. A few, as you'd actually write them:
+[`examples/`](examples) is a small showcase: each program does something
+structurally different, and each is **behaviour-tested** — a realistic attack
+with the verdict and rule it must produce, realistic benign traffic (stock
+`curl`, a browser, a multipart upload, real captured TLS ClientHellos and DNS
+queries) that must pass, and a cross-check that runs every benign input through
+every program (`test/node/examples-behavior.mjs`, part of `npm run test:node`).
+
+| program | what it shows |
+|---|---|
+| [`crawlers.pfc`](examples/crawlers.pfc) | the minimal rule: a case-insensitive multi-pattern `scan` |
+| [`blocklist.pfc`](examples/blocklist.pfc) | `src in set` — a host-loaded CIDR trie |
+| [`sqli.pfc`](examples/sqli.pfc) | a scored WAF rule: regexes + literals in one scan, `after()` positions, per-source strikes |
+| [`http_router.pfc`](examples/http_router.pfc) | cursor parse of the request line, a `fn`, method × path × source policy |
+| [`json_depth.pfc`](examples/json_depth.pfc) | a pushdown automaton: `push`/`pop` tracking JSON nesting depth |
+| [`dns_tunnel.pfc`](examples/dns_tunnel.pfc) | `frame` walking the length-prefixed labels of a DNS name (UDP) |
+| [`tls_sni.pfc`](examples/tls_sni.pfc) | parsing a ClientHello down to the `server_name` extension |
+| [`heartbleed.pfc`](examples/heartbleed.pfc) | TLS record walk + a length-consistency check, `flow.state` as a latch |
+| [`os_fingerprint.pfc`](examples/os_fingerprint.pfc) | IP/TCP header field reads and arithmetic; observe-only |
+| [`syn_flood.pfc`](examples/syn_flood.pfc) | per-source rate limit and ban (`src.rate`, `src.count`) |
+| [`token_bucket.pfc`](examples/token_bucket.pfc) | per-connection `rate(per_sec, burst)` |
+| [`fsm.pfc`](examples/fsm.pfc) | a protocol state machine with `match` on `flow.state` |
+| [`port_knock.pfc`](examples/port_knock.pfc) | a multi-step state machine with TTLs |
+| [`dlp_redact.pfc`](examples/dlp_redact.pfc) | in-place rewrite: `redact` / `replace` on fixed-length regexes |
+| [`shadow_mode.pfc`](examples/shadow_mode.pfc) | dry-run enforcement (`shadow`) |
+| [`multi_tenant.pfc`](examples/multi_tenant.pfc) | one bytecode tuned per deployment with `argv` |
+| [`live_blocklist.pfc`](examples/live_blocklist.pfc), [`control_plane.pfc`](examples/control_plane.pfc) | live control: needles and dials the host changes at runtime (`kstr`, `knob`) |
+| [`h2_guard.pfc`](examples/h2_guard.pfc), [`http2_rbac.pfc`](examples/http2_rbac.pfc), [`rapid_reset.pfc`](examples/rapid_reset.pfc) | `decode h2`: matching HPACK-decoded HTTP/2 |
+| [`honeypot.pfc`](examples/honeypot.pfc), [`reroute.pfc`](examples/reroute.pfc) | steering: `dnat` / `redirect` |
+
+The last two rows (`decode h2`, `dnat`/`redirect`) are things the host
+interpreter does not model; those five are driven on live loopback by
+`test/kernel/examples.mjs` instead.
+
+[`contrib/`](contrib) holds another ~110 programs (web attack signatures, CVE
+probes, service guards, DLP, live control with `knob`, …). They **compile** —
+that is checked — but they are **not behaviour-tested**; treat them as starting
+points, not as rules to deploy. See [`contrib/README.md`](contrib/README.md).
+
+Two of the showcase, as you'd actually write them.
 
 **Reset AI crawlers by user-agent** ([`crawlers.pfc`](examples/crawlers.pfc)):
 
@@ -339,42 +386,19 @@ filter {
 arm per connection phase, no fall-through:
 
 ```c
-reassemble 7000;
 pattern helo = "HELO", auth = "AUTH ", admin = "CONFIG";
 filter {
+  if (proto != 6) decide pass;
+  if (dport != 7000) decide pass;
   if (len == 0) decide pass;
   match (flow.state) {
     case 0 { if (starts(payload, helo)) { flow.state = 1 for 60; decide pass; } decide drop("no_greeting"); }
-    case 1 { if (starts(payload, auth)) { flow.state = 2 for 300; decide pass; } decide drop("not_authed"); }
+    case 1 { if (starts(payload, auth)) { flow.state = 2 for 300; decide pass; } decide drop("not_authenticated"); }
     case 2 { if (starts(payload, admin)) decide rst("admin_blocked", 0); decide pass; }
     default { decide drop("bad_state"); }
   }
 }
 ```
-
-**Subroutines with args + a return value** ([`args.pfc`](examples/args.pfc)):
-
-```c
-nocase;
-pattern sqlmap = "sqlmap", nikto = "nikto";
-fn has_scanner(ptr) {                       // ptr is a packet pointer
-  if (any(scan(ptr, 1024), sqlmap, nikto)) return 1;
-  return 0;
-}
-filter {
-  if (dport != 80) decide pass;
-  if (has_scanner(payload)) decide ban("scanner", 3600);
-  decide pass;
-}
-```
-
-Highlights across the set — web attacks (`log4shell`, `sqli`, `xss`, `ssrf_metadata`,
-`path_traversal`, `jwt_none`, `xxe`), bots/DoS (`scanner_ban`, `http_flood`,
-`rapid_reset`, `slowloris`, `honeypot`, `dns_ratelimit`), protocols/services
-(`tls_sni`, `grpc_gate`, `redis_guard`, `smtp_filter`, `ssh_bruteforce`), DLP
-(`card_leak`, `ssn_leak`, `secret_scan`, `canary`, `banner_hide`), and network
-(`anti_spoof`, `geoblock`, `tor_block`, `conn_limit`), capped by
-[`waf_suite.pfc`](examples/waf_suite.pfc), a full scored WAF built from subroutines.
 
 ## What's in the VM
 
@@ -405,7 +429,7 @@ Highlights across the set — web attacks (`log4shell`, `sqli`, `xss`, `ssrf_met
 make bpf              # compile the eBPF backend to bin/vm.bpf.o
 npm test              # the full host suite: test:node then test:unit
 npm run test:unit     # yeet test test/unit — behavioral conformance
-npm run test:node     # file-reading guards (isa<->header sync, every example compiles)
+npm run test:node     # file-reading guards (isa<->header sync, every program compiles, examples behave)
 npm run test:verify   # load through yeetd so this kernel's verifier judges it
 npm run test:kernel   # kernel differential: reference vs real kernel on loopback
 ```
@@ -413,15 +437,18 @@ npm run test:kernel   # kernel differential: reference vs real kernel on loopbac
 Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 `test:hash`, `test:bloom`, `test:lpm6`, `test:redirect`, `test:rate`, `test:argv`,
 `test:shadow`, `test:console`, `test:printk`, `test:stack`, `test:call`,
-`test:args`, `test:regex-rewrite`) each load a program through `yeetd` and assert
+`test:args`, `test:regex-rewrite`, `test:source`, `test:nat`, `test:reasm`,
+`test:h2`, and `test:examples-kernel`, which drives the shipped example files with
+curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
 
 - **`test/unit/*.test.mjs`** (under `yeet test`): real programs through the
   reference interpreter, one file per feature, plus `ops.test.mjs` (every opcode,
   with a coverage gate), the front-end differentials (`dsl`/`fp` == source), and
   `fuzz.test.mjs`.
-- **`test/node/*.mjs`**: `check-isa.mjs` (the `isa.js` ↔ `pfw.h` enums agree) and
-  `examples.mjs` (every `examples/*.pfc` compiles).
+- **`test/node/*.mjs`**: `check-isa.mjs` (the `isa.js` ↔ `pfw.h` enums agree),
+  `examples.mjs` (every `.pfc` in `examples/` and `contrib/` compiles) and
+  `examples-behavior.mjs` (each `examples/` program does what its header says).
 - **`test/kernel/*.mjs`**: the differential and per-feature kernel tests — load,
   apply, send loopback traffic, read the verdict from the event stream, assert it
   matches the reference.

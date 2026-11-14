@@ -15,13 +15,16 @@
 | `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
 | `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 32`) |
 | `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 16`) |
+| `sources` | LRU_HASH | `src_key` → `source` | per-source state and the source ban (`SRC_MAX = 65536`) |
+| `nat` | LRU_HASH | `nat_key` → `nat_val` | reply path of `dnat`: reply tuple → original destination (`NAT_MAX = 16384`) |
+| `h2conns` | LRU_HASH | `flow_key` → `h2conn` | `decode h2` dynamic tables (`H2_CONNS = 1024`) |
 | `state` | PERCPU_ARRAY (1) | u32 → `pfw_state` | per-CPU execution state |
 | `stack` | PERCPU_ARRAY (1) | u32 → `vmstack` | the data stack |
 | `counters` | PERCPU_ARRAY (64) | u32 → u64 | per-rule counters |
 | `decide_hist` | PERCPU_ARRAY (16) | u32 → u64 | decision-time histogram |
 | `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
-| `decode_jmp` | PROG_ARRAY (6) | u32 → prog | tail-call targets (§8) |
+| `decode_jmp` | PROG_ARRAY (7) | u32 → prog | tail-call targets (§8) |
 
 ### Globals (in `vm.bss`, host-readable/patchable)
 
@@ -29,7 +32,9 @@
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
 - Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,
-  reasm_midjoin, reasm_over`), `decide_ns`, `scanned_bytes`, `flows_created`.
+  reasm_midjoin, reasm_over, reasm_slid, reasm_held, reasm_trunc`), the h2 counters
+  (`h2_blocks, h2_raw, h2_unresolved, h2_trunc, h2_failed`), `src_enforced`,
+  `nat_reversed`, `decide_ns`, `scanned_bytes`, `flows_created`.
 
 ### Event records
 
