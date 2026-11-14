@@ -20,6 +20,7 @@
 #define STRARG_CAP   256  /* bytes captured per %s arg (power of two) */
 #define PFW_FMTS     8    /* printk format strings a program can hold (in-kernel, for bpf_trace_printk) */
 #define PFW_FMT_CAP  64   /* bytes per printk format string */
+#define STACK_CAP    64   /* data-stack depth (push/pop), power of two */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -91,6 +92,8 @@ enum pfw_reg {
     R_S4, R_S5, R_S6, R_S7, /* more scratch, for `let` locals */
     R_SADDR,     /* IPv4 source address, host byte order (0 for IPv6) */
     R_SHADOW,    /* the shadow-mode flag (set from the host), readable as %shadow */
+    R_SP,        /* data-stack pointer (push/pop), readable/writable as %sp */
+    R_BP,        /* data-stack base pointer, readable/writable as %bp */
     /* The file is padded to a power of two: pfw_step bounds the index
      * with `& (NREGS - 1)`, which is only a modulo when NREGS is one.
      * (At 20 the mask was 0b10011 and %dport read as %payload.) */
@@ -151,6 +154,8 @@ enum pfw_opcode {
     OP_FARGS,   /* capture a %s string: cur is a packet offset, copy up to imm bytes */
     OP_CONSOLE, /* emit a console event to the host: imm = format id, args = the pushed fargs */
     OP_PRINTK,  /* bpf_trace_printk to the kernel trace pipe: imm = printk format id, up to 3 numeric fargs */
+    OP_PUSH,    /* push cur onto the data stack (stack map), sp++ */
+    OP_POP,     /* sp--, cur = top of the data stack */
     OP_COUNT_OPCODES,
 };
 
@@ -249,6 +254,9 @@ struct pfw_event {
     __u8 daddr[16];
     __u8 data[LOG_CAP];
 };
+
+/* The VM data stack (push/pop), one per CPU in the `stack` map. */
+struct vmstack { __u64 s[STACK_CAP]; };
 
 /* A console() message: the format id, the numeric args, and the captured %s
  * strings. The host maps fmtid -> format string and prints it. */

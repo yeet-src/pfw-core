@@ -110,6 +110,14 @@ PFW_LINK struct {
 } console_ring SEC(".maps");
 __attribute__((used)) static const struct pfw_console __pfw_console_anchor;
 
+/* The VM data stack (push/pop), one struct vmstack per CPU. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, 1);
+    __type(key, __u32);
+    __type(value, struct vmstack);
+} stack SEC(".maps");
+
 struct pfw_state {
     __u64 r[NREGS];
     __u32 pc;

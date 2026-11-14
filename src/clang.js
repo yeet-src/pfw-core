@@ -36,7 +36,8 @@ import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { compileRegexes, fixedLength } from "#/regex.js";
 
-const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src", "shadow"]);
+const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src", "shadow", "sp", "bp"]);
+const WRITABLE_REGS = new Set(["sp", "bp"]); // registers a program may assign to
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
 
 class CError extends Error {
@@ -730,6 +731,7 @@ function codegen(ast) {
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
+    if (e.kind === "call" && e.name === "pop") { if (e.args.length) die("pop() takes no args", e.line); return bld.pop(); }
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     die(`\`${e.kind === "ref" ? e.name : e.kind}\` is not a readable value`, e.line);
@@ -754,6 +756,7 @@ function codegen(ast) {
       bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
     }
     if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc"].includes(e.kind)) return value(e);
+    if (e.kind === "call" && e.name === "pop") return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
     return loadPtr(e);
@@ -867,6 +870,7 @@ function codegen(ast) {
         materialize(s.init); return bld.movFromCur(reg);
       }
       case "assign": {
+        if (WRITABLE_REGS.has(s.name)) { materialize(s.init); return bld.movFromCur(REG[s.name]); }
         if (!scratch.has(s.name)) die(`\`${s.name}\` is not a local (declare it with \`let\`)`, s.line);
         materialize(s.init); return bld.movFromCur(scratch.get(s.name));
       }
@@ -954,6 +958,11 @@ function codegen(ast) {
           }
           return bld.console(id);
         }
+        if (c.name === "push") {
+          if (c.args.length !== 1) die("push(value)", s.line);
+          materialize(c.args[0]); return bld.push();
+        }
+        if (c.name === "pop") { if (c.args.length) die("pop() takes no args", s.line); return bld.pop(); }
         if (c.name === "printk") {
           if (!c.args.length || c.args[0].kind !== "string") die('printk("format", args...)', s.line);
           const fmt = String.fromCharCode(...unescapeStr(c.args[0].text));

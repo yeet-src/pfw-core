@@ -170,6 +170,11 @@ yeet.test("rate assembles and runs (no bucket -> allowed -> pass)", () => {
   expect("rate", `        rate    $10, $20\n        je      over\n        pass\n over:  rst     $1, $0`, V.PASS);
 });
 
+/* ---- push / pop (data stack) ---- */
+yeet.test("push then pop round-trips a value through the stack", () => {
+  expectRst("push/pop", eq("        and     $0, %cur\n        add     $42, %cur\n        push\n        and     $0, %cur\n        pop", 42));
+});
+
 /* ---- lpm (set membership; trie is host-loaded, empty here -> no match) ---- */
 yeet.test("lpm assembles and runs (empty set -> pass)", () => {
   expect("lpm", `        mov     %src, %cur\n        lpm\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { saddr: (10 << 24) | 1 } });

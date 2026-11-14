@@ -409,6 +409,12 @@ export function assemble(source) {
       } else if (m === "lpm6") {
         want(0);
         emit(OP.LPM6);
+      } else if (m === "push") {
+        want(0);
+        emit(OP.PUSH);
+      } else if (m === "pop") {
+        want(0);
+        emit(OP.POP);
       } else if (m === "rate") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("rate is `rate $PER_SECOND, $BURST`");

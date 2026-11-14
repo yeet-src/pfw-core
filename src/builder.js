@@ -122,6 +122,8 @@ export class Builder {
   fargs(cap) { return this.op(OP.FARGS, 0, BigInt(cap)); } // capture a %s string from the packet at cur (up to cap bytes)
   console(fmtid) { return this.op(OP.CONSOLE, 0, BigInt(fmtid)); } // emit a console message (format id) to the host
   printk(fmtid) { return this.op(OP.PRINTK, 0, BigInt(fmtid)); } // bpf_trace_printk the in-kernel format (id) with the pushed numeric fargs
+  push() { return this.op(OP.PUSH); } // push cur onto the data stack
+  pop() { return this.op(OP.POP); } // pop the data stack into cur
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -256,7 +258,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;
     case OP.MARK: return `mark ${op.reg} ${op.imm}s`;
     case OP.SSTORE: return op.reg ? `sstore ${op.imm}, ${op.reg}s` : `sstore ${op.imm}`;
-    case OP.PASS: case OP.FLOW: case OP.SLOAD: case OP.BUMP: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.HASH: case OP.BLOOM: case OP.LPM6: case OP.END:
+    case OP.PASS: case OP.FLOW: case OP.SLOAD: case OP.BUMP: case OP.RPUSH: case OP.RGET: case OP.RLEN: case OP.LPM: case OP.HASH: case OP.BLOOM: case OP.LPM6: case OP.PUSH: case OP.POP: case OP.END:
       return name;
     default: return op.imm ? `${name} ${op.imm}` : name;
   }

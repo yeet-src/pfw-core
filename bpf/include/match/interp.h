@@ -453,6 +453,20 @@ static long pfw_step(__u32 i, void *pctx)
         st->fargn = 0;
         break;
     }
+    case OP_PUSH: { /* push cur onto the data stack (stack map), sp++ */
+        __u32 z = 0;
+        struct vmstack *vs = bpf_map_lookup_elem(&stack, &z);
+        __u32 sp = (__u32) st->r[R_SP];
+        if (vs && sp < STACK_CAP) { vs->s[sp & (STACK_CAP - 1)] = cur; st->r[R_SP] = sp + 1; }
+        break;
+    }
+    case OP_POP: { /* sp--, cur = top of the data stack */
+        __u32 z = 0;
+        struct vmstack *vs = bpf_map_lookup_elem(&stack, &z);
+        __u32 sp = (__u32) st->r[R_SP];
+        if (vs && sp > 0) { sp--; cur = vs->s[sp & (STACK_CAP - 1)]; st->r[R_SP] = sp; }
+        break;
+    }
     case OP_REDIRECT:
         /* Record the target ifindex; the actual bpf_redirect() is issued in
          * finish() on the pass path (it returns XDP_REDIRECT, which must be the

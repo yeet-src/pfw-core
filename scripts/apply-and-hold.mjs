@@ -47,6 +47,7 @@ if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(
 const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
   .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
+  .bind("stack", { kind: "percpu_array" })
   .bind("programs", { kind: "array" })
   .bind("ac_goto", { kind: "array" })
   .bind("ac_fail", { kind: "array" })

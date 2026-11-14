@@ -1,0 +1,24 @@
+// The VM data stack: push(v) / pop() backed by a per-CPU stack map, with %sp
+// (stack pointer) and %bp (base pointer). It gives a program scratch space beyond
+// the fixed registers — stash intermediate values, save/restore across a block,
+// or build a scratch calling convention. push stores %cur and bumps %sp; pop
+// lowers %sp and loads %cur; set %bp = %sp to mark a frame and restore %sp = %bp
+// to unwind it.
+//
+// Here: stash a couple of header fields on the stack, mark a frame, do some
+// throwaway work, then unwind — and decide using the saved values (LIFO).
+filter {
+  if (proto != 6) return pass;
+
+  push(sport);           // save the source port
+  push(dport);           // save the destination port
+  bp = sp;               // mark the frame
+
+  push(len);             // ... some scratch work above the frame ...
+  sp = bp;               // unwind back to the marked frame (discard the scratch)
+
+  let d = pop();         // dest port (pushed last of the saved pair)
+  let s = pop();         // source port
+  if (d == 22 && s == d) return drop("ssh_loopback");
+  return pass;
+}

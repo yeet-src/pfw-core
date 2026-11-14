@@ -36,6 +36,7 @@ export function machine({ asm, tables, regex = null }) {
     r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
     const fargs = [], fstrs = [], consoleMsgs = []; /* OP_FARG numeric + OP_FARGS string buffers + collected console() messages */
+    const hstack = new Array(64).fill(0n); /* the data stack (push/pop), %sp indexes it */
     const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
     let ringHead = flow.ringHead ?? 0, ringCount = flow.ringCount ?? 0;
     /* Per-flow scalars the program reads (mark, user_state, hits). Writes are
@@ -226,6 +227,8 @@ export function machine({ asm, tables, regex = null }) {
         }
         case OP.CONSOLE: consoleMsgs.push({ fmtid: Number(imm), nums: fargs.splice(0), strs: fstrs.splice(0) }); break; /* emit a console message */
         case OP.PRINTK: fargs.splice(0); break; /* kernel-only: bpf_trace_printk to the trace pipe; host no-op (clears args) */
+        case OP.PUSH: { const sp = Number(r[REG.sp]); if (sp < 64) { hstack[sp] = cur; r[REG.sp] = BigInt(sp + 1); } break; } /* push cur, sp++ */
+        case OP.POP: { let sp = Number(r[REG.sp]); if (sp > 0) { sp--; cur = hstack[sp]; r[REG.sp] = BigInt(sp); } break; } /* sp--, cur = top */
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
           const rate = Number(imm & 0xffffffffn), cap = Number((imm >> 32n) & 0xffffffffn) * RL_SCALE;
