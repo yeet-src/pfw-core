@@ -81,7 +81,7 @@ export class Builder {
   jf(l) { return this.op(OP.JF, 0, 0n, { label: l }); }
 
   // ---- patterns ----
-  scan(len) { return this.op(OP.SCAN, 0, len); }
+  scan(len) { return this.op(OP.SCAN, 0, len); } // runs AC (literals) + the regex DFA, both into %m
   mpos(pat) { return this.op(OP.MPOS, pat); }
   cmpstr(pat) { return this.op(OP.CMPSTR, pat); }
   findb(byte, len) { return this.op(OP.FINDB, byte & 0xff, len); }
@@ -138,7 +138,17 @@ export class Builder {
     if (bytes.length > LIMITS.PAT_CAP) fail(`pattern longer than ${LIMITS.PAT_CAP} bytes`);
     if (this.patterns.length >= LIMITS.MAX_PATS) fail(`more than ${LIMITS.MAX_PATS} patterns`);
     const id = this.patterns.length;
-    this.patterns.push({ id, name, bytes, text });
+    this.patterns.push({ id, name, kind: "literal", bytes, text });
+    this.patByName.set(name, id);
+    return id;
+  }
+  /* Declare a regex pattern → bit id (shares the %m bit space with literals; the
+   * compiler builds these into a DFA, AC skips them). */
+  repat(name, src) {
+    if (this.patByName.has(name)) fail(`pattern \`${name}\` declared twice`);
+    if (this.patterns.length >= LIMITS.MAX_PATS) fail(`more than ${LIMITS.MAX_PATS} patterns`);
+    const id = this.patterns.length;
+    this.patterns.push({ id, name, kind: "regex", src, bytes: [] });
     this.patByName.set(name, id);
     return id;
   }

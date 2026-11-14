@@ -45,6 +45,8 @@ const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
   .bind("vm.bss", { kind: "data" })
   .bind("tt_cells", { kind: "array" })
   .bind("lpm", { kind: "lpm_trie" })
+  .bind("re_goto", { kind: "array" })
+  .bind("re_accept", { kind: "array" })
   .bind("decode_jmp", { kind: "prog_array" })
   .attach("pfw_decode", { kind: "prog_array", map: "decode_jmp", index: 0 })
   .attach("pfw_match", { kind: "prog_array", map: "decode_jmp", index: 1 })
@@ -65,6 +67,17 @@ for (const [k, next] of tables.edges) await acGoto.update(0 * LIMITS.AC_STATES *
 for (const [s, f] of tables.fails) await acFail.update(s, f & 0xffff);
 for (const [s, m] of tables.accepts) await acAccept.update(s, BigInt(m));
 await new ArrayMap(control, "programs").update(0, progValue(c.program, 1));
+
+/* Load the regex DFA (if the program has `regex` patterns): complete transition
+ * table + per-state accept mask, both gen 0. */
+if (c.regex) {
+  const reGoto = new ArrayMap(control, "re_goto"), reAccept = new ArrayMap(control, "re_accept");
+  for (let s = 0; s < c.regex.nstates; s++) {
+    const row = c.regex.trans[s];
+    for (let b = 0; b < 256; b++) if (row[b]) await reGoto.update(0 * LIMITS.RE_STATES * 256 + s * 256 + b, row[b] & 0xffff);
+    if (c.regex.accept[s]) await reAccept.update(0 * LIMITS.RE_STATES + s, BigInt(c.regex.accept[s]));
+  }
+}
 
 /* Populate the `src in set` CIDR trie from --set "10.0.0.0/8,192.168.1.0/24". */
 if (argv.set) {

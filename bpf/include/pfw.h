@@ -9,6 +9,7 @@
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
 #define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
+#define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */

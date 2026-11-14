@@ -16,7 +16,7 @@ import { OP, REG } from "#/isa.js";
 const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
 export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
 
-export function machine({ asm, tables }) {
+export function machine({ asm, tables, regex = null }) {
   const ops = asm.program.ops, pats = asm.program.pats;
   const goto_ = new Map(tables.edges), fail = new Map(tables.fails), accept = new Map(tables.accepts);
   /* nocase folds ASCII upper→lower; the automaton is built folded (ac.js), so
@@ -101,11 +101,16 @@ export function machine({ asm, tables }) {
         case OP.JF: if (ff) { ff = false; jump(true); } break;
         case OP.SCAN: {
           const w = window(cur, Number(imm > 2048n ? 2048n : imm));
+          let rs = 0;
           if (w) for (let k = 0; k < w.length; k++) {
-            const acc = acStep(w[k]);
+            const acc = acStep(w[k]);                 // Aho-Corasick over literal patterns
             const fresh = acc & ~r[REG.m];
             r[REG.m] |= acc;
             for (let b = 0; b < 64; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
+            if (regex) {                              // regex DFA over regex patterns, same window
+              rs = regex.trans[rs][fold(w[k])];
+              r[REG.m] |= regex.accept[rs];
+            }
           }
           break;
         }

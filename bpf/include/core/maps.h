@@ -167,6 +167,24 @@ PFW_LINK struct {
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } lpm SEC(".maps");
 
+/* Regex DFA (fuzzy matching): a complete transition table (re_goto, key =
+ * gen*RE_STATES*256 + state*256 + byte -> next state) and a per-state accept
+ * bitmask (re_accept). The host builds these from `regex` patterns; the scan's
+ * OP_RESCAN walks them one byte per step, ORing accept bits into %m. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_GENS * RE_STATES * 256);
+    __type(key, __u32);
+    __type(value, __u16);
+} re_goto SEC(".maps");
+
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_GENS * RE_STATES);
+    __type(key, __u32);
+    __type(value, __u64);
+} re_accept SEC(".maps");
+
 /* A zeroed flow lives in rodata, not on the 512-byte BPF stack: the flow
  * struct now carries a REASM_CAP buffer and will not fit as a local. */
 PFW_LINK const struct flow zero_flow;

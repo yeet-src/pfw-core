@@ -17,7 +17,8 @@ export function build(patterns, nocase = false) {
   const accept = [0n];
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  for (const { id, bytes } of patterns) {
+  for (const { id, bytes, kind } of patterns) {
+    if (kind === "regex") continue; /* regex patterns are matched by the DFA, not the automaton */
     let s = 0;
     for (const raw of bytes) {
       const b = fold(raw);

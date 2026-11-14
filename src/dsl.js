@@ -122,6 +122,8 @@ export const pattern = (name, def) => ({
   def: typeof def === "string" ? { kind: "string", text: def } : { kind: "bytes", bytes: def.map((b) => num(b)) },
 });
 export const filter = (...stmts) => ({ _part: "filter", stmts: stmts.flat() });
+/** regex(name, "pattern"): a regex pattern matched by scan (via the DFA). */
+export const regex = (name, src) => ({ _part: "regex", name, src });
 
 /** Assemble program parts into an AST and compile it (same result as compile()). */
 export function program(...parts) {
@@ -132,6 +134,7 @@ export function program(...parts) {
       case "reasm": ast.reasm = true; if (p.port) ast.reasmDport = p.port; break;
       case "decode": ast.decode = p.kind; ast.reasm = true; if (p.port) ast.reasmDport = p.port; break;
       case "pattern": ast.patterns.push({ name: p.name, def: p.def }); break;
+      case "regex": ast.patterns.push({ name: p.name, def: { kind: "regex", src: p.src } }); break;
       case "filter": ast.body = p.stmts; break;
       default: throw new Error("not a program part: " + JSON.stringify(p));
     }

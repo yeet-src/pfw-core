@@ -25,7 +25,7 @@ export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [
 
 export const LIMITS = {
   MAX_OPS: 8192, MAX_PATS: 64, PAT_CAP: 64, NRULES: 64, GENS: 2,
-  AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256,
+  AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256, RE_STATES: 1024,
 };
 
 export const VERDICT = { 0: "none", 1: "pass", 2: "drop", 3: "ban", 4: "rst" };

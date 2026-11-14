@@ -173,6 +173,7 @@ static long pfw_step(__u32 i, void *pctx)
             scanned_bytes += n;
             c->scan_off = (__u32) cur;
             c->scan_len = n;
+            c->re_state = 0;          /* ac_step also walks the regex DFA */
             bpf_loop(n, ac_step, c, 0);
         }
         break;

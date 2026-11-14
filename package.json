@@ -20,7 +20,8 @@
     "bpf": "make bpf",
     "test:rewrite": "node test/kernel/rewrite.mjs",
     "test:dnat": "node test/kernel/dnat.mjs",
-    "test:lpm": "node test/kernel/lpm.mjs"
+    "test:lpm": "node test/kernel/lpm.mjs",
+    "test:regex": "node test/kernel/regex.mjs"
   },
   "files": [
     "src",

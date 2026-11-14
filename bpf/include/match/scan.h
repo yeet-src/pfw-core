@@ -63,6 +63,21 @@ resolved:
             }
         }
     }
+    /* Same byte through the regex DFA (complete table, no failure links). Empty
+     * for programs with no regex patterns, so it's a no-op then; otherwise it ORs
+     * the matched regexes' bits into %m. Folded into the scan so there is one
+     * bpf_loop, not two (a second nested loop blows the verifier budget). */
+    {
+        __u32 rs = c->re_state & (RE_STATES - 1);
+        __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b;
+        __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk);
+        rs = rn ? (*rn & (RE_STATES - 1)) : 0;
+        c->re_state = rs;
+        __u32 rak = c->gen * RE_STATES + rs;
+        __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak);
+        if (racc && *racc)
+            st->r[R_M] |= *racc;
+    }
     return 0;
 }
 

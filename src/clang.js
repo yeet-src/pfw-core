@@ -34,6 +34,7 @@
 import { Builder, opText } from "#/builder.js";
 import { DECODE, REG } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
+import { compileRegexes } from "#/regex.js";
 
 const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src"]);
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
@@ -488,6 +489,13 @@ function parse(toks) {
       decode = kind; reasm = true;
     } else if (isKw("pattern")) {
       parsePatternDecl();
+    } else if (isKw("regex")) {
+      next();
+      const name = eat("ident").value;
+      eat("punct", "=");
+      if (peek().type !== "string") err('regex is `regex NAME = "..."`');
+      patterns.push({ name, def: { kind: "regex", src: next().value } });
+      eat("punct", ";");
     } else if (isKw("macro")) {
       next();
       const name = eat("ident").value;
@@ -555,6 +563,7 @@ function codegen(ast) {
   /* Register every declared pattern with the Builder up front, so patId works
    * wherever the body references one. */
   for (const p of ast.patterns) {
+    if (p.def.kind === "regex") { bld.repat(p.name, p.def.src); continue; }
     const bytes = p.def.kind === "string"
       ? unescapeStr(p.def.text)
       : p.def.bytes.map((b) => (b.kind === "num" ? Number(b.text.startsWith("0x") ? parseInt(b.text, 16) : b.text) : charImm(b.text.replace(/^'|'$/g, ""))));
@@ -902,7 +911,14 @@ export function compileAst(ast) {
   const r = bld.finalize();
   const asm = r.listing.map((l) => "        " + l.text).join("\n");
   if (!r.ok) return { ok: false, errors: r.errors.map((e) => ({ line: 0, text: `internal: ${e.text}` })), asm };
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase };
+  /* Compile the regex patterns into one DFA (null if there are none). */
+  let regex = null;
+  const regexPats = r.patterns.filter((p) => p.kind === "regex");
+  if (regexPats.length) {
+    try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
+    catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
+  }
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */

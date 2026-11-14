@@ -36,6 +36,7 @@ export class Program {
     this.rules = compiled.rules;
     this.listing = compiled.listing;
     this.nocase = compiled.nocase;
+    this.regex = compiled.regex ?? null;
     this.asm = compiled.asm;
     this._run = null;
   }
@@ -49,7 +50,7 @@ export class Program {
   /** Run the program through the reference interpreter.
    *  frame: the bytes; opts: { payload=0, proto=6, dport=80, src|saddr, flow, set } */
   exec(frame, opts = {}) {
-    this._run ??= machine({ asm: { program: this.program }, tables: this.tables() });
+    this._run ??= machine({ asm: { program: this.program }, tables: this.tables(), regex: this.regex });
     const { payload = 0, proto = 6, dport = 80, flow = {} } = opts;
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
     const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */

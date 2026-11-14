@@ -22,6 +22,7 @@ struct pfw_ctx {
     __u32 pat;      /* cmpstr: the pattern index */
     __u32 eq;       /* cmpstr: still equal */
     __u32 count;    /* skipb: bytes skipped */
+    __u32 re_state; /* rescan: current regex DFA state, carried across bytes */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */
     struct flow *flow; /* the flow whose reasm buffer backs reads in reasm mode */
 };
