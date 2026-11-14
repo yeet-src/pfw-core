@@ -1,0 +1,20 @@
+// Kernel-side debug with printk(): bpf_trace_printk to the kernel trace pipe,
+// printf-style. Unlike console() (which ships messages to JS over a ring),
+// printk() writes straight to /sys/kernel/debug/tracing/trace_pipe — read it with
+// `sudo cat /sys/kernel/debug/tracing/trace_pipe`. It's the quickest way to see
+// what a rule is doing from the kernel's side while developing. The format lives
+// in the program; up to 3 numeric args (%d %u %x %c); %s is console-only.
+//
+// Here: trace why each connection was reset, so you can watch decisions live.
+nocase;
+reassemble 8080;
+pattern sqlmap = "sqlmap";
+filter {
+  if (dport != 80) return pass;
+  if (scan(payload, 1460) & sqlmap) {
+    printk("pfw: scanner from sport %d -> reset", sport);
+    return rst("scanner", 0);
+  }
+  printk("pfw: allow :%d len %d", dport, len);
+  return pass;
+}

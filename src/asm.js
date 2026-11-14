@@ -435,6 +435,10 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("console is `console $FMTID`");
         emit(OP.CONSOLE, 0, numberOf(a.text, "fmtid") & 0xffffffffn);
+      } else if (m === "printk") {
+        want(1);
+        if (a.kind !== "imm") fail("printk is `printk $FMTID`");
+        emit(OP.PRINTK, 0, numberOf(a.text, "fmtid") & 0xffffffffn);
       } else if (m === "findb") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("findb is `findb $BYTE, $LEN`");

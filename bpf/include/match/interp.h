@@ -443,6 +443,16 @@ static long pfw_step(__u32 i, void *pctx)
         console_emit(c->xdp, st, (__u32) imm);
         st->fargn = 0;
         break;
+    case OP_PRINTK: { /* bpf_trace_printk to the kernel trace pipe (up to 3 numeric args) */
+        const char *fmt = (const char *) p->fmts[(__u32) imm & (PFW_FMTS - 1)];
+        __u32 n = st->fargn;
+        if (n == 0) bpf_trace_printk(fmt, PFW_FMT_CAP);
+        else if (n == 1) bpf_trace_printk(fmt, PFW_FMT_CAP, st->fargs[0]);
+        else if (n == 2) bpf_trace_printk(fmt, PFW_FMT_CAP, st->fargs[0], st->fargs[1]);
+        else bpf_trace_printk(fmt, PFW_FMT_CAP, st->fargs[0], st->fargs[1], st->fargs[2]);
+        st->fargn = 0;
+        break;
+    }
     case OP_REDIRECT:
         /* Record the target ifindex; the actual bpf_redirect() is issued in
          * finish() on the pass path (it returns XDP_REDIRECT, which must be the

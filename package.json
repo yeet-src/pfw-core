@@ -30,7 +30,8 @@
     "test:argv": "node test/kernel/argv.mjs",
     "test:regex-rewrite": "node test/kernel/regex-rewrite.mjs",
     "test:shadow": "node test/kernel/shadow.mjs",
-    "test:console": "node test/kernel/console.mjs"
+    "test:console": "node test/kernel/console.mjs",
+    "test:printk": "node test/kernel/printk.mjs"
   },
   "files": [
     "src",

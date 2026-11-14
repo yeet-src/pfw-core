@@ -18,6 +18,8 @@
 #define FARGS_MAX    4    /* numeric format args a console()/printk() call can carry */
 #define FSTR_MAX     2    /* %s string args a call can carry */
 #define STRARG_CAP   256  /* bytes captured per %s arg (power of two) */
+#define PFW_FMTS     8    /* printk format strings a program can hold (in-kernel, for bpf_trace_printk) */
+#define PFW_FMT_CAP  64   /* bytes per printk format string */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
@@ -148,6 +150,7 @@ enum pfw_opcode {
     OP_FARG,    /* push cur as the next numeric format argument (for console/printk) */
     OP_FARGS,   /* capture a %s string: cur is a packet offset, copy up to imm bytes */
     OP_CONSOLE, /* emit a console event to the host: imm = format id, args = the pushed fargs */
+    OP_PRINTK,  /* bpf_trace_printk to the kernel trace pipe: imm = printk format id, up to 3 numeric fargs */
     OP_COUNT_OPCODES,
 };
 
@@ -183,6 +186,7 @@ struct pfw_prog {
     __u32 transform_table; /* DECODE_TRANSFORM: which loaded tt_cells table (0..TT_NTABLES-1) */
     __u32 argc;            /* number of runtime args the host set in args[] (OP_ARG / OP_ARGC) */
     __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
+    __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
     struct pfw_op ops[PFW_MAX_OPS];
     struct pfw_pat pats[PFW_MAX_PATS];
 };

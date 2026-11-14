@@ -30,7 +30,15 @@ function progValue(p, gen) {
   while (pats.length < MAX_PATS) pats.push({ len: 0, bytes: new Array(PAT_CAP).fill(0) });
   const args = (argv.argv ? String(argv.argv).split(",").filter((s) => s !== "") : []).map((v) => BigInt(v));
   const argvals = args.slice(0, LIMITS.ARGC); while (argvals.length < LIMITS.ARGC) argvals.push(0n);
-  return { nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: gen >>> 0, reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0, transform_table: (p.transform_table ?? 0) >>> 0, argc: args.length >>> 0, args: argvals, ops, pats };
+  /* printk format strings -> fmts[PFW_FMTS][PFW_FMT_CAP], NUL-terminated. */
+  const fmts = [];
+  for (let i = 0; i < LIMITS.FMTS; i++) {
+    const s = (c.printkFormats ?? [])[i] ?? "";
+    const b = Array.from(s, (ch) => ch.charCodeAt(0) & 0xff).slice(0, LIMITS.FMT_CAP - 1);
+    while (b.length < LIMITS.FMT_CAP) b.push(0);
+    fmts.push(b);
+  }
+  return { nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: gen >>> 0, reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0, transform_table: (p.transform_table ?? 0) >>> 0, argc: args.length >>> 0, args: argvals, fmts, ops, pats };
 }
 
 const c = compile(src);

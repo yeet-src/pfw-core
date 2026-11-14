@@ -225,6 +225,7 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.CONSOLE: consoleMsgs.push({ fmtid: Number(imm), nums: fargs.splice(0), strs: fstrs.splice(0) }); break; /* emit a console message */
+        case OP.PRINTK: fargs.splice(0); break; /* kernel-only: bpf_trace_printk to the trace pipe; host no-op (clears args) */
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
           const rate = Number(imm & 0xffffffffn), cap = Number((imm >> 32n) & 0xffffffffn) * RL_SCALE;

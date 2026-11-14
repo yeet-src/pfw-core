@@ -109,6 +109,9 @@ export const redirect = (ifindex) => ({ kind: "exprstmt", call: { kind: "call", 
 /** console("fmt", args...): emit a printf-style message to the host (JS callback). */
 export const console_ = (fmt, ...args) => ({ kind: "exprstmt", call: { kind: "call", name: "console", args: [{ kind: "string", text: fmt }, ...args.map(E)] } });
 
+/** printk("fmt", args...): bpf_trace_printk to the kernel trace pipe (debug). */
+export const printk = (fmt, ...args) => ({ kind: "exprstmt", call: { kind: "call", name: "printk", args: [{ kind: "string", text: fmt }, ...args.map(E)] } });
+
 /* frameWalk({ at?, len:{type,off}, type?:{type,off}, head, up }, ...body) */
 export const frameWalk = (spec, ...body) => ({
   kind: "frame",

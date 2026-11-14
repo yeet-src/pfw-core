@@ -160,8 +160,9 @@ yeet.test("arg reads a runtime value, or its default when unset", () => {
 });
 
 /* ---- farg / fargs / console (format args + emit a console message) ---- */
-yeet.test("farg + fargs + console assemble and run (falls through to pass)", () => {
+yeet.test("farg + fargs + console + printk assemble and run (falls through to pass)", () => {
   expect("console", `        and     $0, %cur\n        add     $7, %cur\n        farg\n        mov     %payload, %cur\n        fargs   $8\n        console $0\n        pass`, V.PASS);
+  expect("printk", `        and     $0, %cur\n        add     $9, %cur\n        farg\n        printk  $0\n        pass`, V.PASS);
 });
 
 /* ---- rate (token bucket; no bucket in opts -> allowed, falls through) ---- */

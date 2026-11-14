@@ -560,6 +560,8 @@ function codegen(ast) {
   const masks = new Set();
   const consoleFormats = []; // console() format strings, by id (the host maps id -> string)
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
+  const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
+  const internPrintk = (text) => { const i = printkFormats.indexOf(text); return i >= 0 ? i : printkFormats.push(text) - 1; };
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
   const expanding = new Set();
   const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
@@ -952,6 +954,20 @@ function codegen(ast) {
           }
           return bld.console(id);
         }
+        if (c.name === "printk") {
+          if (!c.args.length || c.args[0].kind !== "string") die('printk("format", args...)', s.line);
+          const fmt = String.fromCharCode(...unescapeStr(c.args[0].text));
+          if (fmt.length > LIMITS.FMT_CAP - 1) die(`printk format too long (max ${LIMITS.FMT_CAP - 1} bytes)`, s.line);
+          const convs = (fmt.match(/%[-#0-9.]*[diouxXcs%]/g) || []).filter((x) => x[x.length - 1] !== "%");
+          const nargs = c.args.length - 1;
+          if (convs.some((x) => x.endsWith("s"))) die("printk does not support %s (use console for strings)", s.line);
+          if (convs.length !== nargs) die(`printk format has ${convs.length} conversion(s) but ${nargs} arg(s)`, s.line);
+          if (nargs > 3) die("printk takes at most 3 args (bpf_trace_printk limit)", s.line);
+          if (printkFormats.length >= LIMITS.FMTS && !printkFormats.includes(fmt)) die(`too many printk formats (max ${LIMITS.FMTS})`, s.line);
+          const id = internPrintk(fmt);
+          for (let i = 1; i < c.args.length; i++) { value(c.args[i]); bld.farg(); }
+          return bld.printk(id);
+        }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }
@@ -968,6 +984,7 @@ function codegen(ast) {
   ast.body.forEach(stmt);
   bld.pass(); // the fall-through verdict
   bld._consoleFormats = consoleFormats;
+  bld._printkFormats = printkFormats;
   return bld;
 }
 
@@ -992,7 +1009,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id }))); }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */
