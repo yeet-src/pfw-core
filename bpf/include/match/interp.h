@@ -343,7 +343,9 @@ static long pfw_step(__u32 i, void *pctx)
          * verifier budget. */
         if (!c->reasm && st->rw_n < RW_MAX) {
             __u32 k = st->rw_n & (RW_MAX - 1);
-            st->rw[k].pat = op->reg & (PFW_MAX_PATS - 1);
+            st->rw[k].pat = op->reg & (PFW_MAX_PATS - 1);   /* literal pat id or regex accept-bit */
+            st->rw[k].is_re = (op->reg >> 15) & 1;           /* reg bit 15 = regex */
+            st->rw[k].rlen = (__u32) ((imm >> 8) & 0x7f);    /* fixed match length (regex only) */
             st->rw[k].mode = (code == OP_REPLACE);
             st->rw[k].repl = (__u32) (imm & (PFW_MAX_PATS - 1));
             st->rw[k].fill = (__u32) (imm & 0xff);

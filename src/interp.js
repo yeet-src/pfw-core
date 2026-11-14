@@ -166,13 +166,24 @@ export function machine({ asm, tables, regex = null }) {
         case OP.RLEN: cur = BigInt(ringCount); break;
         case OP.REDACT:
         case OP.REPLACE: {
-          // Overwrite every match of pattern `reg` in [cur, end) in place, same
-          // length: redact fills with imm's low byte, replace copies pattern imm.
-          const p = pats[reg & 63];
+          // Overwrite every match in [payload, end) in place, same length:
+          // redact fills with imm's low byte, replace copies pattern imm.
           const repl = code === OP.REPLACE ? pats[Number(imm & 63n)] : null;
           const fillB = Number(imm & 0xffn);
           const end = Math.min(Number(r[REG.end]), frame.length);
           const start = Number(r[REG.payload]); /* whole payload, not cursor */
+          if (reg & 0x8000) { // regex (fixed-length): DFA walk, overwrite [i+1-len, i] on accept of this bit
+            const bit = BigInt(reg & 0x3fff), len = Number((imm >> 8n) & 0x7fn);
+            if (regex && len > 0) {
+              let s = 0;
+              for (let i = start; i < end && i < start + SCAN_CAP; i++) {
+                s = regex.trans[s][fold(frame[i])];
+                if ((regex.accept[s] >> bit) & 1n) { const base = i + 1 - len; if (base >= start) for (let j = 0; j < len; j++) frame[base + j] = repl ? repl.bytes[j] : fillB; }
+              }
+            }
+            break;
+          }
+          const p = pats[reg & 63];
           if (p && p.len > 0 && (!repl || repl.len === p.len)) {
             for (let o = start; o >= 0 && o + p.len <= end && o < start + 2048; o++) {
               let hit = true;

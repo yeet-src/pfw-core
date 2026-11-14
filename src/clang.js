@@ -34,7 +34,7 @@
 import { Builder, opText } from "#/builder.js";
 import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
-import { compileRegexes } from "#/regex.js";
+import { compileRegexes, fixedLength } from "#/regex.js";
 
 const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src"]);
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
@@ -555,6 +555,7 @@ function codegen(ast) {
   let nLabel = 0, nStr = 0, nTmp = 0;
   const fresh = () => `L${nLabel++}`;
   const declared = new Set(ast.patterns.map((p) => p.name));
+  const regexDefs = new Map(ast.patterns.filter((p) => p.def.kind === "regex").map((p) => [p.name, p.def.src]));
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
   const masks = new Set();
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
@@ -888,15 +889,30 @@ function codegen(ast) {
         }
         if (c.name === "redact") {
           if (c.args.length < 1) die('redact(pattern [, \'fill\'])', s.line);
-          const mid = bld.patId(patArg(c.args[0]));
+          const name = patArg(c.args[0]);
+          const mid = bld.patId(name);
           const fill = c.args[1] ? Number(immVal(c.args[1])) & 0xff : 0x2a; /* default '*' */
+          if (regexDefs.has(name)) {
+            const L = fixedLength(regexDefs.get(name));
+            if (L == null) die(`redact on a regex needs a fixed-length pattern (\`${name}\` can match a variable length)`, s.line);
+            if (L < 1 || L > LIMITS.PAT_CAP) die(`redact regex match length ${L} out of range 1–${LIMITS.PAT_CAP}`, s.line);
+            return bld.redact(mid, BigInt(fill), true, L);
+          }
           return bld.redact(mid, BigInt(fill));
         }
         if (c.name === "replace") {
           if (c.args.length !== 2) die('replace(pattern, "repl" | pattern)', s.line);
-          const mid = bld.patId(patArg(c.args[0]));
+          const name = patArg(c.args[0]);
+          const mid = bld.patId(name);
           const rid = bld.patId(patArg(c.args[1])); /* a "literal" is interned as a pattern */
-          const mlen = bld.patterns[mid].bytes.length, rlen = bld.patterns[rid].bytes.length;
+          const rlen = bld.patterns[rid].bytes.length;
+          if (regexDefs.has(name)) {
+            const L = fixedLength(regexDefs.get(name));
+            if (L == null) die(`replace on a regex needs a fixed-length pattern (\`${name}\` can match a variable length)`, s.line);
+            if (L !== rlen) die(`replace needs a replacement the same length as the match (regex \`${name}\` matches ${L} bytes, replacement is ${rlen})`, s.line);
+            return bld.replace(mid, rid, true, L);
+          }
+          const mlen = bld.patterns[mid].bytes.length;
           if (mlen !== rlen) die(`replace needs a same-length replacement (pattern is ${mlen} bytes, replacement is ${rlen})`, s.line);
           return bld.replace(mid, rid);
         }

@@ -135,7 +135,9 @@ struct pfw_state {
      * Each: match pattern, replacement pattern (replace) / fill byte (redact),
      * mode, and the cursor at the op (the window start). */
     __u32 rw_n;
-    struct { __u32 pat, repl, mode, fill, woff; } rw[RW_MAX];
+    /* is_re: pat is a regex accept-bit, matched by the regex DFA with a fixed
+     * span length rlen (vs. a literal Aho-Corasick pattern). */
+    struct { __u32 pat, repl, mode, fill, woff, is_re, rlen; } rw[RW_MAX];
     __u32 redirect_if; /* OP_REDIRECT target ifindex; 0 = no redirect (ifindex 0 is never valid) */
     __u64 rl_tokens;   /* OP_RATE token bucket (scaled x RL_SCALE), loaded from / written back to the flow */
     __u64 rl_ts;       /* OP_RATE last-refill ktime ns */

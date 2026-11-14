@@ -105,8 +105,9 @@ export class Builder {
   rget() { return this.op(OP.RGET); }
   rlen() { return this.op(OP.RLEN); }
   // ---- packet rewrite (reg = match pattern id; imm = fill byte / replacement pattern id) ----
-  redact(pat, fill) { return this.op(OP.REDACT, pat, BigInt(fill)); }
-  replace(pat, repl) { return this.op(OP.REPLACE, pat, BigInt(repl)); }
+  // isRe marks `pat` a regex accept-bit (fixed-length match, len=rlen) rather than a literal pattern id.
+  redact(pat, fill, isRe = false, rlen = 0) { return this.op(OP.REDACT, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(fill) & 0xffn) | (BigInt(rlen & 0x7f) << 8n)); }
+  replace(pat, repl, isRe = false, rlen = 0) { return this.op(OP.REPLACE, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(repl) & 0x3fn) | (BigInt(rlen & 0x7f) << 8n)); }
   // DNAT: rewrite dst IPv4 (host-order u32) + port into imm (ip low 32, port bits 32..47).
   dnat(ip, port) { return this.op(OP.DNAT, 0, (BigInt(ip >>> 0) & 0xffffffffn) | (BigInt(port & 0xffff) << 32n)); }
   lpm() { return this.op(OP.LPM); } // ZF = %cur is in the lpm CIDR set
@@ -232,8 +233,8 @@ export function opText(op, patterns = [], rules = []) {
       return `test ${names.length ? names.join("|") : "0x" + op.imm.toString(16)}`;
     }
     case OP.MPOS: case OP.CMPSTR: return `${name} ${pat(op.reg)}`;
-    case OP.REDACT: return `redact ${pat(op.reg)}, 0x${op.imm.toString(16)}`;
-    case OP.REPLACE: return `replace ${pat(op.reg)}, ${pat(Number(op.imm))}`;
+    case OP.REDACT: return `redact ${pat(op.reg & 0x3fff)}, 0x${(op.imm & 0xffn).toString(16)}${op.reg & 0x8000 ? " [re]" : ""}`;
+    case OP.REPLACE: return `replace ${pat(op.reg & 0x3fff)}, ${pat(Number(op.imm & 0x3fn))}${op.reg & 0x8000 ? " [re]" : ""}`;
     case OP.DNAT: {
       const ip = Number(op.imm & 0xffffffffn), port = Number((op.imm >> 32n) & 0xffffn);
       return `dnat ${(ip >>> 24) & 255}.${(ip >>> 16) & 255}.${(ip >>> 8) & 255}.${ip & 255}:${port}`;

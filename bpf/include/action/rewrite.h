@@ -77,13 +77,42 @@ resolved:
     return 0;
 }
 
+/* Like rw_ac_step, but matches with the regex DFA (re_goto/re_accept) instead of
+ * the literal automaton. Only fixed-length regexes reach here (the compiler
+ * rejects variable-length ones for rewrite), so an accept at i ends a span of a
+ * known length c->len — the same [i+1-len, i] overwrite as the literal path.
+ * c->pat is the regex accept-bit; c->acstate carries the DFA state. */
+static long rw_re_step(__u32 i, void *ctx_)
+{
+    struct rw_ac_ctx *c = ctx_;
+    struct pfw_state *st = c->st;
+    if (!st || i >= c->n)
+        return 1;
+    __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
+    __u32 rs = c->acstate & (RE_STATES - 1);
+    __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b;
+    __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk);
+    rs = rn ? (*rn & (RE_STATES - 1)) : 0;
+    c->acstate = rs;
+    __u32 rak = c->gen * RE_STATES + rs;
+    __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak);
+    if (racc && ((*racc >> c->pat) & 1)) {
+        __u32 base = (i + 1 >= c->len) ? (i + 1 - c->len) : 0;
+        struct fill_ctx fc = { .rc = c, .base = base };
+        bpf_loop(c->len, fill_step, &fc, 0);
+        c->changed = 1;
+    }
+    return 0;
+}
+
 /* Apply one recorded rewrite request: scan its window through the automaton,
  * overwrite each match, write the window back, fold the checksum delta. */
 static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, struct pfw_prog *p, __u32 ri)
 {
     __u32 k = ri & (RW_MAX - 1);
+    __u32 is_re = st->rw[k].is_re;
     __u32 pat = st->rw[k].pat & (PFW_MAX_PATS - 1);
-    __u32 len = p->pats[pat].len;
+    __u32 len = is_re ? st->rw[k].rlen : p->pats[pat].len; /* regex: compiler-fixed length */
     if (len == 0 || len > PFW_PAT_CAP)
         return;
     __u32 woff = st->rw[k].woff;
@@ -97,7 +126,10 @@ static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, stru
         .fill = st->rw[k].fill, .n = wn, .woff = woff, .l4 = (__u32) st->r[R_L4],
         .acstate = 0, .sumo = 0, .sumn = 0, .changed = 0,
     };
-    bpf_loop(wn, rw_ac_step, &c, 0);
+    if (is_re)
+        bpf_loop(wn, rw_re_step, &c, 0);
+    else
+        bpf_loop(wn, rw_ac_step, &c, 0);
     if (!c.changed)
         return;
     __u32 n2 = wn;

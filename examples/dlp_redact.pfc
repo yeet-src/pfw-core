@@ -1,0 +1,21 @@
+// Data-loss prevention: scrub structured secrets out of traffic in place, at the
+// NIC, so they never reach the backend (or, on a gateway watching the server's
+// replies, never leave it). `redact`/`replace` take a `regex` as well as a
+// literal — but a rewrite overwrites a span in place, so the regex must be
+// FIXED-LENGTH (the match end fixes the start). Variable-length patterns (e.g. a
+// bare email) are rejected at compile time; use a fixed shape.
+//
+// Here: fill any SSN or dashed card number with '*', and rewrite a leaked
+// internal API key to an all-X placeholder of the same length. The packet's L4
+// checksum is fixed up automatically.
+nocase;
+regex ssn  = "\d{3}-\d{2}-\d{4}";             // 123-45-6789  (11 bytes)
+regex card = "\d{4}-\d{4}-\d{4}-\d{4}";        // 4111-1111-1111-1111 (19 bytes)
+regex key  = "AKIA[A-Z0-9]{16}";               // an AWS access key id (20 bytes)
+filter {
+  if (proto != 6) return pass;
+  redact(ssn);                                 // -> ***********
+  redact(card, 'X');                            // -> XXXXXXXXXXXXXXXXXXX
+  replace(key, "AKIAXXXXXXXXXXXXXXXX");         // same-length placeholder
+  return pass;
+}

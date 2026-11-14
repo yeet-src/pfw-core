@@ -102,6 +102,27 @@ function parse(src) {
   return e;
 }
 
+/* The exact match length of a regex if it is the same for every match, else null
+ * (variable-length). Used by redact/replace, which overwrite a span in place: a
+ * fixed length means the match end (the DFA accept position) fixes the start too,
+ * so the existing AC fill machinery applies. `.`/char class = 1, concatenation
+ * sums, alternation must agree, `{n}` = n*inner; `* + ? {n,m} {n,}` are variable. */
+export function fixedLength(src) {
+  let ast;
+  try { ast = parse(src); } catch { return null; }
+  const fx = (n) => {
+    switch (n.t) {
+      case "empty": return 0;
+      case "char": return 1;
+      case "cat": { const a = fx(n.a), b = fx(n.b); return a == null || b == null ? null : a + b; }
+      case "alt": { const a = fx(n.a), b = fx(n.b); return a == null || b == null || a !== b ? null : a; }
+      case "rep": { if (n.min !== n.max || n.max === Infinity) return null; const a = fx(n.a); return a == null ? null : a * n.min; }
+      default: return null;
+    }
+  };
+  return fx(ast);
+}
+
 /* ---- AST -> NFA (Thompson), fragments of {start, accepts:[state]} -------- */
 function buildNFA(ast) {
   const states = []; // each: { eps:[idx], edges:[{set,to}] }  set=null means any byte
