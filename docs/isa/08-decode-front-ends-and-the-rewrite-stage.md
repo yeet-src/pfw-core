@@ -17,7 +17,8 @@ budget; they are wired through the `decode_jmp` PROG_ARRAY:
 | `SLOT_REWRITE (5)` | `pfw_rewrite` — apply recorded `redact`/`replace` + fix the L4 checksum |
 | `SLOT_HPACK (6)` | `pfw_hpack` — h2: HPACK field parsing and Huffman string decode |
 
-A loader must attach all seven before the entry.
+A loader must attach all seven before the entry; `PfwVm` (`pfw-core/loader`)
+does.
 
 The entry (`pfw_xdp`) parses L2–L4, does TCP reassembly when enabled, initialises
 the per-CPU state, and either tail-calls a decode stage or runs the matcher

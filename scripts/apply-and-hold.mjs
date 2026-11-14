@@ -1,207 +1,50 @@
-/* Load the object, apply ONE pfw-C program (compiled + written into the maps),
- * attach, and hold — so an orchestrator can send loopback traffic and observe
- * the kernel's verdict. The program arrives base64 in --src. This is a minimal
- * loader (the firewall's probe does much more); it exists for the kernel
- * differential test (test/kernel/diff.mjs), which compares the kernel's verdict
- * on real traffic to the reference interpreter's.
+/* Load the object, apply ONE pfw-C program, attach, and hold — so an orchestrator
+ * can send loopback traffic and observe the kernel's verdict. A thin CLI over
+ * the embeddable loader (src/loader.js, `pfw-core/loader`); every kernel test
+ * drives the VM through it, so they exercise the loader too.
  *
- *   yeet run scripts/apply-and-hold.mjs --src <base64 pfw-C> [--iface N] [--hold S]
+ *   yeet run scripts/apply-and-hold.mjs --src <hex pfw-C> [--iface N] [--hold S]
+ *     [--argv 1,2] [--shadow 1] [--set CIDRs] [--set6 CIDRs] [--hashset 80,443]
+ *     [--bloom 1,2] [--knobs name=val,...] [--kstr name=needle,...] [--dump 1]
+ *
+ * Prints READY once enforcing, `EVENT <verdict>[ <json bytes>]` per verdict/log
+ * event (2=drop 3=ban 4=rst — the pfw_verdict enum), `CONSOLE <line>` per
+ * console() message, and `detached` after stop().
  */
-import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, RingBuf } from "yeet:bpf";
+import { PfwVm } from "#/loader.js";
 import { compile } from "#/clang";
-import { build } from "#/ac.js";
-import { LIMITS } from "#/isa.js";
-import { formatMsg } from "#/program";
-import { transformCells } from "#/transform.js";
 
 const argv = yeet.args ?? {};
-const iface = Number(argv.iface ?? 1);
-const hold = Number(argv.hold ?? 20);
-const root = `${import.meta.dirname}/..`;
+const list = (v) => (v === undefined ? [] : String(v).split(",").filter((s) => s !== ""));
+const pairs = (v) => Object.fromEntries(list(v).map((kv) => { const [name, ...rest] = kv.split("="); return [name, rest.join("=")]; }));
 // The program arrives hex-encoded (no atob/TextDecoder in this runtime); it is ASCII.
-const src = argv.src ? String.fromCharCode(...argv.src.match(/../g).map((h) => parseInt(h, 16))) : "filter { return pass; }";
-
-/* The `programs` map value as `struct pfw_prog` (field order matches pfw.h). */
-function progValue(p, gen) {
-  const { MAX_OPS, MAX_PATS, PAT_CAP } = LIMITS;
-  const ops = p.ops.slice(0, MAX_OPS).map((o) => ({ code: o.code >>> 0, reg: o.reg >>> 0, imm: BigInt(o.imm) }));
-  while (ops.length < MAX_OPS) ops.push({ code: 0, reg: 0, imm: 0n });
-  const pats = p.pats.slice(0, MAX_PATS).map((q) => { const b = q.bytes.slice(0, PAT_CAP); while (b.length < PAT_CAP) b.push(0); return { len: q.len >>> 0, bytes: b }; });
-  while (pats.length < MAX_PATS) pats.push({ len: 0, bytes: new Array(PAT_CAP).fill(0) });
-  const args = (argv.argv ? String(argv.argv).split(",").filter((s) => s !== "") : []).map((v) => BigInt(v));
-  const argvals = args.slice(0, LIMITS.ARGC); while (argvals.length < LIMITS.ARGC) argvals.push(0n);
-  /* printk format strings -> fmts[PFW_FMTS][PFW_FMT_CAP], NUL-terminated. */
-  const fmts = [];
-  for (let i = 0; i < LIMITS.FMTS; i++) {
-    const s = (c.printkFormats ?? [])[i] ?? "";
-    const b = Array.from(s, (ch) => ch.charCodeAt(0) & 0xff).slice(0, LIMITS.FMT_CAP - 1);
-    while (b.length < LIMITS.FMT_CAP) b.push(0);
-    fmts.push(b);
-  }
-  return { nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: gen >>> 0, reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0, transform_table: (p.transform_table ?? 0) >>> 0, argc: args.length >>> 0, args: argvals, fmts, ops, pats };
-}
+const src = argv.src ? String.fromCharCode(...argv.src.match(/../g).map((h) => parseInt(h, 16))) : "filter { decide pass; }";
 
 const c = compile(src);
 if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(1); }
 
-const control = await new BpfObject({ exe: `${root}/bin/vm.bpf.o`, base: root })
-  .bind("events", { kind: "ringbuf", btf_struct: "pfw_event" })
-  .bind("console_ring", { kind: "ringbuf", btf_struct: "pfw_console" })
-  .bind("stack", { kind: "percpu_array" })
-  .bind("knobs", { kind: "array" })
-  .bind("knob_strs", { kind: "array" })
-  .bind("programs", { kind: "array" })
-  .bind("ac_goto", { kind: "array" })
-  .bind("ac_fail", { kind: "array" })
-  .bind("ac_accept", { kind: "array" })
-  .bind("counters", { kind: "percpu_array" })
-  .bind("decide_hist", { kind: "percpu_array" })
-  .bind("flows", { kind: "lru_hash" })
-  .bind("vm.bss", { kind: "data" })
-  .bind("tt_cells", { kind: "array" })
-  .bind("lpm", { kind: "lpm_trie" })
-  .bind("lpm6", { kind: "lpm_trie" })
-  .bind("hashset", { kind: "hash" })
-  .bind("bloom", { kind: "bloom_filter" })
-  .bind("re_goto", { kind: "array" })
-  .bind("re_accept", { kind: "array" })
-  .bind("decode_jmp", { kind: "prog_array" })
-  .attach("pfw_decode", { kind: "prog_array", map: "decode_jmp", index: 0 })
-  .attach("pfw_match", { kind: "prog_array", map: "decode_jmp", index: 1 })
-  .attach("pfw_resolve", { kind: "prog_array", map: "decode_jmp", index: 2 })
-  .attach("pfw_huff", { kind: "prog_array", map: "decode_jmp", index: 3 })
-  .attach("pfw_transform", { kind: "prog_array", map: "decode_jmp", index: 4 })
-    .attach("pfw_rewrite", { kind: "prog_array", map: "decode_jmp", index: 5 })
-  .attach("pfw_hpack", { kind: "prog_array", map: "decode_jmp", index: 6 })
-  .attach("pfw_xdp", { kind: "xdp", ifindex: [iface] })
-  .start();
-
-/* Load the transform tables (static) and apply the program into generation 0. */
-const ttCells = new ArrayMap(control, "tt_cells");
-for (const [k, v] of transformCells()) await ttCells.update(k, v);
-
-const tables = build(c.patterns, c.nocase);
-const acGoto = new ArrayMap(control, "ac_goto"), acFail = new ArrayMap(control, "ac_fail"), acAccept = new ArrayMap(control, "ac_accept");
-for (const [k, next] of tables.edges) await acGoto.update(0 * LIMITS.AC_STATES * 256 + k, next & 0xffff);
-for (const [s, f] of tables.fails) await acFail.update(s, f & 0xffff);
-for (const [s, m] of tables.accepts) await acAccept.update(s, BigInt(m));
-await new ArrayMap(control, "programs").update(0, progValue(c.program, 1));
-
-/* Load the regex DFA (if the program has `regex` patterns): complete transition
- * table + per-state accept mask, both gen 0. */
-if (c.regex) {
-  const reGoto = new ArrayMap(control, "re_goto"), reAccept = new ArrayMap(control, "re_accept");
-  for (let s = 0; s < c.regex.nstates; s++) {
-    const row = c.regex.trans[s];
-    for (let b = 0; b < 256; b++) if (row[b]) await reGoto.update(0 * LIMITS.RE_STATES * 256 + s * 256 + b, row[b] & 0xffff);
-    if (c.regex.accept[s]) await reAccept.update(0 * LIMITS.RE_STATES + s, BigInt(c.regex.accept[s]));
-  }
-}
-
-/* Populate the `x in hash` exact set from --hashset "80,443,8080". */
-if (argv.hashset) {
-  const h = new HashMap(control, "hashset");
-  for (const v of String(argv.hashset).split(",").filter(Boolean)) await h.update((Number(v) >>> 0), 1);
-}
-
-/* Populate the `x in bloom` filter from --bloom "1,2,3". */
-if (argv.bloom) {
-  const bf = new BloomFilter(control, "bloom");
-  for (const v of String(argv.bloom).split(",").filter(Boolean)) await bf.insert(Number(v) >>> 0);
-}
-
-/* Populate the `src in set` CIDR trie from --set "10.0.0.0/8,192.168.1.0/24". */
-if (argv.set) {
-  const trie = new LpmTrie(control, "lpm");
-  for (const cidr of String(argv.set).split(",").filter(Boolean)) {
-    const [ip, p = "32"] = cidr.split("/");
-    const data = ip.split(".").map((o) => Number(o) & 0xff);
-    await trie.update({ prefixlen: Number(p), data }, 1);
-  }
-}
-
-/* Populate the `src6 in set6` IPv6 trie from --set6 "2001:db8::/32,::1/128". */
-if (argv.set6) {
-  const trie = new LpmTrie(control, "lpm6");
-  const toBytes = (ip) => {
-    const [head, tail] = ip.split("::");
-    const h = head ? head.split(":") : [], t = tail !== undefined ? (tail ? tail.split(":") : []) : null;
-    const groups = t === null ? h : [...h, ...Array(8 - h.length - t.length).fill("0"), ...t];
-    const b = [];
-    for (const g of groups) { const n = parseInt(g || "0", 16) & 0xffff; b.push((n >> 8) & 0xff, n & 0xff); }
-    return b;
-  };
-  for (const cidr of String(argv.set6).split(",").filter(Boolean)) {
-    const [ip, p = "128"] = cidr.split("/");
-    await trie.update({ prefixlen: Number(p), data: toBytes(ip) }, 1);
-  }
-}
-await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shadow ?? 0) >>> 0 });
-
-/* Live control values. First seed each knob's compiled default (knob("x") ?? d);
- * then apply any --knobs "name=val,other=7" overrides. The host can re-write the
- * `knobs` map (by the slot c.knobs[slot] === name) at any time to drive the
- * running program. */
-{
-  const km = new ArrayMap(control, "knobs");
-  const defaults = c.knobDefaults ?? [];
-  for (let slot = 0; slot < (c.knobs ?? []).length; slot++)
-    if (defaults[slot]) await km.update(slot, BigInt(defaults[slot]));
-  if (argv.knobs) {
-    const slotOf = (name) => (c.knobs ?? []).indexOf(name);
-    for (const kv of String(argv.knobs).split(",").filter(Boolean)) {
-      const [name, val = "0"] = kv.split("=");
-      const slot = slotOf(name);
-      if (slot >= 0) await km.update(slot, BigInt(val));
-    }
-  }
-  /* String knobs: --kstr "name=needle,other=foo" writes the `knob_strs` map by the
-   * slot c.knobStrs[slot] === name. The needle is searched for in the payload. */
-  if (argv.kstr) {
-    const ksm = new ArrayMap(control, "knob_strs");
-    const slotOf = (name) => (c.knobStrs ?? []).indexOf(name);
-    for (const kv of String(argv.kstr).split(",").filter(Boolean)) {
-      const [name, ...rest] = kv.split("=");
-      const slot = slotOf(name);
-      if (slot >= 0) {
-        const b = Array.from(rest.join("="), (ch) => ch.charCodeAt(0) & 0xff).slice(0, LIMITS.KNOBSTR_CAP);
-        const len = b.length; while (b.length < LIMITS.KNOBSTR_CAP) b.push(0);
-        await ksm.update(slot, { len: len >>> 0, b });
-      }
-    }
-  }
-}
-
-/* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict
- * enum, same numbers the reference uses) so the orchestrator reads the kernel's
- * actual decision rather than guessing from the socket. */
-const consoleFormats = c.consoleFormats ?? [];
-const sub = await new RingBuf(control, "events").subscribe((w) => {
-  const e = w?.pfw_event ?? w;
+const VCODE = { pass: 1, drop: 2, ban: 3, rst: 4 };
+const vm = new PfwVm({ iface: Number(argv.iface ?? 1) });
+vm.onVerdict((e) => {
   /* --dump 1 also prints the bytes log() captured (JSON-escaped), so a test can
    * read what the program was looking at — e.g. a decoded HTTP/2 header view. */
-  let data = "";
-  if (argv.dump) {
-    const len = Math.min(Number(e.len ?? 0), 256), by = e.data ?? [];
-    let s = ""; for (let b = 0; b < len; b++) s += String.fromCharCode((by[b] ?? 0) & 0xff);
-    data = " " + JSON.stringify(s);
-  }
-  console.log(`EVENT ${Number(e.verdict ?? 0)}${data}`);
+  const data = argv.dump ? " " + JSON.stringify(String.fromCharCode(...e.data)) : "";
+  console.log(`EVENT ${VCODE[e.verdict] ?? 0}${data}`);
 });
-const csub = await new RingBuf(control, "console_ring").subscribe((w) => {
-  const e = w?.pfw_console ?? w;
-  const nn = Math.min(Number(e.nnum ?? 0), 4), sn = Math.min(Number(e.nstr ?? 0), 2);
-  const nums = Array.from({ length: nn }, (_, i) => BigInt(e.nums?.[i] ?? 0));
-  const strs = Array.from({ length: sn }, (_, s) => {
-    const len = Number(e.slen?.[s] ?? 0), by = e.strs?.[s] ?? [];
-    let str = ""; for (let b = 0; b < len; b++) str += String.fromCharCode((by[b] ?? 0) & 0xff); return str;
-  });
-  console.log(`CONSOLE ${formatMsg(consoleFormats[Number(e.fmtid ?? 0)] ?? "", nums, strs)}`);
+vm.onConsole((line) => console.log(`CONSOLE ${line}`));
+
+await vm.start();
+await vm.addCidrs([...list(argv.set), ...list(argv.set6)]);
+await vm.addHash(list(argv.hashset));
+await vm.addBloom(list(argv.bloom));
+await vm.apply(c, {
+  argv: list(argv.argv).map((v) => BigInt(v)),
+  knobs: Object.fromEntries(Object.entries(pairs(argv.knobs)).map(([k, v]) => [k, BigInt(v || "0")])),
+  knobStrs: pairs(argv.kstr),
+  shadow: Number(argv.shadow ?? 0) !== 0,
 });
 
 console.log(`READY nops=${c.program.nops} decode=${c.program.decode ?? 0} reasm=${c.program.reasm ?? 0}`);
-for (let i = 0; i < hold; i++) await new Promise((r) => setTimeout(r, 1000));
-await sub.stop?.();
-await csub.stop?.();
-await control.stop();
+for (let i = 0; i < Number(argv.hold ?? 20); i++) await new Promise((r) => setTimeout(r, 1000));
+await vm.stop();
 console.log("detached");
