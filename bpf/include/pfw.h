@@ -135,6 +135,7 @@ enum pfw_opcode {
     OP_HASH,    /* ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) */
     OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
     OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
+    OP_REDIRECT,/* forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path */
     OP_COUNT_OPCODES,
 };
 

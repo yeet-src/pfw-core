@@ -198,6 +198,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.HASH: zf = hashset.has(cur & 0xffffffffn); cf = false; break; /* x in the exact hash set */
         case OP.BLOOM: zf = bloom.has(cur & 0xffffffffn); cf = false; break; /* x (probably) in the bloom set (modelled exact) */
         case OP.LPM6: zf = set6.some((c) => (src6 & c.mask) === (c.net & c.mask)); cf = false; break; /* IPv6 src in the CIDR set */
+        case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         default: throw new Error("op not modelled: " + code);
       }
       r[REG.cur] = cur;

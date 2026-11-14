@@ -101,6 +101,9 @@ export const replace = (patName, repl) => ({ kind: "exprstmt", call: { kind: "ca
 /** dnat("A.B.C.D", port): rewrite the packet's destination IPv4 + port and forward. */
 export const dnat = (ip, port) => ({ kind: "exprstmt", call: { kind: "call", name: "dnat", args: [{ kind: "string", text: ip }, num(port)] } });
 
+/** redirect(ifindex): forward the packet out another interface (XDP_REDIRECT); terminal. */
+export const redirect = (ifindex) => ({ kind: "exprstmt", call: { kind: "call", name: "redirect", args: [num(ifindex)] } });
+
 /* frameWalk({ at?, len:{type,off}, type?:{type,off}, head, up }, ...body) */
 export const frameWalk = (spec, ...body) => ({
   kind: "frame",

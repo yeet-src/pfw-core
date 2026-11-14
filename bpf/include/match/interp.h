@@ -367,6 +367,12 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (v ? FL_ZF : 0);
         break;
     }
+    case OP_REDIRECT:
+        /* Record the target ifindex; the actual bpf_redirect() is issued in
+         * finish() on the pass path (it returns XDP_REDIRECT, which must be the
+         * program's return value). imm is the ifindex. */
+        st->redirect_if = (__u32) imm;
+        break;
     default:
         st->verdict = V_PASS;
         faults++;

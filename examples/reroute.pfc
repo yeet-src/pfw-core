@@ -1,0 +1,21 @@
+// Redirect: steer selected traffic out another interface instead of letting it
+// reach the local stack. `redirect(ifindex)` lowers to bpf_redirect(ifindex),
+// which returns XDP_REDIRECT — the packet leaves via that interface's TX path.
+// It is terminal (it takes precedence over the verdict) and does not compose
+// with redact/replace.
+//
+// Here: anything matching a known crawler user-agent on :80 is rewritten to a
+// scrubbing/honeypot box (DNAT) and forwarded out interface 5 (e.g. the veth to
+// a sandbox namespace); everything else is delivered normally. The ifindex is a
+// property of the host, so the layer that compiles this program fills it in.
+pattern bot = "GPTBot";
+
+filter {
+  if (proto != 6) return pass;          // TCP only
+  if (dport != 80) return pass;
+  if (scan(payload, 256) & bot) {
+    dnat("10.99.0.2", 8080);            // rewrite dst to the sandbox listener
+    redirect(5);                         // and forward it out ifindex 5
+  }
+  return pass;                           // non-bots reach the stack unchanged
+}

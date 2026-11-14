@@ -888,6 +888,12 @@ function codegen(ast) {
           if (port < 0 || port > 65535) die("dnat port 0–65535", s.line);
           return bld.dnat(ip, port);
         }
+        if (c.name === "redirect") {
+          if (c.args.length !== 1) die("redirect(ifindex)", s.line);
+          const ifx = Number(immVal(c.args[0]));
+          if (!Number.isInteger(ifx) || ifx < 1 || ifx > 0xffffffff) die("redirect ifindex must be a positive integer", s.line);
+          return bld.redirect(ifx);
+        }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
         return;
       }

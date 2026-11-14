@@ -136,6 +136,7 @@ struct pfw_state {
      * mode, and the cursor at the op (the window start). */
     __u32 rw_n;
     struct { __u32 pat, repl, mode, fill, woff; } rw[RW_MAX];
+    __u32 redirect_if; /* OP_REDIRECT target ifindex; 0 = no redirect (ifindex 0 is never valid) */
 };
 
 PFW_LINK struct {

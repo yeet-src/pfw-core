@@ -143,6 +143,15 @@ yeet.test("dnat assembles and runs (no-op in the host model)", () => {
   if (r.verdict !== V.PASS) throw new Error("dnat should fall through to pass in the host model: " + r.verdict);
 });
 
+/* ---- redirect (kernel-only forward out an ifindex; here just for op coverage) ---- */
+yeet.test("redirect assembles and runs (no-op in the host model)", () => {
+  const a = assemble(`        redirect 1\n        pass`);
+  if (!a.ok) throw new Error("assemble redirect: " + JSON.stringify(a.errors));
+  note(a);
+  const r = machine({ asm: a, tables: build(a.patterns, a.nocase) })(new Uint8Array(64), 0, { ac: 0, mask: 0n }, {});
+  if (r.verdict !== V.PASS) throw new Error("redirect should fall through to pass in the host model: " + r.verdict);
+});
+
 /* ---- lpm (set membership; trie is host-loaded, empty here -> no match) ---- */
 yeet.test("lpm assembles and runs (empty set -> pass)", () => {
   expect("lpm", `        mov     %src, %cur\n        lpm\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { saddr: (10 << 24) | 1 } });

@@ -113,6 +113,7 @@ export class Builder {
   hash() { return this.op(OP.HASH); } // ZF = %cur is a key in the hashset
   bloom() { return this.op(OP.BLOOM); } // ZF = %cur is (probably) in the bloom filter
   lpm6() { return this.op(OP.LPM6); } // ZF = the IPv6 source is in the lpm6 CIDR set
+  redirect(ifindex) { return this.op(OP.REDIRECT, 0, BigInt(ifindex >>> 0)); } // forward the packet out ifindex (XDP_REDIRECT)
 
   // ---- meta ----
   label(name) { if (this.labels.has(name)) fail(`label \`${name}\` defined twice`); this.labels.set(name, this.ops.length); return this; }
@@ -234,6 +235,7 @@ export function opText(op, patterns = [], rules = []) {
       const ip = Number(op.imm & 0xffffffffn), port = Number((op.imm >> 32n) & 0xffffn);
       return `dnat ${(ip >>> 24) & 255}.${(ip >>> 16) & 255}.${(ip >>> 8) & 255}.${ip & 255}:${port}`;
     }
+    case OP.REDIRECT: return `redirect ${op.imm}`;
     case OP.FINDB: case OP.SKIPB: return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;

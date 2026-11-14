@@ -306,6 +306,12 @@ export function assemble(source) {
         continue;
       }
 
+      if (m === "redirect") {
+        if (operands.length !== 1 || !/^\d+$/.test(operands[0])) fail("redirect is `redirect IFINDEX`");
+        emit(OP.REDIRECT, 0, BigInt(Number(operands[0]) >>> 0));
+        continue;
+      }
+
       const o = operands.map(parseOperand);
       const [a, b] = o;
       const want = (n) => {

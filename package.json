@@ -24,7 +24,8 @@
     "test:regex": "node test/kernel/regex.mjs",
     "test:hash": "node test/kernel/hash.mjs",
     "test:bloom": "node test/kernel/bloom.mjs",
-    "test:lpm6": "node test/kernel/lpm6.mjs"
+    "test:lpm6": "node test/kernel/lpm6.mjs",
+    "test:redirect": "node test/kernel/redirect.mjs"
   },
   "files": [
     "src",

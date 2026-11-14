@@ -160,6 +160,7 @@ int pfw_xdp(struct xdp_md *ctx)
     st->hits = f ? f->hits : 0;
     st->set_hits = 0;
     st->rw_n = 0;
+    st->redirect_if = 0;
     st->log_len = 0;
     st->log_off = 0;
     st->nocase = prog->nocase;

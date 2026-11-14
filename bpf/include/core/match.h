@@ -14,6 +14,16 @@
 #include "action/event.h"
 #include "action/rst.h"
 
+/* Issue the redirect in its own (__noinline) frame so the bpf_redirect() helper
+ * call doesn't force register spills into match_half's already-maxed inlined
+ * stack frame. Returns XDP_REDIRECT, or -1 when no redirect was requested. */
+static __noinline int maybe_redirect(struct pfw_state *st)
+{
+    if (st->redirect_if)
+        return bpf_redirect(st->redirect_if, 0);
+    return -1;
+}
+
 /* The entry passes its own values; the matcher tail-call target re-derives them
  * first. It never re-initialises st — the entry did that. */
 static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
@@ -23,7 +33,6 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
                                        __u32 use_reasm, __u32 use_decode)
 {
     struct pkt p = *pp;
-    struct flow_key key = *keyp;
     struct pfw_ctx c = {
         .xdp = ctx, .st = st, .prog = prog,
         .nops = prog->nops > PFW_MAX_OPS ? PFW_MAX_OPS : prog->nops,
@@ -49,8 +58,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
 
     if (keyed && (p.proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits)) {
         if (!f && (st->set_mark || st->set_state || st->set_hits || p.end > p.payload)) {
-            bpf_map_update_elem(&flows, &key, (void *) &zero_flow, BPF_NOEXIST);
-            f = bpf_map_lookup_elem(&flows, &key);
+            bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
+            f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
         }
         if (f) {
@@ -62,6 +71,12 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     }
 
     if (st->log_len) emit(ctx, &p, st, verdict);
+
+    /* OP_REDIRECT is terminal: forward the packet out the recorded ifindex.
+     * bpf_redirect() returns XDP_REDIRECT, which must be this program's return
+     * value, so it takes precedence over the verdict (and over the rewrite
+     * stage — redirect does not compose with redact/replace). */
+    { int rv = maybe_redirect(st); if (rv != -1) { passed++; return rv; } }
 
     switch (verdict) {
     case V_DROP: count_rule(st->rule); dropped++; return XDP_DROP;
