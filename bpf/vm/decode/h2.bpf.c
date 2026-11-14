@@ -31,12 +31,12 @@ int pfw_resolve(struct xdp_md *ctx)
 {
     PFW_STAGE_ENTER(ctx);
     if (f) {
-        __u32 il = st->dec_len > REASM_CAP ? REASM_CAP : st->dec_len;
+        __u32 il = PFW_CLAMP(st->dec_len, REASM_CAP);
         struct h2_rs rs = { .f = f, .st = st, .len = il, .phase = 0 };
         bpf_loop(il, h2_resolve_step, &rs, 0);
-        __u32 fl = rs.outpos > REASM_CAP ? REASM_CAP : rs.outpos;
+        __u32 fl = PFW_CLAMP(rs.outpos, REASM_CAP);
         f->reasm_len = fl;
-        st->r[R_PAYLOAD] = 0; st->r[R_CUR] = 0; st->r[R_END] = fl; st->r[R_LEN] = fl;
+        PFW_SET_VIEW(st, fl);
     }
     bpf_tail_call(ctx, &decode_jmp, SLOT_MATCH);
     return XDP_PASS;

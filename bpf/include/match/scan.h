@@ -26,7 +26,7 @@ static long ac_step(__u32 i, void *pctx)
         return 1;
     if (i >= c->scan_len)
         return 1;
-    __u8 b = fold(st->buf[i & (SCAN_CAP - 1)], st->nocase);
+    __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
     __u32 gbase = c->gen * AC_STATES * 256;
     __u32 sbase = c->gen * AC_STATES;
     __u32 s = st->ac_state & (AC_STATES - 1);
@@ -74,7 +74,7 @@ static long findb_step(__u32 i, void *pctx)
         return 1;
     if (i >= c->scan_len)
         return 1;
-    if (st->buf[i & (SCAN_CAP - 1)] == (__u8) c->byte) {
+    if (st->buf[PFW_MASK(i, SCAN_CAP)] == (__u8) c->byte) {
         st->r[R_CUR] = c->scan_off + i;
         st->flags &= ~FL_FF;
         return 1;
@@ -92,8 +92,8 @@ static long cmpstr_step(__u32 i, void *pctx)
         return 1;
     if (i >= c->scan_len)
         return 1;
-    __u8 a = st->buf[i & (SCAN_CAP - 1)];
-    __u8 b = p->pats[c->pat & (PFW_MAX_PATS - 1)].bytes[i & (PFW_PAT_CAP - 1)];
+    __u8 a = st->buf[PFW_MASK(i, SCAN_CAP)];
+    __u8 b = p->pats[PFW_MASK(c->pat, PFW_MAX_PATS)].bytes[PFW_MASK(i, PFW_PAT_CAP)];
     if (fold(a, st->nocase) != fold(b, st->nocase)) {
         c->eq = 0;
         return 1;
@@ -110,7 +110,7 @@ static long skipb_step(__u32 i, void *pctx)
         return 1;
     if (i >= c->scan_len)
         return 1;
-    if (st->buf[i & (SCAN_CAP - 1)] != (__u8) c->byte)
+    if (st->buf[PFW_MASK(i, SCAN_CAP)] != (__u8) c->byte)
         return 1;
     c->count = i + 1;
     return 0;

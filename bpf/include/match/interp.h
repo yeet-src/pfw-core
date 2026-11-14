@@ -22,7 +22,7 @@ static long pfw_step(__u32 i, void *pctx)
     __u32 pc = st->pc;
     if (pc >= c->nops || pc >= PFW_MAX_OPS)
         return 1;
-    struct pfw_op *op = &p->ops[pc & (PFW_MAX_OPS - 1)];
+    struct pfw_op *op = &p->ops[PFW_MASK(pc, PFW_MAX_OPS)];
     __u32 code = op->code;
     _Static_assert((NREGS & (NREGS - 1)) == 0, "NREGS must be a power of two: the index is masked");
     __u32 reg = op->reg & (NREGS - 1);
@@ -131,7 +131,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_SCAN: {
-        __u32 n = window(c, cur, (__u32) (imm > SCAN_CAP ? SCAN_CAP : imm));
+        __u32 n = window(c, cur, (__u32) (PFW_CLAMP(imm, SCAN_CAP)));
         if (n) {
             scanned_bytes += n;
             c->scan_off = (__u32) cur;
@@ -141,7 +141,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_MPOS: {
-        __u32 pos = st->mpos[reg & (PFW_MAX_PATS - 1)];
+        __u32 pos = st->mpos[PFW_MASK(reg, PFW_MAX_PATS)];
         if (pos)
             cur = pos;
         else
@@ -166,7 +166,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_FINDB: {
-        __u32 n = window(c, cur, (__u32) (imm > SCAN_CAP ? SCAN_CAP : imm));
+        __u32 n = window(c, cur, (__u32) (PFW_CLAMP(imm, SCAN_CAP)));
         fl |= FL_FF; /* cleared by the step that finds it */
         st->flags = fl;
         if (n) {
@@ -205,7 +205,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_LOG:
-        st->log_len = (__u32) (imm > LOG_CAP ? LOG_CAP : imm);
+        st->log_len = (__u32) (PFW_CLAMP(imm, LOG_CAP));
         st->log_off = (__u32) cur;
         break;
     case OP_BAN:

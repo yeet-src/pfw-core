@@ -35,7 +35,7 @@ static long reasm_win_step(__u32 i, void *ctx_)
     struct reasm_win_ctx *c = ctx_;
     if (i >= c->n)
         return 1;
-    c->st->buf[i & (SCAN_CAP - 1)] = c->f->reasm[(c->off + i) & (REASM_CAP - 1)];
+    c->st->buf[PFW_MASK(i, SCAN_CAP)] = c->f->reasm[PFW_MASK((c->off + i), REASM_CAP)];
     return 0;
 }
 

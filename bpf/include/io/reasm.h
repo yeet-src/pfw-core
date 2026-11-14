@@ -22,7 +22,7 @@ static long reasm_place_step(__u32 i, void *ctx_)
     __u32 bidx = (pos >> 3) & (REASM_CAP / 8 - 1);
     __u8 bit = (__u8) (1u << (pos & 7));
     if (!(c->f->filled[bidx] & bit)) {
-        c->f->reasm[pos] = c->st->buf[i & (SCAN_CAP - 1)];
+        c->f->reasm[pos] = c->st->buf[PFW_MASK(i, SCAN_CAP)];
         c->f->filled[bidx] |= bit;
     }
     return 0;

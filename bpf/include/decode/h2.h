@@ -19,7 +19,7 @@ static long h2_scan_step(__u32 i, void *ctx_)
     struct h2_scan *c = ctx_;
     if (i >= c->rlen || c->done)
         return 1;
-    __u8 b = c->f->reasm[i & (REASM_CAP - 1)];
+    __u8 b = c->f->reasm[PFW_MASK(i, REASM_CAP)];
     switch (c->phase) {
     case 0: /* preface */
         if (c->pre) c->pre--;
@@ -52,14 +52,14 @@ static long h2_scan_step(__u32 i, void *ctx_)
  * (0..61) = literal: ni>0 indexed name + 1 value string, ni==0 literal name +
  * value (2 strings), each string as [len_lo][len_hi][bytes]. */
 struct h2_hp { struct flow *f; struct pfw_state *st; __u32 start, len, phase, strings_left, slen_val, slen_m, slen_cont, str_rem, decpos, fail; };
-static __always_inline void h2_hp_emit(struct h2_hp *c, __u8 v) { if (c->decpos < REASM_CAP) c->st->dec[c->decpos++ & (REASM_CAP - 1)] = v; }
+static __always_inline void h2_hp_emit(struct h2_hp *c, __u8 v) { if (c->decpos < REASM_CAP) c->st->dec[PFW_MASK(c->decpos++, REASM_CAP)] = v; }
 static __always_inline void h2_hp_strdone(struct h2_hp *c) { if (c->strings_left) c->strings_left--; c->phase = c->strings_left ? 1 : 0; c->slen_cont = 0; }
 static __always_inline void h2_hp_emitlen(struct h2_hp *c, __u32 len) { if (len > REASM_CAP) len = REASM_CAP; h2_hp_emit(c, len & 0xff); h2_hp_emit(c, (len >> 8) & 0xff); c->str_rem = len; c->phase = 2; if (!len) h2_hp_strdone(c); }
 static long h2_hp_step(__u32 j, void *ctx_)
 {
     struct h2_hp *c = ctx_;
     if (j >= c->len || c->fail) return 1;
-    __u8 b = c->f->reasm[(c->start + j) & (REASM_CAP - 1)];
+    __u8 b = c->f->reasm[PFW_MASK((c->start + j), REASM_CAP)];
     switch (c->phase) {
     case 0: /* field start -> marker */
         if (b & 0x80) { __u32 idx = b & 0x7f; if (idx == 0 || idx >= 62) { c->fail = 1; return 1; } h2_hp_emit(c, 0x80 | idx); return 0; }
@@ -94,11 +94,11 @@ static __always_inline int h2_decode(struct flow *f, struct pfw_state *st, __u32
     if (sc.cont)
         return 1;                                                 /* CONTINUATION: fail closed */
     if (!sc.done || sc.hb_len == 0) { st->dec_len = 0; return 0; } /* no complete HEADERS block yet */
-    struct h2_hp hp = { .f = f, .st = st, .start = sc.hb_off, .len = sc.hb_len > REASM_CAP ? REASM_CAP : sc.hb_len, .phase = 0 };
+    struct h2_hp hp = { .f = f, .st = st, .start = sc.hb_off, .len = PFW_CLAMP(sc.hb_len, REASM_CAP), .phase = 0 };
     bpf_loop(hp.len, h2_hp_step, &hp, 0);
     if (hp.fail)
         return 1;
-    st->dec_len = hp.decpos > REASM_CAP ? REASM_CAP : hp.decpos;
+    st->dec_len = PFW_CLAMP(hp.decpos, REASM_CAP);
     return 0;
 }
 
@@ -115,7 +115,7 @@ static const __u8  h2_vlen[62] = {0,0,3,4,1,11,4,5,3,3,3,3,3,3,3,0,13,0,0,0,0,0,
  * "name: value\n" into the flow buffer, resolving static-table names. Its own
  * tail-call program: name emit + the HPACK walk together exceed the budget. */
 struct h2_rs { struct flow *f; struct pfw_state *st; __u32 len, phase, strings_left, slo, str_rem, outpos, fail; };
-static __always_inline void rs_emit(struct h2_rs *c, __u8 v) { if (c->outpos < REASM_CAP) c->f->reasm[c->outpos++ & (REASM_CAP - 1)] = v; }
+static __always_inline void rs_emit(struct h2_rs *c, __u8 v) { if (c->outpos < REASM_CAP) c->f->reasm[PFW_MASK(c->outpos++, REASM_CAP)] = v; }
 struct rs_ne { struct h2_rs *c; __u32 off, len; };
 static long rs_nblob_step(__u32 k, void *x) { struct rs_ne *e = x; if (k >= e->len) return 1; rs_emit(e->c, h2_nblob[(e->off + k) & 1023]); return 0; }
 static long rs_vblob_step(__u32 k, void *x) { struct rs_ne *e = x; if (k >= e->len) return 1; rs_emit(e->c, h2_vblob[(e->off + k) & 63]); return 0; }
@@ -126,7 +126,7 @@ static long h2_resolve_step(__u32 i, void *x)
 {
     struct h2_rs *c = x;
     if (i >= c->len || c->fail) return 1;
-    __u8 b = c->st->dec[i & (REASM_CAP - 1)];
+    __u8 b = c->st->dec[PFW_MASK(i, REASM_CAP)];
     switch (c->phase) {
     case 0: /* marker */
         if (b & 0x80) { __u32 idx = b & 0x7f; rs_name(c, idx); rs_val(c, idx); rs_emit(c, '\n'); return 0; }
@@ -134,7 +134,7 @@ static long h2_resolve_step(__u32 i, void *x)
         if (b) rs_name(c, b);
         c->phase = 1; return 0;
     case 1: c->slo = b; c->phase = 2; return 0;                     /* length low */
-    case 2: { __u32 len = c->slo | ((__u32) b << 8); c->str_rem = len > REASM_CAP ? REASM_CAP : len; c->phase = 3; if (!c->str_rem) rs_strdone(c); } return 0; /* length high */
+    case 2: { __u32 len = c->slo | ((__u32) b << 8); c->str_rem = PFW_CLAMP(len, REASM_CAP); c->phase = 3; if (!c->str_rem) rs_strdone(c); } return 0; /* length high */
     default: rs_emit(c, b); if (c->str_rem) c->str_rem--; if (c->str_rem == 0) rs_strdone(c); return 0; /* copy */
     }
 }

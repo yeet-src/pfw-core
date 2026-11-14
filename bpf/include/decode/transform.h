@@ -26,12 +26,12 @@ static long __attribute__((unused)) tf_step(__u32 i, void *ctx_)
     struct pfw_state *st = c->st;
     if (!st || i >= c->n || st->huff_fail)
         return 1;
-    __u8 byte = c->f->reasm[i & (REASM_CAP - 1)];
+    __u8 byte = c->f->reasm[PFW_MASK(i, REASM_CAP)];
     __u32 state = st->huff_state & (TT_STATES - 1); /* reload (laundered) each iter */
     __u32 outpos = st->huff_outpos;
     for (int half = 0; half < 2; half++) {
         __u32 nib = (half == 0 ? (byte >> 4) : byte) & 0xf;
-        __u32 cell = huff_cells[((state & (TT_STATES - 1)) * 16 + nib) & (TT_CELLS - 1)];
+        __u32 cell = huff_cells[PFW_MASK(((state & (TT_STATES - 1)) * 16 + nib), TT_CELLS)];
         if (cell & TT_FAIL) { st->huff_fail = 1; return 1; }
         if (cell & TT_EMIT) {
             if (outpos < REASM_CAP) { /* bounded, else the st->dec write is unbounded */
@@ -60,7 +60,7 @@ static long __attribute__((unused)) tf_map_step(__u32 i, void *ctx_)
     struct pfw_state *st = c->st;
     if (!st || i >= c->n || st->huff_fail)
         return 1;
-    __u8 byte = c->f->reasm[i & (REASM_CAP - 1)];
+    __u8 byte = c->f->reasm[PFW_MASK(i, REASM_CAP)];
     __u32 state = st->huff_state & (TT_STATES - 1);
     __u32 outpos = st->huff_outpos;
     for (int half = 0; half < 2; half++) {
@@ -91,7 +91,7 @@ static long cp_step(__u32 i, void *ctx_)
     struct cp_ctx *c = ctx_;
     if (i >= c->n)
         return 1;
-    c->f->reasm[i & (REASM_CAP - 1)] = c->st->dec[i & (REASM_CAP - 1)];
+    c->f->reasm[PFW_MASK(i, REASM_CAP)] = c->st->dec[PFW_MASK(i, REASM_CAP)];
     return 0;
 }
 
