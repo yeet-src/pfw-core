@@ -122,7 +122,7 @@ if (argv.set6) {
     await trie.update({ prefixlen: Number(p), data: toBytes(ip) }, 1);
   }
 }
-await new DataSec(control, "vm.bss").patch({ active: 0 });
+await new DataSec(control, "vm.bss").patch({ active: 0, shadow: Number(argv.shadow ?? 0) >>> 0 });
 
 /* Stream each enforcement event's verdict (2=drop,3=ban,4=rst — the pfw_verdict
  * enum, same numbers the reference uses) so the orchestrator reads the kernel's

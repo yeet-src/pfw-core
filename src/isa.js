@@ -21,6 +21,7 @@ export const REG = {
   frame: 0, l3: 1, l4: 2, payload: 3, end: 4, proto: 5, sport: 6, dport: 7,
   s0: 8, s1: 9, s2: 10, s3: 11, m: 12, cur: 13, ifindex: 14, len: 15,
   s4: 16, s5: 17, s6: 18, s7: 19, src: 20, saddr: 20, // src is the assembler alias
+  shadow: 21,
 };
 export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [v, k]));
 

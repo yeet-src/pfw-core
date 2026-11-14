@@ -112,6 +112,7 @@ int pfw_xdp(struct xdp_md *ctx)
         if (f && (f->mark == MARK_DROP || f->mark == MARK_RST)) {
             enforced++;
             count_rule(f->rule);
+            if (shadow) { shadowed++; passed++; return XDP_PASS; } /* shadow mode: would enforce, but pass */
             if (f->mark == MARK_RST && p.family == AF_INET && p.proto == IPPROTO_TCP) {
                 int v = send_rst(ctx, p.l2);
                 if (v == XDP_TX)
@@ -148,6 +149,7 @@ int pfw_xdp(struct xdp_md *ctx)
         __builtin_memcpy(&sa, p.saddr, 4);
         st->r[R_SADDR] = bpf_ntohl(sa); /* host order, so cidr's net is host order too */
     }
+    st->r[R_SHADOW] = shadow; /* readable as %shadow */
     st->pc = 0;
     st->flags = 0;
     st->verdict = V_NONE;

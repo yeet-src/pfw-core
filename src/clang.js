@@ -36,7 +36,7 @@ import { DECODE, REG, LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { compileRegexes, fixedLength } from "#/regex.js";
 
-const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src"]);
+const REGISTERS = new Set(["payload", "sport", "dport", "proto", "len", "l3", "l4", "end", "ifindex", "frame", "src", "shadow"]);
 const VERDICTS = new Set(["pass", "drop", "count", "ban", "rst"]);
 
 class CError extends Error {

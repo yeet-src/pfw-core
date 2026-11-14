@@ -25,7 +25,7 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, now = 0n, argv = [] } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, now = 0n, argv = [], shadow = false } = {}) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
@@ -33,6 +33,7 @@ export function machine({ asm, tables, regex = null }) {
     r[REG.payload] = BigInt(payload); r[REG.end] = BigInt(end); r[REG.proto] = BigInt(proto);
     r[REG.dport] = BigInt(dport); r[REG.cur] = BigInt(payload); r[REG.len] = BigInt(end > payload ? end - payload : 0);
     r[REG.saddr] = BigInt(saddr) & 0xffffffffn; /* IPv4 source, host order */
+    r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
     const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
     let ringHead = flow.ringHead ?? 0, ringCount = flow.ringCount ?? 0;
@@ -231,8 +232,12 @@ export function machine({ asm, tables, regex = null }) {
       r[REG.cur] = cur;
       pc = next;
     }
+    /* Shadow mode: an enforcement verdict is reported as PASS (the packet would
+     * be let through) with the would-be verdict in `would`, mirroring the kernel. */
+    const vfinal = verdict || V.PASS;
+    const isEnforce = vfinal === V.DROP || vfinal === V.BAN || vfinal === V.RST;
     return {
-      verdict: verdict || V.PASS, rule,
+      verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
       flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
     };
   };

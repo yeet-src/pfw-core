@@ -28,7 +28,8 @@
     "test:redirect": "node test/kernel/redirect.mjs",
     "test:rate": "node test/kernel/rate.mjs",
     "test:argv": "node test/kernel/argv.mjs",
-    "test:regex-rewrite": "node test/kernel/regex-rewrite.mjs"
+    "test:regex-rewrite": "node test/kernel/regex-rewrite.mjs",
+    "test:shadow": "node test/kernel/shadow.mjs"
   },
   "files": [
     "src",

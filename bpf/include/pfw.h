@@ -85,6 +85,7 @@ enum pfw_reg {
     R_LEN,       /* bytes of payload */
     R_S4, R_S5, R_S6, R_S7, /* more scratch, for `let` locals */
     R_SADDR,     /* IPv4 source address, host byte order (0 for IPv6) */
+    R_SHADOW,    /* the shadow-mode flag (set from the host), readable as %shadow */
     /* The file is padded to a power of two: pfw_step bounds the index
      * with `& (NREGS - 1)`, which is only a modulo when NREGS is one.
      * (At 20 the mask was 0b10011 and %dport read as %payload.) */

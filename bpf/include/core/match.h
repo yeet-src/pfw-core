@@ -73,6 +73,13 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
 
     if (st->log_len) emit(ctx, &p, st, verdict);
 
+    /* Shadow mode: an enforcement verdict is counted and logged (above), and its
+     * flow mark is written, but the packet is let through — a dry run that shows
+     * what a rule WOULD block without affecting traffic. Set from the host. */
+    if (shadow && (verdict == V_DROP || verdict == V_BAN || verdict == V_RST)) {
+        count_rule(st->rule); shadowed++; return XDP_PASS;
+    }
+
     /* OP_REDIRECT is terminal: forward the packet out the recorded ifindex.
      * bpf_redirect() returns XDP_REDIRECT, which must be this program's return
      * value, so it takes precedence over the verdict (and over the rewrite

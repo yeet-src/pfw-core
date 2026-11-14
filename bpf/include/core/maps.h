@@ -21,7 +21,8 @@
 /* ---- control and counters, read and patched from the host ---------------- */
 
 PFW_LINK volatile __u32 active;          /* the generation packets run */
-PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full;
+PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
+PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full, shadowed;
 /* Reassembly accounting (reasm-mode programs): segments skipped as
  * retransmits, forward-gap resyncs, flows joined mid-stream (fail closed),
  * and segments that overran the reassembly buffer (fail closed). */

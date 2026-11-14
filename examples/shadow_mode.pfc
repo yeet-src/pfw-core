@@ -1,0 +1,20 @@
+// Shadow mode: deploy a rule and watch what it WOULD do before it bites. When
+// the host sets the shadow flag (loader `--shadow 1`, or patch vm.bss.shadow from
+// JS), every enforcement verdict (drop/ban/rst) is still counted and logged —
+// the event carries the would-be verdict — but the packet is let through. Flip
+// the flag off to start enforcing, with no change to the program.
+//
+// The flag is also readable as `%shadow`, so a program can branch on it (e.g.
+// sample more aggressively while observing). This rule bans SQLi scanners; run it
+// shadowed first, read the events/counters to confirm it only catches attackers,
+// then enforce.
+nocase;
+reassemble 8080;
+pattern union = "union", select = "select", sqlmap = "sqlmap";
+filter {
+  if (dport != 80) return pass;
+  mask m = scan(payload, 1460);
+  if (any(m, sqlmap)) { log(1); return ban("scanner", 3600); }
+  if (seq(m, union, select)) { log(1); return rst("sqli", 0); }
+  return pass;
+}
