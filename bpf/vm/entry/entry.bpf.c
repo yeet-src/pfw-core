@@ -5,7 +5,7 @@
  * element. This file is the thin top: the license, the module includes, and the
  * SEC("xdp") programs (the entry, the matcher, and the tail-call decode stages).
  *
- * The machinery lives in bpf/vm/<topic>/*.h, one responsibility each, all
+ * The machinery lives in bpf/include/<topic>/*.h, one responsibility each, all
  * `static __always_inline`. Each unit is a single translation unit that includes
  * them, so everything inlines exactly as it did when this was one file — the
  * verifier sees byte-identical code. The split is for readers, not the compiler:

@@ -53,7 +53,7 @@ BPF_OUT  := bin/vm.bpf.o
 BPF_DIRS       := $(patsubst bpf/%/,%,$(filter-out bpf/include/ bpf/vm/,$(wildcard bpf/*/)))
 BPF_STANDALONE := $(foreach d,$(BPF_DIRS),bin/$(d).bpf.o)
 
-BPF_CFLAGS ?= -g -O2 -Wall -target bpf -D__TARGET_ARCH_$(ARCH) -mcpu=v3 -I bpf/include -I bpf/vm
+BPF_CFLAGS ?= -g -O2 -Wall -target bpf -D__TARGET_ARCH_$(ARCH) -mcpu=v3 -I bpf/include
 # Add the vendored libbpf program headers (<bpf/bpf_helpers.h>, …) when a
 # vendored toolchain supplies them; resolved by build/toolchain.mk. Without
 # it, the build falls back to a host libbpf-dev on the default include path.
@@ -128,7 +128,6 @@ clangd:
 	  '    - -target' \
 	  '    - bpf' \
 	  '    - -Ibpf/include' \
-	  '    - -Ibpf/vm' \
 	  $(if $(BPF_SYSINCLUDE),'    - -I$(BPF_SYSINCLUDE)') \
 	  '    - -D__TARGET_ARCH_$(ARCH)' \
 	  '    - -D__BPF_TRACING__' \
