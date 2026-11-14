@@ -159,6 +159,7 @@ function parse(toks) {
 
   const patterns = [];
   const macros = [];
+  const functions = [];
   let nocase = false;
   let reasm = false;
   let reasmDport = 0;
@@ -519,6 +520,15 @@ function parse(toks) {
       while (!isP("}")) stmts.push(parseStmt());
       eat("punct", "}");
       macros.push({ name, stmts });
+    } else if (isKw("fn")) {
+      next();
+      const name = eat("ident").value;
+      eat("punct", "("); eat("punct", ")");
+      eat("punct", "{");
+      const stmts = [];
+      while (!isP("}")) stmts.push(parseStmt());
+      eat("punct", "}");
+      functions.push({ name, stmts });
     } else if (isKw("filter")) {
       next();
       eat("punct", "{");
@@ -527,11 +537,11 @@ function parse(toks) {
       eat("punct", "}");
       body = stmts;
     } else {
-      err(`expected \`pattern\`, \`nocase\`, \`reassemble\` or \`filter\`, found \`${peek().value ?? peek().type}\``);
+      err(`expected \`pattern\`, \`nocase\`, \`reassemble\`, \`fn\` or \`filter\`, found \`${peek().value ?? peek().type}\``);
     }
   }
   if (!body) throw new CError("a program needs a `filter { … }` block", 0);
-  return { patterns, macros, nocase, reasm, reasmDport, decode, body };
+  return { patterns, macros, functions, nocase, reasm, reasmDport, decode, body };
 }
 
 /* ---- codegen: AST → ops, via the shared Builder ------------------------- */
@@ -559,6 +569,7 @@ function codegen(ast) {
   const regexDefs = new Map(ast.patterns.filter((p) => p.def.kind === "regex").map((p) => [p.name, p.def.src]));
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
   const masks = new Set();
+  const funcs = new Set((ast.functions ?? []).map((f) => f.name)); // subroutine names (call/ret)
   const consoleFormats = []; // console() format strings, by id (the host maps id -> string)
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
@@ -958,6 +969,10 @@ function codegen(ast) {
           }
           return bld.console(id);
         }
+        if (funcs.has(c.name)) {
+          if (c.args.length) die(`\`${c.name}()\` is a subroutine and takes no args (pass values in registers or on the stack)`, s.line);
+          return bld.call(c.name);
+        }
         if (c.name === "push") {
           if (c.args.length !== 1) die("push(value)", s.line);
           materialize(c.args[0]); return bld.push();
@@ -992,6 +1007,14 @@ function codegen(ast) {
 
   ast.body.forEach(stmt);
   bld.pass(); // the fall-through verdict
+
+  /* Subroutines live after the main body (which ends in a terminal verdict, so
+   * control never falls into them). A call jumps here; ret pops back. */
+  for (const fn of ast.functions ?? []) {
+    bld.label(fn.name);
+    fn.stmts.forEach(stmt);
+    bld.ret();
+  }
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;
   return bld;

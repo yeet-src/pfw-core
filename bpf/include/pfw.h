@@ -156,6 +156,8 @@ enum pfw_opcode {
     OP_PRINTK,  /* bpf_trace_printk to the kernel trace pipe: imm = printk format id, up to 3 numeric fargs */
     OP_PUSH,    /* push cur onto the data stack (stack map), sp++ */
     OP_POP,     /* sp--, cur = top of the data stack */
+    OP_CALL,    /* push the return pc onto the data stack, jump to imm (subroutine) */
+    OP_RET,     /* pop the data stack into pc (return from a subroutine) */
     OP_COUNT_OPCODES,
 };
 

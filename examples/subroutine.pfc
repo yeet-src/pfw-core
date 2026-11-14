@@ -1,0 +1,25 @@
+// Subroutines: `fn name() { ... }` + `name();`. call pushes the return address on
+// the data stack and jumps; an implicit ret at the end pops it back. Routines
+// share the register file and the data stack with the caller, so:
+//   - pass values in registers (or push/pop),
+//   - keep the stack BALANCED across ret (call put the return address on it, so a
+//     routine that leaves net pushes would make ret pop data instead).
+// Good for factoring repeated logic out of a filter.
+//
+// Here: a reusable "is this a known scanner?" check sets %bp, and the filter calls
+// it for a verdict — the same routine could back several rules.
+nocase;
+reassemble 8080;
+pattern sqlmap = "sqlmap", nikto = "nikto", nmap = "nmap";
+
+fn is_scanner() {
+  bp = 0;
+  if (any(scan(payload, 1024), sqlmap, nikto, nmap)) bp = 1;
+}
+
+filter {
+  if (dport != 80) return pass;
+  is_scanner();
+  if (bp == 1) return ban("scanner", 3600);
+  return pass;
+}

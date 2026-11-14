@@ -20,7 +20,7 @@ export { opText };
 const REG_OPS = new Set([OP.MOV_RC, OP.MOV_CR, OP.ADD_R, OP.SUB_R, OP.CMP_R]);
 
 const SIZE_SUFFIX = { b: 1, w: 2, l: 4, q: 8 };
-const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF };
+const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF, call: OP.CALL };
 
 class AsmError extends Error {}
 const fail = (msg) => {
@@ -415,6 +415,9 @@ export function assemble(source) {
       } else if (m === "pop") {
         want(0);
         emit(OP.POP);
+      } else if (m === "ret") {
+        want(0);
+        emit(OP.RET);
       } else if (m === "rate") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("rate is `rate $PER_SECOND, $BURST`");

@@ -175,6 +175,12 @@ yeet.test("push then pop round-trips a value through the stack", () => {
   expectRst("push/pop", eq("        and     $0, %cur\n        add     $42, %cur\n        push\n        and     $0, %cur\n        pop", 42));
 });
 
+/* ---- call / ret (subroutine via the stack) ---- */
+yeet.test("call runs a subroutine that returns via ret", () => {
+  const body = `        call    setit\n        cmp     $7, %cur\n        jne     no\n        rst     $1, $0\n no:    pass\n setit: and     $0, %cur\n        add     $7, %cur\n        ret`;
+  expectRst("call/ret", body);
+});
+
 /* ---- lpm (set membership; trie is host-loaded, empty here -> no match) ---- */
 yeet.test("lpm assembles and runs (empty set -> pass)", () => {
   expect("lpm", `        mov     %src, %cur\n        lpm\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.PASS, { opts: { saddr: (10 << 24) | 1 } });
