@@ -185,6 +185,8 @@ int pfw_xdp(struct xdp_md *ctx)
     st->fargn = 0;
     st->fsn = 0;
     st->rw_n = 0;
+    st->pring_head = 0;
+    st->pring_count = 0;
     st->redirect_if = 0;
     st->log_len = 0;
     st->log_off = 0;
