@@ -20,7 +20,9 @@
 
 /* ---- control and counters, read and patched from the host ---------------- */
 
-PFW_LINK volatile __u32 active;          /* the generation packets run */
+/* Not plain `active`: vmlinux.h is generated from the build host's BTF, and some
+ * kernels have an enum constant of that name. */
+PFW_LINK volatile __u32 active_gen;      /* the generation packets run */
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
 PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
 PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */

@@ -28,7 +28,7 @@
 
 ### Globals (in `vm.bss`, host-readable/patchable)
 
-- `active` — the generation packets run.
+- `active_gen` — the generation packets run.
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
 - Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,

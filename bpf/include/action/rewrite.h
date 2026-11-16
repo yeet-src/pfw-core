@@ -121,7 +121,7 @@ static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, stru
     if (!wn)
         return;
     struct rw_ac_ctx c = {
-        .st = st, .p = p, .gen = active & (PFW_GENS - 1), .pat = pat, .len = len,
+        .st = st, .p = p, .gen = active_gen & (PFW_GENS - 1), .pat = pat, .len = len,
         .mode = st->rw[k].mode, .repl = st->rw[k].repl & (PFW_MAX_PATS - 1),
         .fill = st->rw[k].fill, .n = wn, .woff = woff, .l4 = (__u32) st->r[R_L4],
         .acstate = 0, .sumo = 0, .sumn = 0, .changed = 0,
