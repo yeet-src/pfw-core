@@ -11,6 +11,13 @@
  * common.h) checks every masked cap at compile time. */
 #define PFW_MASK(i, cap) ((i) & ((cap) - 1))
 
+/* The same mask, applied where clang cannot fold it into the operands. For an
+ * index built as (a << k) + b from two already-masked parts, clang drops the
+ * outer mask and emits a 32-bit OR of the parts, and verifiers before 6.8 lose
+ * every bound across that OR. The barrier keeps the AND as the last operation
+ * on the register, which is what they need to see. `var` must be an lvalue. */
+#define PFW_MASK_VAR(var, cap) ({ barrier_var(var); (var) & ((cap) - 1); })
+
 /* Clamp to a cap / min. The callers these replace already reference the value
  * twice (they were `x > cap ? cap : x`), so there is no new double-evaluation. */
 #define PFW_MIN(a, b)     ((a) < (b) ? (a) : (b))

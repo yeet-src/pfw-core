@@ -10,6 +10,11 @@
 __attribute__((used))
 int parse(struct xdp_md *ctx __arg_ctx, struct pkt *p __arg_nonnull)
 {
+    /* __arg_nonnull is only understood from 6.8; before that the verifier takes a
+     * global function's pointer argument as possibly NULL and refuses the first
+     * write through it. The check costs nothing where the tag works. */
+    if (!p)
+        return 0;
     void *data = (void *) (long) ctx->data;
     void *data_end = (void *) (long) ctx->data_end;
     __u32 nhoff = 0;

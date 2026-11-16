@@ -24,7 +24,7 @@ static long ac_step(__u32 i, void *pctx)
     struct pfw_state *st = c->st;
     if (!st)
         return 1;
-    if (i >= c->scan_len)
+    if (i >= st->x_scan_len)
         return 1;
     __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
     __u32 gbase = c->gen * AC_STATES * 256;
@@ -55,7 +55,7 @@ resolved:
         if (fresh) {
             /* Branchless: a conditional store per bit would hand the
              * verifier 64 branches to explore. */
-            __u32 pos = c->scan_off + i + 1;
+            __u32 pos = st->x_scan_off + i + 1;
 #pragma unroll
             for (int k = 0; k < PFW_MAX_PATS; k++) {
                 __u32 m = 0u - (__u32) ((fresh >> k) & 1);
@@ -68,11 +68,11 @@ resolved:
      * the matched regexes' bits into %m. Folded into the scan so there is one
      * bpf_loop, not two (a second nested loop blows the verifier budget). */
     {
-        __u32 rs = c->re_state & (RE_STATES - 1);
+        __u32 rs = st->x_re_state & (RE_STATES - 1);
         __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b;
         __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk);
         rs = rn ? (*rn & (RE_STATES - 1)) : 0;
-        c->re_state = rs;
+        st->x_re_state = rs;
         __u32 rak = c->gen * RE_STATES + rs;
         __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak);
         if (racc && *racc)
@@ -87,10 +87,10 @@ static long findb_step(__u32 i, void *pctx)
     struct pfw_state *st = c->st;
     if (!st)
         return 1;
-    if (i >= c->scan_len)
+    if (i >= st->x_scan_len)
         return 1;
-    if (st->buf[PFW_MASK(i, SCAN_CAP)] == (__u8) c->byte) {
-        st->r[R_CUR] = c->scan_off + i;
+    if (st->buf[PFW_MASK(i, SCAN_CAP)] == (__u8) st->x_byte) {
+        st->r[R_CUR] = st->x_scan_off + i;
         st->flags &= ~FL_FF;
         return 1;
     }
@@ -105,12 +105,12 @@ static long cmpstr_step(__u32 i, void *pctx)
     struct pfw_prog *p = c->prog;
     if (!st || !p)
         return 1;
-    if (i >= c->scan_len)
+    if (i >= st->x_scan_len)
         return 1;
     __u8 a = st->buf[PFW_MASK(i, SCAN_CAP)];
-    __u8 b = p->pats[PFW_MASK(c->pat, PFW_MAX_PATS)].bytes[PFW_MASK(i, PFW_PAT_CAP)];
+    __u8 b = p->pats[PFW_MASK(st->x_pat, PFW_MAX_PATS)].bytes[PFW_MASK(i, PFW_PAT_CAP)];
     if (fold(a, st->nocase) != fold(b, st->nocase)) {
-        c->eq = 0;
+        st->x_eq = 0;
         return 1;
     }
     return 0;
@@ -123,11 +123,11 @@ static long skipb_step(__u32 i, void *pctx)
     struct pfw_state *st = c->st;
     if (!st)
         return 1;
-    if (i >= c->scan_len)
+    if (i >= st->x_scan_len)
         return 1;
-    if (st->buf[PFW_MASK(i, SCAN_CAP)] != (__u8) c->byte)
+    if (st->buf[PFW_MASK(i, SCAN_CAP)] != (__u8) st->x_byte)
         return 1;
-    c->count = i + 1;
+    st->x_count = i + 1;
     return 0;
 }
 

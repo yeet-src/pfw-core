@@ -214,9 +214,9 @@ static long pfw_step(__u32 i, void *pctx)
         __u32 n = window(c, cur, (__u32) (PFW_CLAMP(imm, SCAN_CAP)));
         if (n) {
             scanned_bytes += n;
-            c->scan_off = (__u32) cur;
-            c->scan_len = n;
-            c->re_state = 0;          /* ac_step also walks the regex DFA */
+            st->x_scan_off = (__u32) cur;
+            st->x_scan_len = n;
+            st->x_re_state = 0;          /* ac_step also walks the regex DFA */
             bpf_loop(n, ac_step, c, 0);
         }
         break;
@@ -237,13 +237,13 @@ static long pfw_step(__u32 i, void *pctx)
             break;
         }
         __u32 n = window(c, cur, len);
-        c->eq = n == len;
-        if (c->eq) {
-            c->scan_len = n;
-            c->pat = pi;
+        st->x_eq = n == len;
+        if (st->x_eq) {
+            st->x_scan_len = n;
+            st->x_pat = pi;
             bpf_loop(n, cmpstr_step, c, 0);
         }
-        fl = (fl & FL_FF) | (c->eq ? FL_ZF : 0);
+        fl = (fl & FL_FF) | (st->x_eq ? FL_ZF : 0);
         break;
     }
     case OP_FINDB: {
@@ -251,9 +251,9 @@ static long pfw_step(__u32 i, void *pctx)
         fl |= FL_FF; /* cleared by the step that finds it */
         st->flags = fl;
         if (n) {
-            c->scan_off = (__u32) cur;
-            c->scan_len = n;
-            c->byte = op->reg & 0xff;
+            st->x_scan_off = (__u32) cur;
+            st->x_scan_len = n;
+            st->x_byte = op->reg & 0xff;
             bpf_loop(n, findb_step, c, 0);
         }
         /* findb_step wrote the cursor and the flags itself */
@@ -262,13 +262,13 @@ static long pfw_step(__u32 i, void *pctx)
     }
     case OP_SKIPB: {
         __u32 n = window(c, cur, (__u32) (imm == 0 || imm > PFW_PAT_CAP ? PFW_PAT_CAP : imm));
-        c->count = 0;
+        st->x_count = 0;
         if (n) {
-            c->scan_len = n;
-            c->byte = op->reg & 0xff;
+            st->x_scan_len = n;
+            st->x_byte = op->reg & 0xff;
             bpf_loop(n, skipb_step, c, 0);
         }
-        cur += c->count;
+        cur += st->x_count;
         break;
     }
     case OP_PASS:

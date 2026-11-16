@@ -256,7 +256,8 @@ static long h2_hpack_step(__u32 i, void *x)
         __u32 state = w->hstate & (TT_STATES - 1);
         for (int half = 0; half < 2; half++) {
             __u32 nib = (half == 0 ? (b >> 4) : b) & 0xf;
-            __u32 cell = huff_cells[PFW_MASK(((state & (TT_STATES - 1)) * 16 + nib), TT_CELLS)];
+            __u32 ci = (state & (TT_STATES - 1)) * 16 + nib;
+            __u32 cell = huff_cells[PFW_MASK_VAR(ci, TT_CELLS)];
             if (cell & TT_FAIL) { w->fail = 1; return 1; }
             if (cell & TT_EMIT) { hp_out(st, (__u8) (cell >> TT_SYM_SHIFT)); w->slen++; }
             state = cell & TT_NEXT;
