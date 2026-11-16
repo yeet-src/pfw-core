@@ -496,7 +496,10 @@ gh release download latest -R yeet-src/pfw-core -p pfw-core.tgz --clobber
 npm install ./pfw-core.tgz
 ```
 
-Its version is `<package version>-master.<run number>`. The repository is
+Its version is `<package version>-git<commit date>.g<commit>` (UTC,
+`YYYYMMDDHHMMSS`), so builds order as the commits do and every one sorts below
+the final `<package version>`; its `package.json` records the full commit as
+`gitHead`. The repository is
 private, so the download needs GitHub auth (`gh auth login`, or a token).
 
 ## Reference
