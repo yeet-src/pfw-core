@@ -243,6 +243,14 @@ struct pfw_state {
     __u16 fslen[FSTR_MAX];
     __u32 fsn;
     __u8 kbuf[KNOB_SCAN]; /* OP_KNOBHAS: the payload window loaded for the string search */
+    /* Scratch a step hands to its inner bpf_loop (see struct pfw_ctx). */
+    __u32 x_scan_off; /* frame offset of buf[0] during a scan */
+    __u32 x_scan_len;
+    __u32 x_byte;     /* findb / skipb: the byte wanted */
+    __u32 x_pat;      /* cmpstr: the pattern index */
+    __u32 x_eq;       /* cmpstr: still equal */
+    __u32 x_count;    /* skipb: bytes skipped */
+    __u32 x_re_state; /* scan: current regex DFA state, carried across bytes */
 };
 
 PFW_LINK struct {

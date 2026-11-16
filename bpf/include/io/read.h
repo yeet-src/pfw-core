@@ -8,6 +8,13 @@
 #include "core/common.h"
 #include "core/maps.h"
 
+/* Everything in here is written once, before the interpreter loop, and only read
+ * inside it. It lives on the stack, and the verifier tracks stack slots exactly:
+ * a field a step wrote would be one more thing every loop state has to agree on,
+ * and the cost of verifying pfw_step grows with each. What a step needs to hand
+ * to its own inner loop (the scan window, the byte wanted, …) goes in the
+ * per-CPU pfw_state instead — the x_* fields — which the verifier does not
+ * track. */
 struct pfw_ctx {
     struct xdp_md *xdp;
     struct pfw_state *st;
@@ -16,13 +23,6 @@ struct pfw_ctx {
     __u32 gen;
     __u32 mark;
     __u32 user_state; /* the flow's user state at entry */
-    __u32 scan_off; /* frame offset of buf[0] during a scan */
-    __u32 scan_len;
-    __u32 byte;     /* findb / skipb: the byte wanted */
-    __u32 pat;      /* cmpstr: the pattern index */
-    __u32 eq;       /* cmpstr: still equal */
-    __u32 count;    /* skipb: bytes skipped */
-    __u32 re_state; /* rescan: current regex DFA state, carried across bytes */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */
     __u64 now;      /* packet-time ktime ns, for OP_RATE */
     struct flow *flow; /* the flow: per-connection state (ring, ...) */

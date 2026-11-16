@@ -31,7 +31,8 @@ static long __attribute__((unused)) tf_step(__u32 i, void *ctx_)
     __u32 outpos = st->huff_outpos;
     for (int half = 0; half < 2; half++) {
         __u32 nib = (half == 0 ? (byte >> 4) : byte) & 0xf;
-        __u32 cell = huff_cells[PFW_MASK(((state & (TT_STATES - 1)) * 16 + nib), TT_CELLS)];
+        __u32 ci = (state & (TT_STATES - 1)) * 16 + nib;
+        __u32 cell = huff_cells[PFW_MASK_VAR(ci, TT_CELLS)];
         if (cell & TT_FAIL) { st->huff_fail = 1; return 1; }
         if (cell & TT_EMIT) {
             if (outpos < REASM_CAP) { /* bounded, else the st->dec write is unbounded */
