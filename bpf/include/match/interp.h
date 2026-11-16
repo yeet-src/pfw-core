@@ -335,24 +335,34 @@ static long pfw_step(__u32 i, void *pctx)
         }
         break;
     case OP_RPUSH:
-        /* Push cur onto the flow's ring (newest at head). Needs a tracked flow
-         * — reasm mode always has one; otherwise it is a no-op until the flow
-         * exists. Written straight to the flow value, like the ring is read. */
+        /* Push cur onto the flow's ring (newest at head), written straight to
+         * the flow value, like the ring is read. A flow with no entry yet (its
+         * first packet) pushes to st->pring, which the write-back turns into the
+         * new entry's ring. */
         if (c->flow) {
             __u32 h = c->flow->ring_head & (RING_CAP - 1);
             c->flow->ring[h] = (__u32) cur;
             c->flow->ring_head = (h + 1) & (RING_CAP - 1);
             if (c->flow->ring_count < RING_CAP)
                 c->flow->ring_count++;
+        } else {
+            __u32 h = st->pring_head & (RING_CAP - 1);
+            st->pring[h] = (__u32) cur;
+            st->pring_head = (h + 1) & (RING_CAP - 1);
+            if (st->pring_count < RING_CAP)
+                st->pring_count++;
         }
         break;
     case OP_RGET: {
-        /* cur = the (cur)-th most recent entry, 0 = newest. Out of range (or no
-         * flow) yields 0 and faults, so `jf` can tell absent from a stored 0. */
+        /* cur = the (cur)-th most recent entry, 0 = newest. Out of range yields
+         * 0 and faults, so `jf` can tell absent from a stored 0. */
         __u32 idx = (__u32) cur;
         if (c->flow && idx < c->flow->ring_count) {
             __u32 slot = (c->flow->ring_head - 1 - idx) & (RING_CAP - 1);
             cur = c->flow->ring[slot];
+        } else if (!c->flow && idx < st->pring_count) {
+            __u32 slot = (st->pring_head - 1 - idx) & (RING_CAP - 1);
+            cur = st->pring[slot];
         } else {
             cur = 0;
             fl |= FL_FF;
@@ -360,7 +370,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_RLEN:
-        cur = c->flow ? c->flow->ring_count : 0;
+        cur = c->flow ? c->flow->ring_count : st->pring_count;
         break;
     case OP_REDACT:
     case OP_REPLACE:
