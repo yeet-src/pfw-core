@@ -221,7 +221,9 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Encoding:** code = 40; operand `%cur`.
 - **Operation:** push `%cur` onto the flow's ring: `ring[ring_head] = cur;
   ring_head = (ring_head+1) mod RING_CAP; ring_count saturates at RING_CAP` (16,
-  newest-wins). No-op if the flow does not exist yet (reasm mode always has one).
+  newest-wins). A flow's entry is created at write-back, after its first packet
+  has run; pushes made on that packet are kept and become the new entry's ring,
+  so the ring behaves the same from the first packet on, for TCP and UDP alike.
 - **Flags:** none.
 - **Maps:** `flows` (the ring lives in the flow value).
 - **Example:** `ring.push(len);`
@@ -232,10 +234,10 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 
 - **Assembler:** `rget %cur` — **pfw-C:** `ring.get(i)`
 - **Encoding:** code = 41; operand `%cur` (in: the index; out: the value).
-- **Operation:** `idx = %cur`; if a flow exists and `idx < ring_count`, `%cur =
+- **Operation:** `idx = %cur`; if `idx < ring_count`, `%cur =
   ring[(ring_head-1-idx) mod RING_CAP]` (index 0 = newest). Otherwise `%cur = 0`
   **and FF is set**, so `jf` can tell "absent" from a legitimately stored 0.
-- **Flags:** sets **FF** on out-of-range / no flow.
+- **Flags:** sets **FF** on out-of-range.
 - **Maps:** `flows`.
 - **Example:** `let recent = ring.get(0) + ring.get(1) + ring.get(2);`
 - **Notes:** 0-based from newest; combine with `rlen` to bound the index.
@@ -244,7 +246,7 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 
 - **Assembler:** `rlen %cur` — **pfw-C:** `ring.len`
 - **Encoding:** code = 42; operand `%cur`.
-- **Operation:** `%cur = ring_count` (0 if no flow); saturates at 16.
+- **Operation:** `%cur = ring_count`; saturates at 16.
 - **Flags:** none.
 - **Maps:** `flows`.
 - **Example:** `if (ring.len == 16) ...`
