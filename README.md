@@ -342,8 +342,8 @@ Things to know when embedding:
 - **Knob values follow the name.** A value set with `setKnob` or `apply({ knobs })`
   is remembered and re-applied to any later program that declares that knob.
 - **No version check yet** between this JS and the `vm.bpf.o` it loads: ship them
-  together. `npm pack` builds and includes `bin/vm.bpf.o` (`prepack` runs
-  `make bpf`); from a checkout, run `make bpf` first.
+  together. The release package does (`make package` puts the object and the
+  bundled JS side by side in `pkg/`); from a checkout, run `make bpf` first.
 
 `scripts/apply-and-hold.mjs` is a 50-line CLI over `PfwVm` that every kernel test
 drives, and `scripts/loader-lifecycle.mjs` walks the whole lifecycle. To bind the
@@ -478,12 +478,26 @@ on real loopback traffic; they need `yeetd` + loopback.
   apply, send loopback traffic, read the verdict from the event stream, assert it
   matches the reference.
 
-**CI** (`.github/workflows/`): `test` runs the host suites on pull requests and
-pushes to `master` — `test:node` under node 24 and 26, and `test:isa` and
-`test:unit` with `yeet test`, on a runner that installs yeet first.
-`kernel-matrix` builds `bin/vm.bpf.o` and loads it with `veristat` on 6.1, 6.6,
-6.12, 6.18 and 7.2, plus bpf-next as a non-gating column. The live kernel tests
-are not run in CI.
+**CI** (`.github/workflows/ci.yml`), on pull requests and pushes to `master`:
+`test` runs the host suites — `test:node` under node 24 and 26, and `test:isa`
+and `test:unit` with `yeet test`; `kernel-matrix` builds `bin/vm.bpf.o` and
+loads it with `veristat` on 6.1, 6.6, 6.12, 6.18 and 7.2, plus bpf-next as a
+non-gating column; `package` builds the release tarball, installs it into an empty
+project and runs the ISA and unit suites against the installed copy. The live kernel tests are not run in CI.
+
+**Releases**: on `master`, once those three pass, the tarball is published as
+`pfw-core.tgz` on a rolling `latest` GitHub release. It holds the compiled
+`bin/vm.bpf.o` and the JavaScript bundled and minified — no sources — so the
+consumer needs no BPF toolchain (`make package` builds the same thing into
+`pkg/`):
+
+```sh
+gh release download latest -R yeet-src/pfw-core -p pfw-core.tgz --clobber
+npm install ./pfw-core.tgz
+```
+
+Its version is `<package version>-master.<run number>`. The repository is
+private, so the download needs GitHub auth (`gh auth login`, or a token).
 
 ## Reference
 

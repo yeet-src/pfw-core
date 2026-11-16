@@ -25,11 +25,11 @@ name: kernel-matrix
 # matrix starts at the 6.1 LTS. bpf-next is run but does not gate: it is a
 # moving target, and what it shows tends to arrive in stable soon after.
 
+# Run as a job of the ci workflow (pull requests and pushes to master), which
+# only packages and releases if this passes. workflow_dispatch runs it alone.
 on:
   workflow_dispatch:
-  push:
-    branches: [master, main]
-  pull_request:
+  workflow_call:
 
 permissions:
   contents: read

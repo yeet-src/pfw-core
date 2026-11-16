@@ -1,0 +1,139 @@
+name: ci
+
+# The one entry point. On pull requests and on pushes to master:
+#
+#   test            the host suites                       (test.yml)
+#   kernel-matrix   the verifier, on each supported kernel (kernel-matrix.yml)
+#   package         build the distributable tarball, install it into an empty
+#                   project, and run the ISA and unit suites against the
+#                   installed copy
+#
+# and, on master only, once all three pass:
+#
+#   release         publish that tarball on a rolling `latest` GitHub release
+#
+# The tarball holds the compiled BPF object and the JavaScript bundled and
+# minified (`make package`) — no sources, docs or examples — so a consumer needs
+# no BPF toolchain and gets about 120 kB. It is always named pfw-core.tgz, so
+# there is one thing to fetch:
+#
+#   gh release download latest -R yeet-src/pfw-core -p pfw-core.tgz --clobber
+#   npm install ./pfw-core.tgz
+#
+# The repository is private, so the asset needs GitHub auth to download — npm
+# cannot install it straight from the release URL the way it could from a public
+# repository (there, `npm install <release url>/pfw-core.tgz` is enough).
+#
+# The package version is stamped <version>-master.<run number> at build time (the
+# committed package.json is untouched), so an installed copy says which build it
+# is. The release notes carry the commit. `latest` moves: the tag is re-pointed
+# and the asset replaced on each run, so there is exactly one release to look at.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes the run in progress. Runs on
+# master are never cancelled: one may be halfway through moving the tag.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+
+  kernel-matrix:
+    uses: ./.github/workflows/kernel-matrix.yml
+
+  package:
+    runs-on: ubuntu-latest
+    name: package
+    outputs:
+      version: ${{ steps.pack.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install yeet
+        run: |
+          set -euo pipefail
+          # --no-phone-home: the installer otherwise reports the runner's OS
+          # version on exit. The package check runs the suites with `yeet test`.
+          curl -fsSL https://yeet.cx | sh -s -- --no-phone-home
+          for i in $(seq 1 30); do systemctl is-active --quiet yeetd && break; sleep 1; done
+          systemctl is-active yeetd
+
+      - name: Build the package
+        id: pack
+        run: |
+          set -euo pipefail
+          base="$(node -p 'require("./package.json").version')"
+          version="${base}-master.${GITHUB_RUN_NUMBER}"
+          # bin/vm.bpf.o with the vendored toolchain, then the JavaScript bundled
+          # and minified, into pkg/.
+          make package VERSION="$version"
+          mkdir -p dist
+          file="$(cd dist && npm pack ../pkg | tail -1)"
+          mv "dist/$file" dist/pfw-core.tgz
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          ls -l dist/pfw-core.tgz
+
+      - name: Install it into an empty project and run the suites against it
+        run: sh build/test-package.sh dist/pfw-core.tgz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pfw-core-tgz
+          path: dist/pfw-core.tgz
+          if-no-files-found: error
+
+  release:
+    needs: [test, kernel-matrix, package]
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    name: release latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pfw-core-tgz
+          path: dist
+
+      - name: Publish the `latest` release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          set -euo pipefail
+          sha256="$(sha256sum dist/pfw-core.tgz | awk '{print $1}')"
+          {
+            echo "Built from \`${GITHUB_SHA}\` — version \`${VERSION}\`."
+            echo
+            echo '```sh'
+            echo "gh release download latest -R ${GITHUB_REPOSITORY} -p pfw-core.tgz --clobber"
+            echo 'npm install ./pfw-core.tgz'
+            echo '```'
+            echo
+            echo "sha256: \`${sha256}\`"
+          } > notes.md
+          # Move the tag to this commit, then create the release or refresh it.
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "latest (${VERSION})" --notes-file notes.md --latest
+            gh release upload latest dist/pfw-core.tgz --clobber
+          else
+            gh release create latest dist/pfw-core.tgz --title "latest (${VERSION})" --notes-file notes.md --latest
+          fi
