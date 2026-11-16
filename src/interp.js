@@ -76,7 +76,8 @@ export function machine({ asm, tables, regex = null }) {
       return accept.get(s) ?? 0n;
     };
     for (let i = 0; i < MAX_OPS && !verdict && pc < ops.length; i++) {
-      const { code, reg, imm } = ops[pc];
+      const { code, reg: rawReg, imm } = ops[pc];
+      const reg = rawReg & 31; /* a register index, masked & (NREGS - 1) as the kernel does; ops that pack something else into reg read rawReg */
       let cur = r[REG.cur], next = pc + 1;
       const jump = (take) => {
         if (!take) return;
@@ -112,7 +113,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.JBE: jump(cf || zf); break;
         case OP.JF: if (ff) { ff = false; jump(true); } break;
         case OP.SCAN: {
-          if (reg & 1) { ac = 0; r[REG.m] = 0n; }      // fresh scan (within): only this window counts
+          if (rawReg & 1) { ac = 0; r[REG.m] = 0n; }      // fresh scan (within): only this window counts
           const w = window(cur, Number(imm > 2048n ? 2048n : imm));
           let rs = 0;
           if (w) for (let k = 0; k < w.length; k++) {
@@ -127,24 +128,26 @@ export function machine({ asm, tables, regex = null }) {
           }
           break;
         }
-        case OP.MPOS: if (mpos[reg & 63]) cur = BigInt(mpos[reg & 63]); else ff = true; break;
+        case OP.MPOS: if (mpos[rawReg & 63]) cur = BigInt(mpos[rawReg & 63]); else ff = true; break;
         case OP.CMPSTR: {
-          const p = pats[reg & 63];
+          const p = pats[rawReg & 63];
+          cf = false;
+          if (!p || p.len === 0 || p.len > 64) { zf = false; break; } /* an empty slot just clears the flags */
           const w = window(cur, p.len);
           zf = !!w && w.length === p.len && p.bytes.every((b, k) => fold(w[k]) === fold(b)); // nocase folds both, as the kernel does
-          cf = false;
           break;
         }
         case OP.FINDB: {
           const w = window(cur, Number(imm > 2048n ? 2048n : imm));
           ff = true;
-          const k = w ? w.indexOf(reg & 0xff) : -1;
+          const k = w ? w.indexOf(rawReg & 0xff) : -1;
           if (k >= 0) { cur = cur + BigInt(k); ff = false; }
           break;
         }
         case OP.LOAD: {
-          const size = reg & 15, be = (reg & 16) !== 0;
-          const off = cur + imm;
+          const size = rawReg & 15, be = (rawReg & 16) !== 0;
+          const off = (cur + imm) & U64; /* wraps, as the kernel's __u64 sum does */
+          if (size !== 1 && size !== 2 && size !== 4 && size !== 8) { ff = true; break; }
           if (off > 0xffffn || off + BigInt(size) > BigInt(wend())) { ff = true; break; }
           const o = Number(off);
           let v = 0n;
@@ -157,7 +160,7 @@ export function machine({ asm, tables, regex = null }) {
           const cap = (imm === 0n || imm > 64n) ? 64 : Number(imm);
           const w = window(cur, cap);
           let count = 0;
-          if (w) for (let k = 0; k < w.length; k++) { if (w[k] !== (reg & 0xff)) break; count = k + 1; }
+          if (w) for (let k = 0; k < w.length; k++) { if (w[k] !== (rawReg & 0xff)) break; count = k + 1; }
           cur = cur + BigInt(count);
           break;
         }
@@ -182,8 +185,8 @@ export function machine({ asm, tables, regex = null }) {
           const fillB = Number(imm & 0xffn);
           const end = Math.min(Number(r[REG.end]), frame.length);
           const start = Number(r[REG.payload]); /* whole payload, not cursor */
-          if (reg & 0x8000) { // regex (fixed-length): DFA walk, overwrite [i+1-len, i] on accept of this bit
-            const bit = BigInt(reg & 0x3fff), len = Number((imm >> 8n) & 0x7fn);
+          if (rawReg & 0x8000) { // regex (fixed-length): DFA walk, overwrite [i+1-len, i] on accept of this bit
+            const bit = BigInt(rawReg & 0x3fff), len = Number((imm >> 8n) & 0x7fn);
             if (regex && len > 0) {
               let s = 0;
               for (let i = start; i < end && i < start + SCAN_CAP; i++) {
@@ -193,7 +196,7 @@ export function machine({ asm, tables, regex = null }) {
             }
             break;
           }
-          const p = pats[reg & 63];
+          const p = pats[rawReg & 63];
           if (p && p.len > 0 && (!repl || repl.len === p.len)) {
             for (let o = start; o >= 0 && o + p.len <= end && o < start + 2048; o++) {
               let hit = true;
@@ -205,21 +208,21 @@ export function machine({ asm, tables, regex = null }) {
         }
         /* reg (sload/bump) or imm bit 32 (sstore) selects the scope: this flow, or
          * the source address. Source writes are deferred exactly like flow writes. */
-        case OP.SLOAD: cur = BigInt(reg === 1 ? srcState : userState); break;
+        case OP.SLOAD: cur = BigInt(rawReg === 1 ? srcState : userState); break;
         case OP.SSTORE: if ((imm >> 32n) & 1n) srcNewState = Number(imm & 0xffffffffn); else newState = Number(imm & 0xffffffffn); break;
         case OP.BUMP:
-          if (reg === 1) { srcHits = (srcHits + 1) >>> 0; cur = BigInt(srcHits); }
+          if (rawReg === 1) { srcHits = (srcHits + 1) >>> 0; cur = BigInt(srcHits); }
           else { hits = (hits + 1) >>> 0; cur = BigInt(hits); }
           break;
         case OP.FLOW: cur = BigInt(mark); break;
-        case OP.MARK: setMark = reg; break;
-        case OP.COUNT: rule = reg; break; // counter side effect; execution continues
+        case OP.MARK: setMark = rawReg; break;
+        case OP.COUNT: rule = rawReg; break; // counter side effect; execution continues
         case OP.LOG: break;
         case OP.PASS: verdict = V.PASS; break;
         case OP.END: verdict = V.PASS; break;
-        case OP.DROP: verdict = V.DROP; rule = reg; break;
-        case OP.BAN: verdict = V.BAN; rule = reg; break;
-        case OP.RST: verdict = V.RST; rule = reg; break;
+        case OP.DROP: verdict = V.DROP; rule = rawReg & 63; break;
+        case OP.BAN: verdict = V.BAN; rule = rawReg & 63; break;
+        case OP.RST: verdict = V.RST; rule = rawReg & 63; break;
         case OP.DNAT: break; /* kernel-only: rewrites packet headers, which the host frame model (payload-only) has not got */
         case OP.LPM: zf = set.some((c) => (cur & c.mask) === (c.net & c.mask)); cf = false; break; /* src in the CIDR set */
         case OP.HASH: zf = hashset.has(cur & 0xffffffffn); cf = false; break; /* x in the exact hash set */
@@ -257,7 +260,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
           const rate = Number(imm & 0xffffffffn), cap = Number((imm >> 32n) & 0xffffffffn) * RL_SCALE;
-          const b = reg === 1 ? srcBucket : bucket, nowN = Number(now);
+          const b = rawReg === 1 ? srcBucket : bucket, nowN = Number(now);
           if (!b) { zf = false; cf = false; break; }
           let tokens;
           if (b.ts === undefined) tokens = cap; /* unseeded: full bucket (kernel uses rl_ts==0, where ktime is never 0) */
