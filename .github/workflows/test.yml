@@ -1,0 +1,75 @@
+name: test
+
+# The host-side suites: everything that needs no kernel and no yeet runtime.
+#
+#   check-isa          src/isa.js and bpf/include/pfw.h agree on every opcode
+#                      and register number
+#   examples           every examples/ and contrib/ program compiles, and the
+#                      showcase programs behave as documented
+#   test/isa           the ISA conformance vectors (docs/isa, all 64 opcodes)
+#   test/unit          the compiler, assembler, DSL and reference interpreter
+#
+# The first two run under plain node. test/isa and test/unit are `yeet test`
+# suites, so that job installs yeet (the documented installer; no login is
+# needed to run tests) and waits for its daemon, which `yeet test` runs modules
+# through.
+#
+# Not run here: the live kernel tests (npm run test:kernel, test:mpos, …), which
+# load the VM and send real traffic over loopback. Whether each kernel's
+# verifier accepts the VM is the kernel-matrix workflow.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 24 is the floor: the `#/…` import specifiers the package uses are
+        # rejected by node 22.
+        node: ['24', '26']
+    name: node ${{ matrix.node }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: ISA / header agreement, examples
+        run: npm run test:node
+
+  yeet:
+    runs-on: ubuntu-latest
+    name: yeet test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yeet
+        run: |
+          set -euo pipefail
+          # --no-phone-home: the installer otherwise reports the runner's OS
+          # version on exit.
+          curl -fsSL https://yeet.cx | sh -s -- --no-phone-home
+          yeet version
+          # `yeet test` runs its modules through the daemon.
+          for i in $(seq 1 30); do systemctl is-active --quiet yeetd && break; sleep 1; done
+          systemctl is-active yeetd
+
+      - name: ISA conformance vectors
+        run: yeet test test/isa
+
+      - name: Unit suites
+        run: yeet test test/unit

@@ -464,6 +464,9 @@ Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
 
+- **`test/isa/*.test.mjs`** (under `yeet test`, `npm run test:isa`): the ISA
+  conformance vectors — a small program per case, asserting the registers,
+  flags or verdict `docs/isa/` says each of the 64 opcodes leaves behind.
 - **`test/unit/*.test.mjs`** (under `yeet test`): real programs through the
   reference interpreter, one file per feature, plus `ops.test.mjs` (every opcode,
   with a coverage gate), the front-end differentials (`dsl`/`fp` == source), and
@@ -474,6 +477,13 @@ on real loopback traffic; they need `yeetd` + loopback.
 - **`test/kernel/*.mjs`**: the differential and per-feature kernel tests — load,
   apply, send loopback traffic, read the verdict from the event stream, assert it
   matches the reference.
+
+**CI** (`.github/workflows/`): `test` runs the host suites on pull requests and
+pushes to `master` — `test:node` under node 24 and 26, and `test:isa` and
+`test:unit` with `yeet test`, on a runner that installs yeet first.
+`kernel-matrix` builds `bin/vm.bpf.o` and loads it with `veristat` on 6.1, 6.6,
+6.12, 6.18 and 7.2, plus bpf-next as a non-gating column. The live kernel tests
+are not run in CI.
 
 ## Reference
 
