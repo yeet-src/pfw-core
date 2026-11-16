@@ -38,6 +38,12 @@ for (const name of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "bp", "a0", 
     cur: 0x1234, regs: { [name]: 0x1234, [name === "s0" ? "s1" : "s0"]: 0 },
   });
 }
+t("mov_cr: the assembler writes the stack, argument and return registers", {
+  asm: `${li(3)}\nmov %cur, %sp\nmov %cur, %bp\nmov %cur, %a0\nmov %cur, %a6\nmov %cur, %rv`, regs: { sp: 3, bp: 3, a0: 3, a6: 3, rv: 3 },
+});
+for (const name of ["payload", "dport", "sport", "proto", "len", "l3", "l4", "frame", "saddr", "ifindex", "shadow"]) {
+  t(`mov_cr: the assembler refuses to write %${name}`, { asm: `mov %cur, %${name}`, rejects: /writable register/ });
+}
 t("mov_cr: holds a full 64-bit value", { asm: `${li(MAX)}\nmov %cur, %s3\nand $0, %cur`, cur: 0, regs: { s3: MAX } });
 t("mov_cr: leaves ZF/CF alone", { asm: `${li(1)}\ncmp $2, %cur\nmov %cur, %s0`, zf: false, cf: true });
 t("mov_cr: writing %m feeds test", { asm: `${li(4)}\nmov %cur, %m\ntest $4, %m`, zf: false, regs: { m: 4 } });
