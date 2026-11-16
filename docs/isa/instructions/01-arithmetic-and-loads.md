@@ -47,7 +47,7 @@ masked `& (NREGS−1)` before use. See [bytecode encoding](../05-bytecode-encodi
 ### 2 — `OP_MOV_CR` (`mov %cur, %REG`)
 
 - **Assembler:** `mov %cur, %REG` (a *writable* register: `%s0…%s7`, `%m`,
-  `%sp`, `%bp`, `%a0…%a6`, `%rv`; packet fields are read-only).
+  `%end`, `%sp`, `%bp`, `%a0…%a6`, `%rv`; the other packet fields are read-only).
 - **Encoding:** code = 2; `reg` = destination register index; `imm` unused.
   Emitted via `Builder.movFromCur(reg)`.
 - **Operation:** `r[reg] ← cur`, **except** when `reg == R_CUR` (index 13), which
@@ -131,8 +131,11 @@ masked `& (NREGS−1)` before use. See [bytecode encoding](../05-bytecode-encodi
   the frame buffer, little-endian, swapping for BE.
 - **Flags:** sets `FF` on a bounds failure; leaves `ZF`/`CF` untouched; does **not**
   clear `FF` on success.
-- **Faults:** `FF` is raised and `%cur` is left unchanged when `off > 0xffff` or
-  `off + size > %end`. A subsequent `jf` branches on it (and clears it). This is
+- **Faults:** `FF` is raised and `%cur` is left unchanged when `off > 0xffff`,
+  `off + size > %end`, or `size` is not 1, 2, 4 or 8 (the assembler only emits
+  those; other bytecode faults rather than reading). `off` is computed mod 2⁶⁴,
+  like all arithmetic, so `%cur = 2⁶⁴ − 1` with displacement 1 addresses
+  offset 0. A subsequent `jf` branches on it (and clears it). This is
   how out-of-bounds reads are made safe for the verifier — the read is bounded,
   never trapping.
 - **Example:** `movbew 0(%cur), %cur` — read a big-endian 16-bit field at the
