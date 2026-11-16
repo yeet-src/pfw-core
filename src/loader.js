@@ -148,7 +148,7 @@ export class PfwVm {
       /* An empty program in both generations: the entry passes when nops == 0. */
       await this._map("programs").update(0, progValue(EMPTY, 0, []));
       await this._map("programs").update(1, progValue(EMPTY, 0, []));
-      await new DataSec(control, "vm.bss").patch({ active: 0, shadow: 0 });
+      await new DataSec(control, "vm.bss").patch({ active_gen: 0, shadow: 0 });
       for (const part of chunks([...transformCells()], BATCH)) await this._map("tt_cells").updateBatch(part);
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
       this._subs.push(await new RingBuf(control, "console_ring").subscribe((w) => this._onConsole(w?.pfw_console ?? w)));
@@ -174,7 +174,7 @@ export class PfwVm {
 
   /**
    * Put a program into effect. It is written into the idle generation — bytecode,
-   * automaton and regex tables — and only then does one write flip `active`, so
+   * automaton and regex tables — and only then does one write flip `active_gen`, so
    * no packet ever runs a half-written program. Connection state (flows, bans,
    * per-source counters) is kept across the swap.
    *
@@ -223,7 +223,7 @@ export class PfwVm {
     if (knobPairs.length) await this._map("knobs").updateBatch(knobPairs);
     for (const [slot, name] of (c.knobStrs ?? []).entries()) await this._map("knob_strs").update(slot, strBytes(this._knobStrValues[name] ?? "", LIMITS.KNOBSTR_CAP));
 
-    const patch = { active: g };
+    const patch = { active_gen: g };
     if (opts.shadow !== undefined) patch.shadow = opts.shadow ? 1 : 0;
     await new DataSec(control, "vm.bss").patch(patch);
     this._active = g;

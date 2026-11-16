@@ -44,8 +44,8 @@ struct pfw_prog {
 nocase)` produces the Aho-Corasick tables (`ac_goto`/`ac_fail`/`ac_accept`), and
 the regex compiler produces the DFA tables (`re_goto`/`re_accept`). The loader
 writes the program into `programs[gen]`, the automaton/DFA/transform tables and
-the membership sets into their maps, patches the `active`/`shadow` globals, then
+the membership sets into their maps, patches the `active_gen`/`shadow` globals, then
 attaches `pfw_xdp`. Two generations (`PFW_GENS = 2`) let an update write the idle
-generation and flip `active` atomically.
+generation and flip `active_gen` atomically.
 
 ---

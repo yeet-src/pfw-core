@@ -13,7 +13,7 @@
 SEC("xdp")
 int pfw_rewrite(struct xdp_md *ctx)
 {
-    __u32 gen = active & (PFW_GENS - 1);
+    __u32 gen = active_gen & (PFW_GENS - 1);
     struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &gen);
     if (!prog || prog->nops == 0)
         return XDP_PASS;
