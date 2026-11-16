@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "description": "The programmable-firewall VM: ISA, pfw-C compiler, bytecode, and a reference interpreter, with an eBPF/XDP backend.",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "imports": {
     "#/asm": "./src/asm/index.js",
     "#/builder": "./src/builder/index.js",

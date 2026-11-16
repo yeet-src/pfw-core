@@ -18,7 +18,7 @@
 
 set -eu
 
-KERNELS=${*:-"5.10-main 5.15-main 6.1-main 6.6-main 6.12-main bpf-next-main"}
+KERNELS=${*:-"6.1-main 6.6-main 6.12-main 6.18-main 7.2-main bpf-next-main"}
 LVH_VERSION="${LVH_VERSION:-v0.0.30}"
 SSH_PORT="${SSH_PORT:-2222}"
 MON_PORT="${MON_PORT:-45454}"

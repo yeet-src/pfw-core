@@ -44,6 +44,15 @@ fi
 
 # Drop the header row; fail if any program's verdict is not "success".
 if printf '%s\n' "$csv" | tail -n +2 | grep -q ',failure$'; then
+	# Say why, for the programs rejected early: the verifier's own log. A program
+	# that died within a few thousand instructions was refused on sight (a helper,
+	# map type or attach the kernel lacks) and its log is short. One that ran into
+	# the complexity limit has a log of a million lines that says only that, so
+	# those are left to the table above.
+	printf '%s\n' "$csv" | tail -n +2 | awk -F, '$5 == "failure" && $3 < 10000 { print $2 }' | while read -r prog; do
+		echo ">> verifier log for $prog (kernel $KREL):"
+		"$VERISTAT" -v -f "$prog" "$OBJ" 2>&1 | grep -v '^$' | tail -n 25 || true
+	done
 	echo "::error::BPF verifier rejected a program on kernel $KREL" >&2
 	exit 1
 fi
