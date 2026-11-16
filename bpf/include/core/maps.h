@@ -243,6 +243,13 @@ struct pfw_state {
     __u16 fslen[FSTR_MAX];
     __u32 fsn;
     __u8 kbuf[KNOB_SCAN]; /* OP_KNOBHAS: the payload window loaded for the string search */
+    /* The ring of a flow that has no entry yet. A flow is created at write-back,
+     * after the program ran, so its first packet has nowhere to push: the ring
+     * ops work on this instead, and it becomes the flow's ring when the entry is
+     * made (pring_count != 0 is also what asks for the entry to be made). */
+    __u32 pring[RING_CAP];
+    __u32 pring_head;
+    __u32 pring_count;
     /* Scratch a step hands to its inner bpf_loop (see struct pfw_ctx). */
     __u32 x_scan_off; /* frame offset of buf[0] during a scan */
     __u32 x_scan_len;

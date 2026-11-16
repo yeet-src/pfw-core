@@ -59,8 +59,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;
 
-    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl)) {
-        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || pp->end > pp->payload)) {
+    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count)) {
+        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || pp->end > pp->payload)) {
             bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
             f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
@@ -70,6 +70,12 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
             if (st->set_state) { f->user_state = st->new_state; f->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
             if (st->set_rl) { f->rl_tokens = st->rl_tokens; f->rl_ts = st->rl_ts; }
             if (st->set_hits) f->hits = st->hits;
+            /* Pushes made while the flow had no entry: they are its ring now. */
+            if (st->pring_count) {
+                __builtin_memcpy(f->ring, st->pring, sizeof(f->ring));
+                f->ring_head = st->pring_head & (RING_CAP - 1);
+                f->ring_count = st->pring_count > RING_CAP ? RING_CAP : st->pring_count;
+            }
             if (st->set_mark) { f->mark = st->set_mark; f->rule = st->rule; f->expires = st->ttl ? now + (__u64) st->ttl * 1000000000ULL : 0; }
             /* On a reassembled stream a `drop` must hold for the connection, not
              * the packet: TCP retransmits the dropped segment, and by then its
