@@ -67,9 +67,12 @@ export function parseOperand(tok) {
 }
 
 export const isCur = (o) => o?.kind === "reg" && o.name === "cur";
-/* %end is writable so `frame` can shrink the readable window to one record;
- * it only ever narrows reads (window/load clamp to it), so it stays safe. */
-export const isWritable = (o) => o?.kind === "reg" && /^(s[0-7]|m|end)$/.test(o.name);
+/* The registers a program may write (docs/isa/02-registers.md): scratch, the
+ * match mask, the stack and frame pointers, and the subroutine argument and
+ * return registers — the same set pfw-C can assign. %end is writable so `frame`
+ * can shrink the readable window to one record; it only ever narrows reads
+ * (window/load clamp to it), so it stays safe. The packet fields are read-only. */
+export const isWritable = (o) => o?.kind === "reg" && /^(s[0-7]|m|end|sp|bp|a[0-6]|rv)$/.test(o.name);
 
 /* ---- the assembler ------------------------------------------------------- */
 
