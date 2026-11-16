@@ -24,7 +24,8 @@
     "./*": "./src/*"
   },
   "scripts": {
-    "test": "npm run test:node && npm run test:unit",
+    "test": "npm run test:node && npm run test:isa && npm run test:unit",
+    "test:isa": "yeet test test/isa",
     "test:unit": "yeet test test/unit",
     "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs && node test/node/examples-behavior.mjs",
     "test:verify": "yeet run scripts/verify-load.mjs",
