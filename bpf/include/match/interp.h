@@ -222,7 +222,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_MPOS: {
-        __u32 pos = st->mpos[PFW_MASK(reg, PFW_MAX_PATS)];
+        __u32 pos = st->mpos[op->reg & (PFW_MAX_PATS - 1)] /* a pattern id (6 bits), not a register index */;
         if (pos)
             cur = pos;
         else
