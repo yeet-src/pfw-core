@@ -10,14 +10,14 @@ name: ci
 #
 # and, on master only, once all three pass:
 #
-#   release         publish that tarball on a rolling `latest` GitHub release
+#   release         publish that tarball as the `rolling` GitHub release
 #
 # The tarball holds the compiled BPF object and the JavaScript bundled and
 # minified (`make package`) — no sources, docs or examples — so a consumer needs
 # no BPF toolchain and gets about 120 kB. It is always named pfw-core.tgz, so
 # there is one thing to fetch:
 #
-#   gh release download latest -R yeet-src/pfw-core -p pfw-core.tgz --clobber
+#   gh release download rolling -R yeet-src/pfw-core -p pfw-core.tgz --clobber
 #   npm install ./pfw-core.tgz
 #
 # The repository is private, so the asset needs GitHub auth to download — npm
@@ -29,8 +29,9 @@ name: ci
 # packages use — so builds order as the commits do and all sort below the final
 # <version>; its package.json carries the full commit as `gitHead`. An installed
 # copy says exactly what it was built from. The release title and notes carry
-# both too. `latest` moves: the tag is re-pointed
-# and the asset replaced on each run, so there is exactly one release to look at.
+# both too. The release is `rolling`: it is deleted and
+# recreated at the new commit on each run, so there is exactly one to look at.
+# It is a prerelease, which leaves GitHub's "latest" for a tagged v<version>.
 
 on:
   workflow_dispatch:
@@ -103,40 +104,39 @@ jobs:
     needs: [test, kernel-matrix, package]
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    name: release latest
+    name: release rolling
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
       - uses: actions/download-artifact@v4
         with:
           name: pfw-core-tgz
           path: dist
 
-      - name: Publish the `latest` release
+      - name: Publish the `rolling` release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.package.outputs.version }}
         run: |
           set -euo pipefail
           sha256="$(sha256sum dist/pfw-core.tgz | awk '{print $1}')"
           {
-            echo "Built from \`${GITHUB_SHA}\` — version \`${VERSION}\`."
+            echo "Rolling build of \`master\` at \`${GITHUB_SHA}\` — version \`${VERSION}\`."
             echo
             echo '```sh'
-            echo "gh release download latest -R ${GITHUB_REPOSITORY} -p pfw-core.tgz --clobber"
+            echo "gh release download rolling -R ${GITHUB_REPOSITORY} -p pfw-core.tgz --clobber"
             echo 'npm install ./pfw-core.tgz'
             echo '```'
             echo
             echo "sha256: \`${sha256}\`"
           } > notes.md
-          # Move the tag to this commit, then create the release or refresh it.
-          git tag -f latest "$GITHUB_SHA"
-          git push -f origin refs/tags/latest
-          if gh release view latest >/dev/null 2>&1; then
-            gh release edit latest --title "latest (${VERSION})" --notes-file notes.md --latest
-            gh release upload latest dist/pfw-core.tgz --clobber
-          else
-            gh release create latest dist/pfw-core.tgz --title "latest (${VERSION})" --notes-file notes.md --latest
-          fi
+          # Replace the release and its tag, as yeet's rolling release does: one
+          # release, always at the commit it was built from. A prerelease, so
+          # GitHub's "latest" stays free for a tagged v<version>.
+          gh release delete rolling --cleanup-tag --yes || true
+          gh release create rolling dist/pfw-core.tgz \
+            --target "$GITHUB_SHA" \
+            --title "Rolling (${VERSION})" \
+            --notes-file notes.md \
+            --prerelease

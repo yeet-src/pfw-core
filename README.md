@@ -486,13 +486,14 @@ non-gating column; `package` builds the release tarball, installs it into an emp
 project and runs the ISA and unit suites against the installed copy. The live kernel tests are not run in CI.
 
 **Releases**: on `master`, once those three pass, the tarball is published as
-`pfw-core.tgz` on a rolling `latest` GitHub release. It holds the compiled
+`pfw-core.tgz` on the `rolling` GitHub release (a prerelease, replaced on every
+merge). It holds the compiled
 `bin/vm.bpf.o` and the JavaScript bundled and minified — no sources — so the
 consumer needs no BPF toolchain (`make package` builds the same thing into
 `pkg/`):
 
 ```sh
-gh release download latest -R yeet-src/pfw-core -p pfw-core.tgz --clobber
+gh release download rolling -R yeet-src/pfw-core -p pfw-core.tgz --clobber
 npm install ./pfw-core.tgz
 ```
 
