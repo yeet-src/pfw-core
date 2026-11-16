@@ -460,7 +460,7 @@ Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 `test:hash`, `test:bloom`, `test:lpm6`, `test:redirect`, `test:rate`, `test:argv`,
 `test:shadow`, `test:console`, `test:printk`, `test:stack`, `test:call`,
 `test:args`, `test:regex-rewrite`, `test:source`, `test:nat`, `test:reasm`,
-`test:h2`, `test:loader` (the `PfwVm` lifecycle), and `test:examples-kernel`, which drives the shipped example files with
+`test:h2`, `test:mpos`, `test:lang` (the language features that otherwise only run on the host: ring, `flow.count`/`flow.state`, `seq`, `within`, `skip`, the frame walker, `switch`, macros, knob structs, `decode <table>` and `decode huffman`), `test:loader` (the `PfwVm` lifecycle), and `test:examples-kernel`, which drives the shipped example files with
 curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
 
