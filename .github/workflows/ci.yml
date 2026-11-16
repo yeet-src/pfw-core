@@ -24,9 +24,12 @@ name: ci
 # cannot install it straight from the release URL the way it could from a public
 # repository (there, `npm install <release url>/pfw-core.tgz` is enough).
 #
-# The package version is stamped <version>-master.<run number> at build time (the
-# committed package.json is untouched), so an installed copy says which build it
-# is. The release notes carry the commit. `latest` moves: the tag is re-pointed
+# The package is stamped at build time (the committed package.json is untouched):
+# its version is <version>-git<commit date>.g<commit> — the scheme yeet's rolling
+# packages use — so builds order as the commits do and all sort below the final
+# <version>; its package.json carries the full commit as `gitHead`. An installed
+# copy says exactly what it was built from. The release title and notes carry
+# both too. `latest` moves: the tag is re-pointed
 # and the asset replaced on each run, so there is exactly one release to look at.
 
 on:
@@ -76,11 +79,11 @@ jobs:
         id: pack
         run: |
           set -euo pipefail
-          base="$(node -p 'require("./package.json").version')"
-          version="${base}-master.${GITHUB_RUN_NUMBER}"
           # bin/vm.bpf.o with the vendored toolchain, then the JavaScript bundled
-          # and minified, into pkg/.
-          make package VERSION="$version"
+          # and minified, into pkg/. A rolling build: the version is
+          # <version>-git<commit date>.g<sha>, computed from git by the build.
+          make package PKG_ROLLING=yes
+          version="$(node -p 'require("./pkg/package.json").version')"
           mkdir -p dist
           file="$(cd dist && npm pack ../pkg | tail -1)"
           mv "dist/$file" dist/pfw-core.tgz

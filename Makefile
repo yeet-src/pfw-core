@@ -16,10 +16,13 @@ include build/bpf.mk
 
 # Build the distributable package into pkg/: bin/vm.bpf.o plus the JavaScript
 # bundled and minified (no sources). `npm pack ./pkg` makes the tarball the
-# release publishes. VERSION=… overrides the version in package.json.
+# release publishes. PKG_ROLLING=yes makes it a snapshot build, versioned
+# <version>-git<commit date>.g<sha> so snapshots order as the commits do and all
+# sort below the final <version> (as yeet's rolling packages do).
+PKG_ROLLING ?= no
 .PHONY: package
 package: bpf | toolchain
-	node build/package.mjs "$(ESBUILD)" $(VERSION)
+	node build/package.mjs "$(ESBUILD)" $(PKG_ROLLING)
 
 # Regenerate bpf/include/huff_table.h from the RFC 7541 table in src/huffman.js.
 .PHONY: gen-huff
