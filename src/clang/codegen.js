@@ -305,6 +305,7 @@ export function codegen(ast) {
     if (e.kind === "flowstate") return bld.sload(e.scope ?? 0);
     if (e.kind === "flowcount") return bld.bump(e.scope ?? 0);
     if (e.kind === "flowhash") return bld.fhash();
+    if (e.kind === "flowreg") return bld.fload(e.which);
     if (e.kind === "ringlen") return bld.rlen();
     if (e.kind === "ringget") { materialize(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
@@ -354,7 +355,7 @@ export function codegen(ast) {
       const right = allocScratch(`__ar${nTmp++}`, e.line);
       bld.movFromCur(right); bld.movToCur(tmp); return bld[ARITH_R[op]](right);
     }
-    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget", "kvget"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "flowhash", "flowreg", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget", "kvget"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
@@ -512,6 +513,7 @@ export function codegen(ast) {
         return;
       }
       case "setstate": return bld.sstore(immVal(s.value), s.ttl ? immVal(s.ttl) : 0n, s.scope ?? 0);
+      case "setflowreg": materialize(s.value); return bld.fstore(s.which);
       case "ringpush": materialize(s.value); return bld.rpush();
       case "let": {
         if (REGISTERS.has(s.name) || declared.has(s.name) || masks.has(s.name)) die(`\`${s.name}\` is already a register, pattern, or mask`, s.line);

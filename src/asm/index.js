@@ -298,6 +298,14 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("knob is `knob $SLOT`");
         emit(OP.KNOB, 0, numberOf(a.text, "slot") & 0xffffffffn);
+      } else if (m === "fload" || m === "fstore") {
+        /* fload $0..$3 | $bytes | $packets;  fstore $0..$3 */
+        want(1);
+        if (a.kind !== "imm") fail(`${m} is \`${m} $N\``);
+        const named = { bytes: 4n, packets: 5n }[a.text];
+        const n = named ?? numberOf(a.text, "flow register");
+        if (m === "fstore" ? n < 0n || n > 3n : n < 0n || n > 5n) fail(m === "fstore" ? "fstore writes flow register 0–3" : "fload reads flow register 0–3, $bytes or $packets");
+        emit(m === "fload" ? OP.FLOAD : OP.FSTORE, Number(n));
       } else if (m === "kvget") {
         if (o.length > 1) fail("kvget is `kvget [$DEFAULT]`");
         if (a && a.kind !== "imm") fail("kvget is `kvget [$DEFAULT]`");

@@ -23,7 +23,7 @@ inside value arithmetic it is **bitwise-or**.
 
 - literals (number, char, string), register reads, local reads;
 - `(expr)`, `!primary`;
-- `flow.state`, `flow.count`, `flow.hash`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
+- `flow.state`, `flow.count`, `flow.hash`, `flow.r0`–`flow.r3`, `flow.bytes`, `flow.packets`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
 - direct reads: `u8(p)`, `be16(p + 2)`, … (below);

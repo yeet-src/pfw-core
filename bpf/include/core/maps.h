@@ -214,6 +214,13 @@ struct pfw_state {
     __u32 set_state; /* 1 = write new_state to the flow */
     __u32 new_state;
     __u32 state_ttl; /* seconds the new state stays valid (0 = forever) */
+    /* The flow's registers, loaded at entry and written back if the program
+     * stored to one; and its byte and packet counts, this packet included.
+     * want_acct asks for a flow entry to be made so the counts have somewhere
+     * to live (a flow the program never asks about is not tracked for it). */
+    __u64 ureg[FLOW_REGS];
+    __u64 fbytes, fpackets;
+    __u32 set_ureg, want_acct;
     __u32 hits;      /* running per-connection hit count during this packet */
     __u32 set_hits;  /* 1 = write hits back to the flow */
     __u32 log_len;

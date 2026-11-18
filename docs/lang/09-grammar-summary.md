@@ -23,6 +23,7 @@ stmt        = block | if | match | switch | "break" ";"
             | "frame" [ "at" primary ] "(" framefields ")" "up" "to" number stmt
             | "ring" "." "push" "(" expr ")" ";"
             | ("flow"|"src") "." "state" "=" expr [ "for" expr ] ";"
+            | "flow" "." ("r0"|"r1"|"r2"|"r3") "=" arith ";"
             | ident "=" arith ";"          (* assign local / writable register *)
             | ident ";"                     (* macro expansion *)
             | ident "(" [ args ] ")" ";" ;  (* call / builtin statement *)
@@ -40,7 +41,7 @@ maskop      = primary { "|" primary } ;
 arith       = term { ("+"|"-"|"&"|"|"|"<<"|">>") term } ;       (* value grammar *)
 term        = primary { ("*"|"%") primary } ;
 primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!" primary
-            | ("flow"|"src") "." ("state"|"count") | "flow" "." "hash" | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
+            | ("flow"|"src") "." ("state"|"count") | "flow" "." ("hash"|"r0"|"r1"|"r2"|"r3"|"bytes"|"packets") | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
             | readtype "(" arith ")"           (* direct read *)
             | ident "[" arith "]"              (* table cell *)

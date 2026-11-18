@@ -28,6 +28,11 @@
 - `flow.*` is per connection (the 4-tuple); `src.*` is per source address and
   survives a reconnect. "Repeat offender" logic wants `src.count`.
 - `flow.count` / `src.count` **increment on every read**. Read once into a `let`.
+- `flow.packets` and `flow.bytes` count the connection's packets whether the
+  program reads them or not — once it has read either on some packet of that
+  connection. They include the packet being judged.
+- `flow.r0`–`flow.r3` survive a program swap, like all flow state: a new program
+  that uses a register finds what the last one left in it.
 - On a reassembled stream (`reassemble` / `decode`), `decide drop` blackholes the
   **connection**, not just the packet — otherwise TCP's retransmission of the
   dropped segment would get through.
@@ -64,6 +69,7 @@
 | numeric knobs (`knob`) | 32 |
 | string knobs (`kstr`) | 16 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |
+| per-flow registers (`flow.r0`…) | 4 |
 | `console` %s capture | 256 B |
 | `printk` formats / length | 8 / 64 B |
 
