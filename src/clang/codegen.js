@@ -223,8 +223,8 @@ export function codegen(ast) {
 
   const INV = { "==": "jne", "!=": "je", "<": "jae", ">": "jbe", "<=": "ja", ">=": "jb" };
   const DIR = { "==": "je", "!=": "jne", "<": "jb", ">": "ja", "<=": "jbe", ">=": "jae" };
-  const ARITH_I = { "+": "addImm", "-": "subImm", "&": "andImm", "|": "orImm", "<<": "shlImm", ">>": "shrImm" };
-  const ARITH_R = { "+": "addReg", "-": "subReg" };
+  const ARITH_I = { "+": "addImm", "-": "subImm", "&": "andImm", "|": "orImm", "<<": "shlImm", ">>": "shrImm", "*": "mulImm", "%": "modImm" };
+  const ARITH_R = { "+": "addReg", "-": "subReg", "*": "mulReg", "%": "modReg" };
 
   const cidrParts = (text, line) => {
     const m = String(text).replace(/^\$/, "").match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
@@ -237,6 +237,7 @@ export function codegen(ast) {
   const value = (e) => {
     if (e.kind === "flowstate") return bld.sload(e.scope ?? 0);
     if (e.kind === "flowcount") return bld.bump(e.scope ?? 0);
+    if (e.kind === "flowhash") return bld.fhash();
     if (e.kind === "ringlen") return bld.rlen();
     if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
@@ -267,14 +268,24 @@ export function codegen(ast) {
     if (e.kind === "arith") {
       materialize(e.a);
       const op = e.op;
-      if (e.b.kind === "num" || e.b.kind === "char") return bld[ARITH_I[op]](immVal(e.b));
+      if (e.b.kind === "num" || e.b.kind === "char") {
+        if (op === "%" && immVal(e.b) === 0n) die("`% 0` has no value", e.line);
+        return bld[ARITH_I[op]](immVal(e.b));
+      }
       const rb = stableReg(e.b);
-      if (rb !== null) { if (!ARITH_R[op]) die(`\`${op}\` needs a constant on the right (only + and - take a register)`, e.line); return bld[ARITH_R[op]](rb); }
-      if (op !== "+") die(`\`${op}\` needs a constant or a plain register on the right`, e.line);
+      if (rb !== null) { if (!ARITH_R[op]) die(`\`${op}\` needs a constant on the right (only + - * % take a register)`, e.line); return bld[ARITH_R[op]](rb); }
+      if (!ARITH_R[op]) die(`\`${op}\` needs a constant or a plain register on the right`, e.line);
+      /* The right side is an expression of its own, so one side waits in a
+       * register. + and * do not care which: the left waits, as it always
+       * did. - and % do, so there the left has already been worked out and
+       * is parked while the right is, then they swap. */
       const tmp = allocScratch(`__a${nTmp++}`, e.line);
-      bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
+      bld.movFromCur(tmp); materialize(e.b);
+      if (op === "+" || op === "*") return bld[ARITH_R[op]](tmp);
+      const right = allocScratch(`__ar${nTmp++}`, e.line);
+      bld.movFromCur(right); bld.movToCur(tmp); return bld[ARITH_R[op]](right);
     }
-    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));

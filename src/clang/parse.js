@@ -4,6 +4,9 @@ import { LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
 import { READS, VERDICTS } from "#/clang/lang.js";
 
+const ARITH = ["+", "-", "&", "|", "<<", ">>"];
+const TERM = ["*", "%"];
+
 export function parse(toks) {
   let pos = 0;
   const peek = () => toks[pos];
@@ -71,7 +74,18 @@ export function parse(toks) {
     const t = peek();
     if (isP("(")) {
       next();
+      /* Parentheses hold a condition or, failing that, arithmetic: `(a == b)`
+       * and `(a + b)` are both written this way, and only what follows the
+       * first operand tells them apart. */
+      const mark = pos;
       const e = parseExpr();
+      if (isP(")")) { next(); return e; }
+      if (peek().type === "punct" && (ARITH.includes(peek().value) || TERM.includes(peek().value))) {
+        pos = mark;
+        const a = parseArith();
+        eat("punct", ")");
+        return a;
+      }
       eat("punct", ")");
       return e;
     }
@@ -96,8 +110,9 @@ export function parse(toks) {
       if (name === "flow" && isP(".")) {
         next();
         const member = eat("ident").value;
+        if (member === "hash") return { kind: "flowhash", line: t.line };
         if (member !== "state" && member !== "count")
-          err(`flow has no member \`${member}\` (only \`state\` and \`count\`)`);
+          err(`flow has no member \`${member}\` (only \`state\`, \`count\` and \`hash\`)`);
         return { kind: member === "count" ? "flowcount" : "flowstate", line: t.line };
       }
       /* src.state / src.count / src.rate(r, b): the per-flow members, scoped to
@@ -220,14 +235,23 @@ export function parse(toks) {
     }
     return e;
   };
-  /* Arithmetic over values: left-assoc chain of + - & | << >>. Only used
-   * where a plain integer is wanted (let / assignment), never a mask test. */
-  const ARITH = ["+", "-", "&", "|", "<<", ">>"];
-  const parseArith = () => {
+  /* Arithmetic over values. `*` and `%` bind tighter than the rest, as anyone
+   * reading `a + b * c` expects; the others — + - & | << >> — are one level,
+   * left to right, as they always were. Only used where a plain integer is
+   * wanted (let / assignment / a read's pointer), never a mask test. */
+  const parseTerm = () => {
     let e = parsePrimary();
-    while (peek().type === "punct" && ARITH.includes(peek().value)) {
+    while (peek().type === "punct" && TERM.includes(peek().value)) {
       const op = next().value;
       e = { kind: "arith", op, a: e, b: parsePrimary(), line: e.line };
+    }
+    return e;
+  };
+  const parseArith = () => {
+    let e = parseTerm();
+    while (peek().type === "punct" && ARITH.includes(peek().value)) {
+      const op = next().value;
+      e = { kind: "arith", op, a: e, b: parseTerm(), line: e.line };
     }
     return e;
   };

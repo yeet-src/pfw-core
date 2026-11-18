@@ -51,7 +51,9 @@ export { buildHuffman, huffDecode, codes, headerText, TT_CELL } from "#/huffman"
 export { buildByteMap, TRANSFORM_TABLES, transformCells, TT_CELLS } from "#/transform.js";
 
 // The reference interpreter: run a compiled program over a frame.
-export { machine, V } from "#/interp.js";
+// flowHash is `flow.hash` on the host: what the kernel computes for a packet,
+// for building a table it will index.
+export { machine, V, flowHash } from "#/interp.js";
 
 // Authoring front-ends are namespace submodules (imported directly, not via this
 // barrel, so their short constructor names don't collide):

@@ -36,9 +36,10 @@ and         = compare { "&&" compare } ;
 compare     = maskop [ "in" cidr-or-set ]
                      [ "&" maskop ] [ cmpop maskop ] ;
 maskop      = primary { "|" primary } ;
-arith       = primary { ("+"|"-"|"&"|"|"|"<<"|">>") primary } ;  (* value grammar *)
-primary     = number | char | string | ident | "(" expr ")" | "!" primary
-            | ("flow"|"src") "." ("state"|"count") | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
+arith       = term { ("+"|"-"|"&"|"|"|"<<"|">>") term } ;       (* value grammar *)
+term        = primary { ("*"|"%") primary } ;
+primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!" primary
+            | ("flow"|"src") "." ("state"|"count") | "flow" "." "hash" | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
             | readtype "(" arith ")"           (* direct read *)
             | "argv" "[" number "]" [ "??" (number|char) ] | "argc"

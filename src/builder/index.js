@@ -31,7 +31,7 @@ const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at final
  * helps nobody when q holds one register and a `frame` walk holds five. */
 const TEMP_KINDS = [
   [/^__f[erltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
-  [/^__cmp\d/, "comparison"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
+  [/^__cmp\d/, "comparison"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
 const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7];
@@ -69,6 +69,8 @@ export class Builder {
   addReg(reg) { return this.op(OP.ADD_R, reg, 0n, { regSlot: true }); }
   subReg(reg) { return this.op(OP.SUB_R, reg, 0n, { regSlot: true }); }
   cmpReg(reg) { return this.op(OP.CMP_R, reg, 0n, { regSlot: true }); }
+  mulReg(reg) { return this.op(OP.MUL_R, reg, 0n, { regSlot: true }); }
+  modReg(reg) { return this.op(OP.MOD_R, reg, 0n, { regSlot: true }); }
 
   // ---- immediate arithmetic / compare ----
   addImm(n) { return this.op(OP.ADD_I, 0, n); }
@@ -78,6 +80,9 @@ export class Builder {
   shlImm(n) { return this.op(OP.SHL_I, 0, n); }
   shrImm(n) { return this.op(OP.SHR_I, 0, n); }
   cmpImm(n) { return this.op(OP.CMP_I, 0, n); }
+  mulImm(n) { return this.op(OP.MUL_I, 0, n); }
+  modImm(n) { return this.op(OP.MOD_I, 0, n); }
+  fhash() { return this.op(OP.FHASH); } // cur = the flow hash
   load(size, be, disp) { return this.op(OP.LOAD, (size & 15) | (be ? LOAD_BE : 0), disp); }
   test(mask) { return this.op(OP.TEST, 0, mask); }
   cidr(net, prefix) { return this.op(OP.CIDR, 0, (BigInt(prefix & 0xff) << 32n) | BigInt(net >>> 0)); }

@@ -181,6 +181,11 @@ enum pfw_opcode {
     OP_RET,     /* pop the data stack into pc (return from a subroutine) */
     OP_KNOB,    /* cur = knobs[imm] — a live host-set control value (the `knobs` map) */
     OP_KNOBHAS, /* ZF = the live host-set string knob_strs[imm] occurs in the payload window */
+    OP_MUL_I,   /* cur *= imm */
+    OP_MUL_R,   /* cur *= r[reg] */
+    OP_MOD_I,   /* cur %= imm; a zero divisor yields 0 and faults */
+    OP_MOD_R,   /* cur %= r[reg]; a zero divisor yields 0 and faults */
+    OP_FHASH,   /* cur = a 32-bit hash of the packet's addresses, ports and protocol */
     OP_COUNT_OPCODES,
 };
 

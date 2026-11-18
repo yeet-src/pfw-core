@@ -9,6 +9,7 @@ export const OP = {
   REDACT: 43, REPLACE: 44, DNAT: 45, LPM: 46, HASH: 47, BLOOM: 48, LPM6: 49,
   REDIRECT: 50, RATE: 51, ARG: 52, ARGC: 53, FARG: 54, FARGS: 55, CONSOLE: 56, PRINTK: 57,
   PUSH: 58, POP: 59, CALL: 60, RET: 61, KNOB: 62, KNOBHAS: 63,
+  MUL_I: 64, MUL_R: 65, MOD_I: 66, MOD_R: 67, FHASH: 68,
 };
 
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each

@@ -1,6 +1,6 @@
 # 4. Instruction set
 
-All **64 opcodes** (`OP_END = 0` … `OP_KNOBHAS = 63`). Every instruction is one
+All **69 opcodes** (`OP_END = 0` … `OP_FHASH = 68`). Every instruction is one
 `struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
 [§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
 `reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
@@ -14,12 +14,12 @@ Full per-opcode detail — assembler syntax, exact `code`/`reg`/`imm` encoding,
 kernel + host semantics, flags, faults, maps touched, and examples — lives in the
 four category files:
 
-- [Arithmetic, moves, and loads](instructions/01-arithmetic-and-loads.md) — `end`, moves, integer arithmetic, `load`.
+- [Arithmetic, moves, and loads](instructions/01-arithmetic-and-loads.md) — `end`, moves, integer arithmetic (`mul`/`mod` included), `load`, and the flow hash.
 - [Compare, branch, and scan](instructions/02-compare-branch-and-scan.md) — comparisons, the forward branches, and the match engine (`scan`/`mpos`/`cmpstr`/`findb`/`skipb`).
 - [Verdicts, flow state, and membership](instructions/03-verdict-flow-and-membership.md) — `decide` verdicts, events, per-flow state and the ring, and set membership.
 - [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, `push`/`pop`/`call`/`ret`, and the live `knob`/`knobhas` control plane.
 
-## Quick reference — all 64 opcodes
+## Quick reference — all 69 opcodes
 
 (`summary` is the one-line semantics from `bpf/include/pfw.h`; follow the detail
 link for the complete entry.)
@@ -90,3 +90,8 @@ link for the complete entry.)
 | 61 | `OP_RET` | pop the data stack into pc (return from a subroutine) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 62 | `OP_KNOB` | cur = knobs[imm] — a live host-set control value (the `knobs` map) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
 | 63 | `OP_KNOBHAS` | ZF = the live host-set string knob_strs[imm] occurs in the payload window | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 64 | `OP_MUL_I` | cur *= imm | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 65 | `OP_MUL_R` | cur *= r[reg] | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 66 | `OP_MOD_I` | cur %= imm; a zero divisor yields 0 and faults | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 67 | `OP_MOD_R` | cur %= r[reg]; a zero divisor yields 0 and faults | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 68 | `OP_FHASH` | cur = a 32-bit hash of the packet's addresses, ports and protocol | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
