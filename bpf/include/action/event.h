@@ -53,6 +53,33 @@ static __always_inline void emit_values(struct xdp_md *ctx, struct pfw_state *st
     bpf_ringbuf_submit(e, 0);
 }
 
+/* Copy the frame's first `want` bytes to the host. In its own frame: the helper
+ * calls and the length juggling stay out of pfw_step's. The bytes come from the
+ * packet as it is now — after a `dnat` earlier in the program, the rewritten
+ * one — whatever view the program itself was reading. */
+static __noinline void do_sample(struct xdp_md *ctx, __u32 want, __u32 tag)
+{
+    struct pfw_sample *e = bpf_ringbuf_reserve(&samples, sizeof(*e), 0);
+    if (!e) { ring_full++; return; }
+    __u32 wire = (__u32) bpf_xdp_get_buff_len(ctx);
+    __u32 n = want;
+    if (n > wire) n = wire;
+    if (n > SAMPLE_CAP) n = SAMPLE_CAP;
+    e->ts = bpf_ktime_get_ns();
+    e->ifindex = ctx->ingress_ifindex;
+    e->tag = tag;
+    e->wire_len = wire;
+    e->cap_len = 0;
+    if (n) {
+        barrier_var(n);
+        n = ((n - 1) & (SAMPLE_CAP - 1)) + 1;
+        if (bpf_xdp_load_bytes(ctx, 0, e->data, n) == 0)
+            e->cap_len = n;
+    }
+    sampled++;
+    bpf_ringbuf_submit(e, 0);
+}
+
 /* `rsrc` is the buffer the program was reading when it is not the packet (the
  * reassembled stream, or a decoded view): log() offsets are relative to it, so
  * that is where the logged bytes must come from. NULL = the packet. */

@@ -328,7 +328,7 @@ await vm.stop();                              // detached; the hook is free agai
 | `setTable(name, values, offset)` | fill a declared `table` live (or pass `tables` to `apply`); contents follow the name across programs |
 | `setKv(entries)` / `deleteKv(keys)` | the `lookup(key)` map: 64-bit keys to 64-bit values, as a Map, pairs or an object |
 | `addCidrs` / `removeCidrs`, `addHash` / `removeHash`, `addBloom` | the host-loaded sets (`src in set`, `src6 in set6`, `x in hash`, `x in bloom`) |
-| `onVerdict(cb)`, `onConsole(cb)`, `onEmit(cb)` | events; each returns an unsubscribe function. An emit event is `{ name, values, ts, ifindex }`, the values as BigInt. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
+| `onVerdict(cb)`, `onConsole(cb)`, `onEmit(cb)`, `onSample(cb)` | events; each returns an unsubscribe function. A sample is `{ tag, data, wireLen, ts, ifindex }`: the frame's first bytes as a Uint8Array. An emit event is `{ name, values, ts, ifindex }`, the values as BigInt. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
 | `stats()` | global counters since `start()`; hits per rule name since the program was applied (`applied` is the apply count, `applied_at` when); `timing[rule] = { runs, ns }`, the decision time of the packets that ended on each rule (`"-"`: the ones that touched none); and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
 
 Things to know when embedding:
@@ -473,7 +473,7 @@ on real loopback traffic; they need `yeetd` + loopback.
 
 - **`test/isa/*.test.mjs`** (under `yeet test`, `npm run test:isa`): the ISA
   conformance vectors — a small program per case, asserting the registers,
-  flags or verdict `docs/isa/` says each of the 74 opcodes leaves behind.
+  flags or verdict `docs/isa/` says each of the 75 opcodes leaves behind.
 - **`test/unit/*.test.mjs`** (under `yeet test`): real programs through the
   reference interpreter, one file per feature, plus `ops.test.mjs` (every opcode,
   with a coverage gate), the front-end differentials (`dsl`/`fp` == source), and

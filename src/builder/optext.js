@@ -49,6 +49,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.CONSOLE: return `console ${op.imm}`;
     case OP.PRINTK: return `printk ${op.imm}`;
     case OP.EMIT: return `emit ${op.imm}`;
+    case OP.SAMPLE: return op.reg ? `sample ${op.imm} tag ${op.reg}` : `sample ${op.imm}`;
     case OP.FINDB: case OP.SKIPB: return `${name} 0x${op.reg.toString(16)} ${op.imm}`;
     case OP.DROP: case OP.COUNT: return `${name} ${rule(op.reg)}`;
     case OP.BAN: case OP.RST: return `${name} ${rule(op.reg)} ${op.imm}s`;

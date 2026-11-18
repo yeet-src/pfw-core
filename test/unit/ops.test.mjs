@@ -183,6 +183,7 @@ yeet.test("farg + fargs + console + printk assemble and run (falls through to pa
   expect("tload", `        and     $0, %cur\n        add     $1, %cur\n        tload   $0, $4\n        cmp     $7, %cur\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.RST, { opts: { cells: [5, 7] } });
   expect("kvget", `        and     $0, %cur\n        add     $5, %cur\n        kvget   $9\n        cmp     $500, %cur\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.RST, { opts: { kv: { 5: 500 } } });
   expect("fload/fstore", `        and     $0, %cur\n        add     $6, %cur\n        fstore  $2\n        and     $0, %cur\n        fload   $2\n        cmp     $6, %cur\n        je      hit\n        pass\n hit:   rst     $1, $0`, V.RST);
+  expect("sample", `        sample  $16\n        pass`, V.PASS);
   expect("emit", `        and     $0, %cur\n        add     $7, %cur\n        farg\n        emit    $0\n        pass`, V.PASS);
   expect("printk", `        and     $0, %cur\n        add     $9, %cur\n        farg\n        printk  $0\n        pass`, V.PASS);
 });

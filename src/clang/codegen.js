@@ -36,6 +36,7 @@ export function codegen(ast) {
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
   const internPrintk = (text) => { const i = printkFormats.indexOf(text); return i >= 0 ? i : printkFormats.push(text) - 1; };
+  const sampleTags = [""]; // sample(len, "tag") names, by id; 0 is the untagged sample
   const emitNames = [], emitArity = []; // emit("name", ...) events, by id (the host maps id -> name)
   const knobNames = []; // knob("name") control values, by slot (the host writes the `knobs` map by this slot)
   const knobDefaults = []; // the initial value seeded per slot (from `knob("x") ?? d`), by slot
@@ -622,6 +623,22 @@ export function codegen(ast) {
           }
           return bld.console(id);
         }
+        if (c.name === "sample") {
+          /* sample(len [, "tag"]): a copy of the frame's first len bytes for the
+           * host. The length is fixed, like scan's, so the kernel's read is bounded. */
+          if (c.args.length < 1 || c.args.length > 2) die('sample(len [, "tag"])', s.line);
+          const n = Number(immVal(c.args[0]));
+          if (!Number.isInteger(n) || n < 1 || n > LIMITS.SAMPLE_CAP) die(`sample length is 1–${LIMITS.SAMPLE_CAP}`, s.line);
+          let tag = 0;
+          if (c.args[1]) {
+            if (c.args[1].kind !== "string") die('a sample\'s tag is a "string"', s.line);
+            const name = String.fromCharCode(...unescapeStr(c.args[1].text));
+            if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)) die(`a sample tag is letters, digits, \`_\` and \`.\`, not "${name}"`, s.line);
+            tag = sampleTags.indexOf(name);
+            if (tag < 0) { if (sampleTags.length >= LIMITS.SAMPLE_TAGS) die(`more than ${LIMITS.SAMPLE_TAGS - 1} sample tags`, s.line); tag = sampleTags.push(name) - 1; }
+          }
+          return bld.sample(n, tag);
+        }
         if (c.name === "emit") {
           /* emit("name", v, ...): the values go to the host as numbers under the
            * event's name. No format string: nothing to print, nothing to parse. */
@@ -698,6 +715,7 @@ export function codegen(ast) {
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;
   bld._tables = [...tableLayout.values()];
+  bld._sampleTags = sampleTags;
   bld._emits = emitNames.map((name, id) => ({ id, name, arity: emitArity[id] }));
   bld._knobs = knobNames;
   bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);

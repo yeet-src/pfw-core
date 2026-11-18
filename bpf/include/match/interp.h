@@ -566,6 +566,9 @@ static long pfw_step(__u32 i, void *pctx)
         console_emit(c->xdp, st, (__u32) imm);
         st->fargn = 0;
         break;
+    case OP_SAMPLE: /* a copy of the frame for the host */
+        do_sample(c->xdp, (__u32) imm, op->reg & 0xff);
+        break;
     case OP_EMIT: /* flush the gathered numbers to the host as a typed event */
         emit_values(c->xdp, st, (__u32) imm);
         st->fargn = 0;

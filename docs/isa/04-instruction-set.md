@@ -1,6 +1,6 @@
 # 4. Instruction set
 
-All **74 opcodes** (`OP_END = 0` … `OP_FSTORE = 73`). Every instruction is one
+All **75 opcodes** (`OP_END = 0` … `OP_SAMPLE = 74`). Every instruction is one
 `struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
 [§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
 `reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
@@ -19,7 +19,7 @@ four category files:
 - [Verdicts, flow state, and membership](instructions/03-verdict-flow-and-membership.md) — `decide` verdicts, events, per-flow state and the ring, and set membership.
 - [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, `push`/`pop`/`call`/`ret`, and the live `knob`/`knobhas` control plane.
 
-## Quick reference — all 74 opcodes
+## Quick reference — all 75 opcodes
 
 (`summary` is the one-line semantics from `bpf/include/pfw.h`; follow the detail
 link for the complete entry.)
@@ -100,3 +100,4 @@ link for the complete entry.)
 | 71 | `OP_KVGET` | cur = kv[cur] if the key is present, else imm and fault | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 72 | `OP_FLOAD` | cur = a per-flow value: reg 0..3 = flow register, 4 = bytes, 5 = packets | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 73 | `OP_FSTORE` | flow register reg (0..3) = cur | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
+| 74 | `OP_SAMPLE` | copy the first imm bytes of the frame to the host (the `samples` ring); reg = tag id | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |

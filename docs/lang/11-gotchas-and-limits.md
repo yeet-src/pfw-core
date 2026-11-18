@@ -69,6 +69,7 @@
 | numeric knobs (`knob`) | 32 |
 | string knobs (`kstr`) | 16 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |
+| `sample` length / tags | 2048 B / 63 |
 | per-flow registers (`flow.r0`…) | 4 |
 | `console` %s capture | 256 B |
 | `printk` formats / length | 8 / 64 B |

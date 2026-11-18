@@ -331,6 +331,13 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("console is `console $FMTID`");
         emit(OP.CONSOLE, 0, numberOf(a.text, "fmtid") & 0xffffffffn);
+      } else if (m === "sample") {
+        if (o.length < 1 || o.length > 2) fail("sample is `sample $LEN[, $TAG]`");
+        if (a.kind !== "imm" || (b && b.kind !== "imm")) fail("sample is `sample $LEN[, $TAG]`");
+        const n = numberOf(a.text, "length"), tag = b ? numberOf(b.text, "tag") : 0n;
+        if (n < 1n || n > BigInt(LIMITS.SAMPLE_CAP)) fail(`sample length 1–${LIMITS.SAMPLE_CAP}`);
+        if (tag < 0n || tag >= BigInt(LIMITS.SAMPLE_TAGS)) fail(`sample tag 0–${LIMITS.SAMPLE_TAGS - 1}`);
+        emit(OP.SAMPLE, Number(tag), n);
       } else if (m === "emit") {
         want(1);
         if (a.kind !== "imm") fail("emit is `emit $EVENTID`");

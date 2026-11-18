@@ -60,6 +60,7 @@ export class Program {
     this.regex = compiled.regex ?? null;
     this.consoleFormats = compiled.consoleFormats ?? [];
     this.lookupTables = compiled.lookupTables ?? []; // declared `table`s: { name, base, size }
+    this.sampleTags = compiled.sampleTags ?? [""]; // sample() tag names, by id (0 = untagged)
     this.emits = compiled.emits ?? [];   // emit() events: { id, name, arity }, by id
     this.knobs = compiled.knobs ?? [];   // knob name by slot (slot = index)
     this.knobDefaults = compiled.knobDefaults ?? []; // seeded initial value by slot
@@ -107,8 +108,10 @@ export class Program {
     if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
     const events = (r.emitted ?? []).map((e) => ({ name: this.emits[e.id]?.name, values: e.nums }));
     if (opts.onEmit) for (const e of events) opts.onEmit(e);
+    const samples = (r.sampled ?? []).map((x) => ({ tag: this.sampleTags[x.tag] || null, data: x.data, wireLen: x.wireLen }));
+    if (opts.onSample) for (const x of samples) opts.onSample(x);
     const u32ToIp = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".");
-    return { events, dnat: r.dnat ? { ip: u32ToIp(r.dnat.ip), port: r.dnat.port } : null, verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
+    return { events, samples, dnat: r.dnat ? { ip: u32ToIp(r.dnat.ip), port: r.dnat.port } : null, verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
   }
 }
 
