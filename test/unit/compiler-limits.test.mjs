@@ -54,22 +54,44 @@ yeet.test("a program over the instruction budget is a compile error, not a throw
 });
 
 yeet.test("running out of registers names what holds them, by line", () => {
-  /* One local and two nested frame walks: the local holds one register, the
-   * frames hold the rest. The old message said "all 8 are held by q". */
+  /* Fourteen locals and a frame walk that needs three: seventeen for sixteen
+   * registers. The old message listed only the locals ("all 8 are held by q"),
+   * which was no help when a walk held most of them. */
+  const names = Array.from({ length: 14 }, (_, i) => `v${i}`);
   const r = compile(`filter {
-    let q = payload + 2;
-    frame (type = u8 @ 0, len = u8 @ 1, head = 2) up to 2 {
-      frame at (q) (type = u8 @ 0, len = be16 @ 1, head = 3) up to 1 {
-        if (frame.type == 35) decide drop("x");
-      }
+    ${names.map((n, i) => `let ${n} = ${i};`).join(" ")}
+    frame (len = u8 @ 1, head = 2) up to 1 {
+      if (frame.len == 35) decide drop("x");
     }
+    ${names.map((n) => `if (${n} == 99) decide drop("x");`).join(" ")}
     decide pass;
   }`);
   eq(r.ok, false, "it does not fit");
   const e = r.errors[0];
   if (!/too many locals live at once/.test(e.text)) throw new Error("wrong error: " + e.text);
   if (/^internal/.test(e.text)) throw new Error("it is the program's error, not the compiler's: " + e.text);
-  if (!/1 by your locals \(`q`\)/.test(e.text)) throw new Error("does not count the local: " + e.text);
-  if (!/by the `frame` walk at line 3/.test(e.text) || !/the `frame` walk at line 4 needs a register/.test(e.text)) throw new Error("does not name the frames: " + e.text);
-  eq(e.line, 4, "the error is at the construct that could not be placed");
+  if (!/14 by your locals \(`v0`, `v1`,/.test(e.text)) throw new Error("does not count the locals: " + e.text);
+  if (!/2 by the `frame` walk at line 3/.test(e.text) || !/the `frame` walk at line 3 needs a register/.test(e.text)) throw new Error("does not name the frame: " + e.text);
+  eq(e.line, 3, "the error is at the construct that could not be placed");
+});
+
+yeet.test("two frame walks nest, with locals to spare", () => {
+  /* Each walk holds three or four registers; with eight in all, a walk inside
+   * a walk left none for the program. */
+  const p = load(`filter {
+    let hits = 0;
+    frame (type = u8 @ 0, len = u8 @ 1, head = 2) up to 4 {
+      if (frame.type == 1) {
+        frame at (frame.data) (type = u8 @ 0, len = u8 @ 1, head = 2) up to 4 {
+          if (frame.type == 7) hits = hits + frame.len;
+        }
+      }
+    }
+    if (hits == 5) decide drop("nested");
+    decide pass;
+  }`);
+  // outer: [type 9, len 1, x] [type 1, len 9: inner [7,2,a,b] [3,0] [7,3,c,d,e]]
+  const inner = [7, 2, 0x61, 0x62, 3, 0, 7, 3, 0x63, 0x64, 0x65];
+  eq(p.exec(Uint8Array.from([9, 1, 0x78, 1, inner.length, ...inner]), {}).verdict, "drop", "the inner walk summed its two type-7 records");
+  eq(p.exec(Uint8Array.from([9, 1, 0x78, 2, inner.length, ...inner]), {}).verdict, "pass", "and only inside a type-1 outer record");
 });

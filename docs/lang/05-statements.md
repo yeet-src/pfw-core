@@ -126,7 +126,7 @@ if (recent > 3000) { if (flow.state == 1) decide rst("bulk_exfil", 0); flow.stat
 ### Locals and assignment
 
 - `let name = expr;` — a named integer local (held in a scratch register; locals
-  reuse the 8 scratch registers by live range). `expr` is value arithmetic.
+  reuse the 16 scratch registers by live range). `expr` is value arithmetic.
 - `name = expr;` — reassign an existing local, or write a **writable register**
   (`sp`/`bp`/`rv`/`a0`…`a6`).
 - `mask name = scan(...);` — name a scan result (§4).
@@ -143,7 +143,9 @@ Repetition is a **compile-time unroll** (there are no runtime loops):
   — walk up to `MAX` length-prefixed records. Each record is a `head`-byte header
   (fields read by name + byte offset) followed by `len` payload bytes; the cursor
   advances `head + len` each iteration and `end` is narrowed to the record so a
-  body `scan`/`load` stays inside it. In the body, `frame.len` / `frame.type` are
+  body `scan`/`load` stays inside it. A walk holds three registers while its
+  body runs (four with a `type` field), so walks nest: `frame at (frame.data)`
+  inside a body walks the records within a record. In the body, `frame.len` / `frame.type` are
   the parsed header fields and `frame.data` points at this record's payload.
   Field types: `u8 u16 u32 be16 be24 be32`; `len` required, `type` optional,
   `head` is `1..255`, `MAX` is `1..64`.

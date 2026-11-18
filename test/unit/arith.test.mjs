@@ -1,6 +1,6 @@
 /* Arithmetic and locals — let/assign parked in scratch registers, the operators
  * (+, -, &, |, <<, >>), register+register add, and scratch reuse across dead
- * ranges (more named locals than the eight physical registers). */
+ * ranges (more named locals than there are physical registers). */
 import { fromC, V } from "./helpers.mjs";
 
 /* Compute `expr` into x and drop("hit") iff x == want; so a pass means the
@@ -37,11 +37,11 @@ yeet.test("assign updates an existing local", () => {
 });
 
 yeet.test("many locals with non-overlapping live ranges reuse registers", () => {
-  // Ten named locals (> 8 registers) but each dies before the next is needed.
+  // Twenty named locals (> 16 registers) but each dies before the next is needed.
   let body = "let acc = 0;";
-  for (let i = 1; i <= 10; i++) body += ` let t${i} = ${i}; acc = acc + t${i};`;
-  const s = `filter { ${body} if (acc == 55) decide drop("h"); decide pass; }`;
-  eq(fromC(s).run(new Uint8Array(0), {}, {}).verdict, V.DROP, "sum 1..10 == 55");
+  for (let i = 1; i <= 20; i++) body += ` let t${i} = ${i}; acc = acc + t${i};`;
+  const s = `filter { ${body} if (acc == 210) decide drop("h"); decide pass; }`;
+  eq(fromC(s).run(new Uint8Array(0), {}, {}).verdict, V.DROP, "sum 1..20 == 210");
 });
 
 /* ---- multiply, modulo, precedence, parentheses, the flow hash ---- */

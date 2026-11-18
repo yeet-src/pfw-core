@@ -51,7 +51,7 @@
 | scan window | 2048 B |
 | AC automaton states | 4096 |
 | regex DFA states | 1024 |
-| scratch registers (locals, by live range) | 8 |
+| scratch registers (locals, by live range) | 16 |
 | subroutine args | 7 (`%a0..%a6`) |
 | data-stack depth | 64 |
 | rules (named verdicts) | 64 |

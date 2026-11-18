@@ -19,7 +19,7 @@ t("entry: packet registers", {
   regs: { end: 40, len: 28, proto: 17, sport: 5353, dport: 53, saddr: 0x0a000001, src: 0x0a000001 },
 });
 t("entry: program registers start at zero", {
-  ops: [], regs: Object.fromEntries(["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "m", "sp", "bp", "a0", "a6", "rv"].map((r) => [r, 0])),
+  ops: [], regs: Object.fromEntries(["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s15", "m", "sp", "bp", "a0", "a6", "rv"].map((r) => [r, 0])),
 });
 
 /* ---- 1 MOV_RC ------------------------------------------------------------- */
@@ -27,12 +27,13 @@ t("mov_rc: cur = r[reg]", { asm: `mov %dport, %cur`, opts: { dport: 8080 }, cur:
 t("mov_rc: overwrites all 64 bits of %cur", { asm: `${li(MAX)}\nmov %s0, %cur`, cur: 0 });
 t("mov_rc: leaves ZF/CF alone", { asm: `${li(1)}\ncmp $1, %cur\nmov %dport, %cur`, zf: true, cf: false });
 t("mov_rc: leaves CF alone", { asm: `${li(1)}\ncmp $2, %cur\nmov %dport, %cur`, zf: false, cf: true });
-t("mov_rc: the register index is masked to 5 bits", {
-  ops: [[OP.MOV_RC, 32 + REG.dport]], opts: { dport: 443 }, cur: 443,
+t("mov_rc: the register index is masked to 6 bits", {
+  ops: [[OP.MOV_RC, 64 + REG.dport]], opts: { dport: 443 }, cur: 443,
 });
+t("mov_rc: an index past the named registers reads zero", { asm: li(7), ops: [[OP.MOV_RC, 63]], cur: 0 });
 
 /* ---- 2 MOV_CR ------------------------------------------------------------- */
-for (const name of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "bp", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "rv"]) {
+for (const name of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "bp", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "rv"]) {
   t(`mov_cr: writes %${name} and nothing else`, {
     asm: li(0x1234), ops: [[OP.MOV_CR, REG[name]]],
     cur: 0x1234, regs: { [name]: 0x1234, [name === "s0" ? "s1" : "s0"]: 0 },
@@ -50,8 +51,11 @@ t("mov_cr: writing %m feeds test", { asm: `${li(4)}\nmov %cur, %m\ntest $4, %m`,
 t("mov_cr: writing %end narrows what a load can reach", {
   asm: `${li(2)}\nmov %cur, %end\nmovb 0(%cur), %cur`, frame: "\x11\x22\x33\x44", ff: true, cur: 2, regs: { end: 2 },
 });
-t("mov_cr: the register index is masked to 5 bits", {
-  asm: li(9), ops: [[OP.MOV_CR, 32 + REG.s2]], regs: { s2: 9 },
+t("mov_cr: the register index is masked to 6 bits", {
+  asm: li(9), ops: [[OP.MOV_CR, 64 + REG.s2]], regs: { s2: 9 },
+});
+t("mov_cr: the second eight scratch registers are apart from %a0-%rv and from the first eight", {
+  asm: `${li(5)}\nmov %cur, %s8\n${li(6)}\nmov %cur, %s15`, regs: { s8: 5, s15: 6, s0: 0, s7: 0, a0: 0, rv: 0 },
 });
 
 /* ---- 3 ADD_I / 4 SUB_I ---------------------------------------------------- */

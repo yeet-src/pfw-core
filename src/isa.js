@@ -26,7 +26,9 @@ export const REG = {
   shadow: 21, sp: 22, bp: 23,
   a0: 24, a1: 25, a2: 26, a3: 27, a4: 28, a5: 29, a6: 30, // subroutine argument registers
   rv: 31, // subroutine return-value register
+  s8: 32, s9: 33, s10: 34, s11: 35, s12: 36, s13: 37, s14: 38, s15: 39, // the second eight scratch registers
 };
+export const NREGS = 64; // the register file, padded to a power of two: indices are masked & (NREGS - 1)
 export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [v, k]));
 
 export const LIMITS = {

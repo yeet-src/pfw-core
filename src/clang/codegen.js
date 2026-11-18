@@ -158,20 +158,23 @@ export function codegen(ast) {
     if (s.start) loadPtr(s.start); else bld.movToCur(REG.payload);
 
     const done = fresh();
+    /* Three registers a walk (four with a `type`): the real end, and per record
+     * its length, type and data pointer. The record's start is not kept — it
+     * is frame.data less the header — which is the register that lets one
+     * walk nest in another. %cur is the record start at the top of each turn. */
+    const head = BigInt(f.head);
     for (let i = 0; i < max; i++) {
-      const rec = allocScratch(`__fr${nTmp}`, s.line);
       const flen = allocScratch(`__fl${nTmp}`, s.line);
       const ftype = f.type ? allocScratch(`__ft${nTmp}`, s.line) : null;
       const fdata = allocScratch(`__fd${nTmp++}`, s.line);
-      bld.movFromCur(rec);                 // record start
-      bld.addImm(BigInt(f.head));
+      bld.addImm(head);
       bld.cmpReg(realend);
       bld.ja(done);                        // header runs past the data: stop
-      bld.movFromCur(fdata);               // frame.data = rec + head
-      bld.movToCur(rec);
+      bld.movFromCur(fdata);               // frame.data = record + head
+      bld.subImm(head);                    // back to the record start
       FIELD_LOAD[f.len.ftype](f.len.off);
       bld.movFromCur(flen);                // frame.len
-      if (f.type) { bld.movToCur(rec); FIELD_LOAD[f.type.ftype](f.type.off); bld.movFromCur(ftype); }
+      if (f.type) { bld.movToCur(fdata); bld.subImm(head); FIELD_LOAD[f.type.ftype](f.type.off); bld.movFromCur(ftype); }
       // narrow %end to min(rec + head + len, realend)
       bld.movToCur(fdata);
       bld.addReg(flen);
@@ -186,8 +189,7 @@ export function codegen(ast) {
       frameScope.pop();
       bld.movToCur(realend);               // restore the real end
       bld.movFromCur(REG.end);
-      bld.movToCur(rec);                   // advance to the next record
-      bld.addImm(BigInt(f.head));
+      bld.movToCur(fdata);                 // advance to the next record
       bld.addReg(flen);
     }
     bld.label(done);

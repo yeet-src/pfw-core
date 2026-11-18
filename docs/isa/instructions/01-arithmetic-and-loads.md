@@ -36,7 +36,7 @@ masked `& (NREGS−1)` before use. See [bytecode encoding](../05-bytecode-encodi
   Emitted via `Builder.movToCur(reg)` (a register-slot op — `reg` is allocatable
   for virtual registers).
 - **Operation:** `cur ← r[reg]`. Reads any register — packet fields (`%payload`,
-  `%dport`, `%saddr`, …), scratch (`%s0…%s7`), `%m`, `%sp`/`%bp`, `%a0…%a6`,
+  `%dport`, `%saddr`, …), scratch (`%s0…%s15`), `%m`, `%sp`/`%bp`, `%a0…%a6`,
   `%rv`, `%shadow`. Host and kernel identical.
 - **Flags:** none.
 - **Faults:** none.
@@ -46,7 +46,7 @@ masked `& (NREGS−1)` before use. See [bytecode encoding](../05-bytecode-encodi
 
 ### 2 — `OP_MOV_CR` (`mov %cur, %REG`)
 
-- **Assembler:** `mov %cur, %REG` (a *writable* register: `%s0…%s7`, `%m`,
+- **Assembler:** `mov %cur, %REG` (a *writable* register: `%s0…%s15`, `%m`,
   `%end`, `%sp`, `%bp`, `%a0…%a6`, `%rv`; the other packet fields are read-only).
 - **Encoding:** code = 2; `reg` = destination register index; `imm` unused.
   Emitted via `Builder.movFromCur(reg)`.
