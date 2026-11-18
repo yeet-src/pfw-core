@@ -40,3 +40,40 @@ yeet.test("unsigned boundaries (no negatives)", () => {
   eq(hit("dport < 65535", { dport: 65534 }), true, "below max");
   eq(hit("dport == 65535", { dport: 65535 }), true, "at max");
 });
+
+/* ---- arithmetic on either side of a comparison ---- */
+{
+  const { load } = await import("#/index.js");
+  const { compile } = await import("#/clang");
+  const hit = (cond, opts = {}, len = 4) => load(`pattern a = "x"; filter { if (${cond}) decide drop("y"); decide pass; }`).exec(new Uint8Array(len), { dport: 80, sport: 40000, ...opts }).verdict === "drop";
+  const yes = (cond, opts, len) => { if (!hit(cond, opts, len)) throw new Error(`${cond} should hold`); };
+  const no = (cond, opts, len) => { if (hit(cond, opts, len)) throw new Error(`${cond} should not hold`); };
+
+  yeet.test("arithmetic on the left of a comparison", () => {
+    yes("len + 1 == 5"); no("len + 1 == 6");
+    yes("sport % 16 == 0"); no("sport % 16 == 1");
+    yes("dport * 2 > 150"); yes("dport - 80 == 0"); yes("dport << 1 == 160"); yes("dport >> 4 == 5");
+  });
+  yeet.test("arithmetic on the right, and on both sides", () => {
+    yes("dport == 40 * 2"); yes("160 == dport * 2"); yes("dport < len * 100");
+    yes("len + dport == sport - 39916"); no("len + dport == sport - 1");
+  });
+  yeet.test("a masked value compares: & is the bitwise and when its left is not a scan", () => {
+    yes("dport & 0xf0 == 0x50"); no("dport & 0x0f == 5");
+    yes("(dport & 0x10) != 0"); yes("u8(payload) & 1 == 0");
+    yes("dport == 0x40 | 0x10");
+  });
+  yeet.test("it composes with && || ! and parentheses", () => {
+    yes("len + 1 == 5 && dport % 2 == 0"); no("len + 1 == 5 && dport % 2 == 1");
+    yes("len + 1 == 9 || sport % 16 == 0"); yes("!(len * 2 == 9)"); yes("(len + 1 == 5) && (dport == 80)");
+  });
+  yeet.test("the mask test and pattern-or still mean what they meant", () => {
+    const p = load(`pattern a = "abc", b = "xyz"; filter { if (scan(payload, 16) & (a | b)) decide drop("y"); mask m = scan(payload, 16); if (m & a) decide drop("z"); decide pass; }`);
+    if (p.exec(Uint8Array.from("..xyz..", (c) => c.charCodeAt(0)), {}).verdict !== "drop") throw new Error("scan & (a | b)");
+    if (p.exec(Uint8Array.from("......", (c) => c.charCodeAt(0)), {}).verdict !== "pass") throw new Error("no match");
+  });
+  yeet.test("a bare sum is not a condition", () => {
+    const r = compile(`filter { if (len + 1) decide drop("y"); decide pass; }`);
+    if (r.ok || !/has to be compared/.test(r.errors[0].text)) throw new Error(JSON.stringify(r.errors));
+  });
+}

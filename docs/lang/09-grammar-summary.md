@@ -36,7 +36,8 @@ verdict     = "pass" | "drop" "(" args ")" | "count" "(" args ")"
 expr        = and { "||" and } ;                (* condition grammar *)
 and         = compare { "&&" compare } ;
 compare     = maskop [ "in" cidr-or-set ]
-                     [ "&" maskop ] [ cmpop maskop ] ;
+                     [ "&" maskop ] [ cmpop arith ]
+            | arith cmpop arith ;               (* arithmetic on either side *)
 maskop      = primary { "|" primary } ;
 arith       = term { ("+"|"-"|"&"|"|"|"<<"|">>") term } ;       (* value grammar *)
 term        = primary { ("*"|"%") primary } ;
