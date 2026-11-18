@@ -181,7 +181,7 @@ by `console`/`printk`.
 
 - **Assembler:** `farg`. **Encoding:** `code = 54`, no operands.
 - **Operation:** push `%cur` as the next numeric format argument —
-  `st->fargs[st->fargn++] = cur` while `fargn < FARGS_MAX = 4`.
+  `st->fargs[st->fargn++] = cur` while `fargn < FARGS_MAX = 8`.
 - **Flags/Maps:** none. **Example:** emitted by the compiler for each numeric
   conversion in a `console`/`printk` format.
 
@@ -212,7 +212,7 @@ by `console`/`printk`.
   `opts.onConsole`).
 - **Flags:** none. **Maps:** `console_ring` (a dedicated ringbuf, `pfw_console`).
 - **Example:** `console("req to :%d says %s", dport, payload);`
-- **Limits:** ≤ 4 numeric conversions (`%d %u %x %X %o %c`, `%%`), ≤ 2 `%s`.
+- **Limits:** ≤ 8 numeric conversions (`%d %u %x %X %o %c`, `%%`), ≤ 2 `%s`.
 - **Notes:** the format strings never enter the kernel — only the id and the
   args cross the ring. Host/kernel divergence: the host resets **both** the
   numeric and string buffers after each `console()`; the kernel resets the
@@ -236,6 +236,20 @@ by `console`/`printk`.
 - **Limits:** ≤ 3 numeric args; **no `%s`** (use `console` for strings).
 - **Notes:** reading the output needs root — `sudo cat
   /sys/kernel/debug/tracing/trace_pipe`.
+
+### 69 — `OP_EMIT` (`emit $EVENTID`)
+
+- **Assembler:** `emit $0`. **Encoding:** `code = 69`, `reg = 0`, `imm = event id`.
+- **Operation (kernel):** reserves a `struct pfw_emit { ts, ifindex, id, n,
+  vals[FARGS_MAX] }` on the `emits` ring, copies the numeric args queued by
+  `farg` into it (`n = min(fargn, 8)`), submits it, then resets `fargn = 0`. A
+  full ring counts in `ring_full` and the event is lost; the packet is not.
+- **Operation (host):** appends `{ id, nums }` to the run's emitted events; the
+  compiler's `emits` list maps an id to the name the program gave it.
+- **Flags:** none. **Maps:** `emits`.
+- **Example:** `emit("flow", src, sport, dport);`
+- **Limits:** ≤ 8 values, numbers only. Strings queued by `fargs` are not
+  carried: an event is for values the host will use, `console` for text.
 
 ---
 

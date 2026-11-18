@@ -15,7 +15,7 @@
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
-#define FARGS_MAX    4    /* numeric format args a console()/printk() call can carry */
+#define FARGS_MAX    8    /* numeric args a console() or emit() can carry (printk takes 3); a power of two */
 #define FSTR_MAX     2    /* %s string args a call can carry */
 #define STRARG_CAP   256  /* bytes captured per %s arg (power of two) */
 #define PFW_FMTS     8    /* printk format strings a program can hold (in-kernel, for bpf_trace_printk) */
@@ -188,6 +188,7 @@ enum pfw_opcode {
     OP_MOD_I,   /* cur %= imm; a zero divisor yields 0 and faults */
     OP_MOD_R,   /* cur %= r[reg]; a zero divisor yields 0 and faults */
     OP_FHASH,   /* cur = a 32-bit hash of the packet's addresses, ports and protocol */
+    OP_EMIT,    /* send the pushed fargs to the host as a typed event: imm = event id */
     OP_COUNT_OPCODES,
 };
 
@@ -359,6 +360,18 @@ struct vmstack { __u64 s[STACK_CAP]; };
 
 /* A live host-set string knob: the needle searched for by OP_KNOBHAS. */
 struct knob_str { __u32 len; __u8 b[KNOBSTR_CAP]; };
+
+/* An emit(): an event id and the numbers that go with it. Nothing else — no
+ * format, no strings — so a record is 88 bytes, not a console message's 600,
+ * and the host gets values instead of text to parse back into values. */
+struct pfw_emit {
+    __u64 ts;
+    __u32 ifindex;
+    __u32 id;                /* the event, by the id the compiler gave its name */
+    __u32 n;                 /* values carried */
+    __u32 _pad;
+    __u64 vals[FARGS_MAX];
+};
 
 /* A console() message: the format id, the numeric args, and the captured %s
  * strings. The host maps fmtid -> format string and prints it. */

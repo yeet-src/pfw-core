@@ -12,7 +12,8 @@
 - Subroutines: ≤ 7 params; `fn`/`match`/`switch`/`push`/`pop` are source-only
   (not in the DSL); keep the data stack balanced across a call; a0..a6/rv are
   caller-saved.
-- `console`: ≤ 4 numeric args + ≤ 2 `%s` (packet pointer). `printk`: ≤ 3 numeric
+- `console`: ≤ 8 numeric args + ≤ 2 `%s` (packet pointer). `emit`: ≤ 8 values,
+  and one name always carries the same number of them. `printk`: ≤ 3 numeric
   args, no `%s`.
 - `argv` and `knob("…")` are not `rate`/`dnat`/`redirect` arguments (those need
   constants). `knob("x") ?? d` seeds `d` at load; it is overridable to `0`, not an

@@ -37,6 +37,22 @@ static __always_inline void console_emit(struct xdp_md *ctx, struct pfw_state *s
     bpf_ringbuf_submit(e, 0);
 }
 
+/* Send an emit() to the host: the event id and the numeric args pushed so far. */
+static __always_inline void emit_values(struct xdp_md *ctx, struct pfw_state *st, __u32 id)
+{
+    struct pfw_emit *e = bpf_ringbuf_reserve(&emits, sizeof(*e), 0);
+    if (!e) { ring_full++; return; }
+    e->ts = bpf_ktime_get_ns();
+    e->ifindex = ctx->ingress_ifindex;
+    e->id = id;
+    e->n = st->fargn > FARGS_MAX ? FARGS_MAX : st->fargn;
+    e->_pad = 0;
+#pragma unroll
+    for (int i = 0; i < FARGS_MAX; i++)
+        e->vals[i] = st->fargs[i];
+    bpf_ringbuf_submit(e, 0);
+}
+
 /* `rsrc` is the buffer the program was reading when it is not the packet (the
  * reassembled stream, or a decoded view): log() offsets are relative to it, so
  * that is where the logged bytes must come from. NULL = the packet. */

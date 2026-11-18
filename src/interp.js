@@ -11,7 +11,7 @@
  * ring { ring, ringHead, ringCount } — so a multi-packet test threads the
  * returned flow back in. Only the ops the tests exercise are modelled; an
  * unmodelled op throws rather than silently passing. */
-import { NREGS, OP, REG } from "#/isa.js";
+import { LIMITS, NREGS, OP, REG } from "#/isa.js";
 
 const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
 const RL_SCALE = 1_000_000; /* OP_RATE fixed-point, mirrors RL_SCALE in pfw.h */
@@ -56,6 +56,7 @@ export function machine({ asm, tables, regex = null }) {
     r[REG.saddr] = BigInt(saddr) & 0xffffffffn; /* IPv4 source, host order */
     r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
+    const emitted = []; /* OP_EMIT events: { id, nums } */
     const fargs = [], fstrs = [], consoleMsgs = []; /* OP_FARG numeric + OP_FARGS string buffers + collected console() messages */
     const hstack = new Array(64).fill(0n); /* the data stack (push/pop), %sp indexes it */
     const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
@@ -267,7 +268,7 @@ export function machine({ asm, tables, regex = null }) {
           }
           break;
         }
-        case OP.FARG: if (fargs.length < 4) fargs.push(cur); break; /* push a numeric format arg */
+        case OP.FARG: if (fargs.length < LIMITS.FARGS) fargs.push(cur); break; /* push a numeric format arg */
         case OP.FARGS: { /* capture a %s string: cur is a frame offset, up to imm/32 bytes */
           if (fstrs.length < 2) {
             const off = Number(cur), e2 = Math.min(Number(r[REG.end]), frame.length);
@@ -278,6 +279,7 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.CONSOLE: consoleMsgs.push({ fmtid: Number(imm), nums: fargs.splice(0), strs: fstrs.splice(0) }); break; /* emit a console message */
+        case OP.EMIT: emitted.push({ id: Number(imm & 0xffffffffn), nums: fargs.splice(0) }); break; /* a typed event: the id and the numbers */
         case OP.PRINTK: fargs.splice(0); break; /* kernel-only: bpf_trace_printk to the trace pipe; host no-op (clears args) */
         case OP.PUSH: { const sp = Number(r[REG.sp]); if (sp < 64) { hstack[sp] = cur; r[REG.sp] = BigInt(sp + 1); } break; } /* push cur, sp++ */
         case OP.POP: { let sp = Number(r[REG.sp]); if (sp > 0) { sp--; cur = hstack[sp]; r[REG.sp] = BigInt(sp); } break; } /* sp--, cur = top */
@@ -310,7 +312,7 @@ export function machine({ asm, tables, regex = null }) {
       verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
       flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
       source: { userState: srcNewState, hits: srcHits, bucket: srcBucket ?? {}, banned: (source?.banned ?? false) || (vfinal === V.BAN && !shadow) },
-      consoleMsgs,
+      consoleMsgs, emitted,
     };
   };
 }

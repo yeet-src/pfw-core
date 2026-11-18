@@ -48,7 +48,7 @@ export function compileAst(ast) {
     try { regex = compileRegexes(regexPats.map((p) => ({ src: p.src, bit: p.id })), r.nocase); /* nocase: the input is folded, so the DFA must be too */ }
     catch (e) { return { ok: false, errors: [{ line: 0, text: `regex: ${e.message}` }], asm }; }
   }
-  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs, structKnobs: bld._structKnobs };
+  return { ok: true, errors: [], asm, program: r.program, patterns: r.patterns, rules: r.rules, listing: r.listing, nocase: r.nocase, regex, consoleFormats: bld._consoleFormats, emits: bld._emits, printkFormats: bld._printkFormats, knobs: bld._knobs, knobDefaults: bld._knobDefaults, knobStrs: bld._knobStrs, structKnobs: bld._structKnobs };
 }
 
 /** Compile pfw-C all the way to a program. Returns the disassembly too (`asm`). */

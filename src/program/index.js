@@ -59,6 +59,7 @@ export class Program {
     this.nocase = compiled.nocase;
     this.regex = compiled.regex ?? null;
     this.consoleFormats = compiled.consoleFormats ?? [];
+    this.emits = compiled.emits ?? [];   // emit() events: { id, name, arity }, by id
     this.knobs = compiled.knobs ?? [];   // knob name by slot (slot = index)
     this.knobDefaults = compiled.knobDefaults ?? []; // seeded initial value by slot
     this.knobStrs = compiled.knobStrs ?? []; // string-knob name by slot
@@ -92,7 +93,9 @@ export class Program {
       knobStrs: this.knobStrs.map((name) => opts.knobStrs?.[name] ?? "") });
     const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));
     if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
-    return { verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
+    const events = (r.emitted ?? []).map((e) => ({ name: this.emits[e.id]?.name, values: e.nums }));
+    if (opts.onEmit) for (const e of events) opts.onEmit(e);
+    return { events, verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
   }
 }
 
