@@ -140,6 +140,7 @@ export class Builder {
   farg() { return this.op(OP.FARG); } // push cur as the next numeric console/printk format arg
   fargs(cap) { return this.op(OP.FARGS, 0, BigInt(cap)); } // capture a %s string from the packet at cur (up to cap bytes)
   console(fmtid) { return this.op(OP.CONSOLE, 0, BigInt(fmtid)); } // emit a console message (format id) to the host
+  emit(id) { return this.op(OP.EMIT, 0, BigInt(id)); } // send the pushed numeric fargs to the host as typed event `id`
   printk(fmtid) { return this.op(OP.PRINTK, 0, BigInt(fmtid)); } // bpf_trace_printk the in-kernel format (id) with the pushed numeric fargs
   push() { return this.op(OP.PUSH); } // push cur onto the data stack
   pop() { return this.op(OP.POP); } // pop the data stack into cur

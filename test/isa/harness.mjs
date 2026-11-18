@@ -27,6 +27,7 @@
  *   zf, cf, ff  the flags               verdict / rule  the subject's own verdict
  *   frameOut the packet bytes afterwards (string | Uint8Array) — redact/replace
  *   console  the console messages emitted: [{ fmtid, nums, strs }]
+ *   emitted  the typed events emitted: [{ id, nums }]
  *            (these two are host-side observations: the kernel shows them on
  *            the wire and in the event stream, not in the verdict)
  *   rejects  a RegExp: the assembler must refuse `asm` with a matching error
@@ -128,6 +129,11 @@ function check(subject, v) {
   if (v.frameOut !== undefined) {
     const want = typeof v.frameOut === "string" ? bytes(v.frameOut) : v.frameOut, got = execute(subject, [], v).frame;
     if (got.length !== want.length || got.some((b, i) => b !== want[i])) bad.push(`frame: want ${show(want)}, got ${show(got)}`);
+  }
+  if (v.emitted !== undefined) {
+    const shape = (list) => JSON.stringify((list ?? []).map((e) => ({ id: e.id, nums: (e.nums ?? []).map((n) => u64(n).toString()) })));
+    const got = shape(execute(subject, [], v).emitted), want = shape(v.emitted);
+    if (got !== want) bad.push(`emitted: want ${want}, got ${got}`);
   }
   if (v.console !== undefined) {
     const norm = (ms) => JSON.stringify(ms.map((m) => ({ fmtid: m.fmtid, nums: (m.nums ?? []).map((n) => hex(n)), strs: m.strs ?? [] })));

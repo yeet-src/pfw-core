@@ -63,13 +63,21 @@ tally and fall through.
 - `count("rule");` — tally (same as `decide count`, non-terminal).
 - `log(n);` — attach up to `n` payload bytes to the emitted event for userspace.
 - `console("fmt", args…);` — printf-style message to the host (a JS callback
-  receives it). Conversions `%d %i %u %o %x %X %c %%` take numeric args (≤ 4) and
+  receives it). Conversions `%d %i %u %o %x %X %c %%` take numeric args (≤ 8) and
   `%s` captures up to 256 bytes from a **packet pointer** (≤ 2). The format
   strings live host-side; only ids + args cross the ring.
+- `emit("name", values…);` — a typed event to the host: the name and up to 8
+  numbers, delivered as numbers (`{ name, values }`), on a ring of its own. Use
+  it when the host is going to *use* the values — a flow log, a fingerprint, a
+  measurement — rather than show them: `console` formats text the host would
+  only have to parse back. A record is 88 bytes against a console message's
+  600, so a program can afford one per connection. One name, one shape: every
+  `emit` of a name carries the same number of values.
 - `printk("fmt", args…);` — `bpf_trace_printk` to the kernel trace pipe. Numeric
   conversions only (≤ 3 args); **`%s` is not supported** — use `console`.
 
 ```c
+emit("flow", src, sport, dport);              // host: onEmit(({ name, values }) => ...)
 console("req to :%d says %s", dport, payload);
 printk("pfw: scanner from sport %d", sport);
 ```

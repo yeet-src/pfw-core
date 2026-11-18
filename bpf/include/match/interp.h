@@ -527,6 +527,10 @@ static long pfw_step(__u32 i, void *pctx)
         console_emit(c->xdp, st, (__u32) imm);
         st->fargn = 0;
         break;
+    case OP_EMIT: /* flush the gathered numbers to the host as a typed event */
+        emit_values(c->xdp, st, (__u32) imm);
+        st->fargn = 0;
+        break;
     case OP_PRINTK: { /* bpf_trace_printk to the kernel trace pipe (up to 3 numeric args) */
         const char *fmt = (const char *) p->fmts[(__u32) imm & (PFW_FMTS - 1)];
         __u32 n = st->fargn;

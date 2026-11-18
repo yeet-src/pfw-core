@@ -36,6 +36,7 @@ export function codegen(ast) {
   const internFormat = (text) => { const i = consoleFormats.indexOf(text); return i >= 0 ? i : consoleFormats.push(text) - 1; };
   const printkFormats = []; // printk() format strings, by id (stored in the program for bpf_trace_printk)
   const internPrintk = (text) => { const i = printkFormats.indexOf(text); return i >= 0 ? i : printkFormats.push(text) - 1; };
+  const emitNames = [], emitArity = []; // emit("name", ...) events, by id (the host maps id -> name)
   const knobNames = []; // knob("name") control values, by slot (the host writes the `knobs` map by this slot)
   const knobDefaults = []; // the initial value seeded per slot (from `knob("x") ?? d`), by slot
   const internKnob = (name) => { const i = knobNames.indexOf(name); if (i >= 0) return i; if (knobNames.length >= LIMITS.KNOBS) return -1; return knobNames.push(name) - 1; };
@@ -276,7 +277,7 @@ export function codegen(ast) {
     if (e.kind === "flowcount") return bld.bump(e.scope ?? 0);
     if (e.kind === "flowhash") return bld.fhash();
     if (e.kind === "ringlen") return bld.rlen();
-    if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
+    if (e.kind === "ringget") { materialize(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
     if (e.kind === "read") return readField(e);
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
@@ -571,9 +572,23 @@ export function codegen(ast) {
           for (let i = 0; i < convs.length; i++) {
             const arg = c.args[i + 1];
             if (convs[i].endsWith("s")) { loadPtr(arg); bld.fargs(LIMITS.STRARG); } // %s: a pointer into the packet
-            else { value(arg); bld.farg(); }
+            else { materialize(arg); bld.farg(); }
           }
           return bld.console(id);
+        }
+        if (c.name === "emit") {
+          /* emit("name", v, ...): the values go to the host as numbers under the
+           * event's name. No format string: nothing to print, nothing to parse. */
+          if (!c.args.length || c.args[0].kind !== "string") die('emit("name", values...)', s.line);
+          const name = String.fromCharCode(...unescapeStr(c.args[0].text));
+          if (!/^[A-Za-z_][A-Za-z0-9_.]*$/.test(name)) die(`an event name is letters, digits, \`_\` and \`.\`, not "${name}"`, s.line);
+          const nargs = c.args.length - 1;
+          if (nargs > LIMITS.FARGS) die(`emit carries at most ${LIMITS.FARGS} values`, s.line);
+          let id = emitNames.indexOf(name);
+          if (id < 0) { id = emitNames.push(name) - 1; emitArity[id] = nargs; }
+          else if (emitArity[id] !== nargs) die(`event "${name}" is emitted with ${emitArity[id]} value(s) elsewhere and ${nargs} here: one name, one shape`, s.line);
+          for (let i = 1; i < c.args.length; i++) { materialize(c.args[i]); bld.farg(); }
+          return bld.emit(id);
         }
         if (funcs.has(c.name)) return emitCall(c.name, c.args, false, s.line);
         if (c.name === "push") {
@@ -592,7 +607,7 @@ export function codegen(ast) {
           if (nargs > 3) die("printk takes at most 3 args (bpf_trace_printk limit)", s.line);
           if (printkFormats.length >= LIMITS.FMTS && !printkFormats.includes(fmt)) die(`too many printk formats (max ${LIMITS.FMTS})`, s.line);
           const id = internPrintk(fmt);
-          for (let i = 1; i < c.args.length; i++) { value(c.args[i]); bld.farg(); }
+          for (let i = 1; i < c.args.length; i++) { materialize(c.args[i]); bld.farg(); }
           return bld.printk(id);
         }
         die(`\`${c.name}(...)\` is not a statement`, s.line);
@@ -636,6 +651,7 @@ export function codegen(ast) {
   }
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;
+  bld._emits = emitNames.map((name, id) => ({ id, name, arity: emitArity[id] }));
   bld._knobs = knobNames;
   bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);
   bld._knobStrs = knobStrNames;

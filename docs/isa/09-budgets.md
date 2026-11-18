@@ -18,7 +18,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | numeric knobs (`KNOBS`) | 32 | `knob("name")` live control slots |
 | string knobs (`KNOBSTRS`) | 16 | `kstr("name")`, ≤ `KNOBSTR_CAP = 64` B each |
 | string-knob scan window (`KNOB_SCAN`) | 256 | payload bytes `kstr` searches |
-| console numeric args (`FARGS`) | 4 | per `console`/`printk` call |
+| numeric args (`FARGS`) | 8 | per `console` or `emit` (`printk` takes 3) |
 | console `%s` args (`FSTR`) | 2 | ≤ `STRARG = 256` B each |
 | printk formats (`FMTS`) | 8 | ≤ `FMT_CAP = 64` B each, in-kernel |
 | per-flow ring (`RING_CAP`) | 16 | newest-wins |

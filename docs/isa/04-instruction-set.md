@@ -1,6 +1,6 @@
 # 4. Instruction set
 
-All **69 opcodes** (`OP_END = 0` … `OP_FHASH = 68`). Every instruction is one
+All **70 opcodes** (`OP_END = 0` … `OP_EMIT = 69`). Every instruction is one
 `struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
 [§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
 `reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
@@ -19,7 +19,7 @@ four category files:
 - [Verdicts, flow state, and membership](instructions/03-verdict-flow-and-membership.md) — `decide` verdicts, events, per-flow state and the ring, and set membership.
 - [Rewrite, steering, arguments, observability, and the stack](instructions/04-rewrite-steer-args-and-stack.md) — `redact`/`replace`, `dnat`/`redirect`, `rate`, `argv`, `console`/`printk`, `push`/`pop`/`call`/`ret`, and the live `knob`/`knobhas` control plane.
 
-## Quick reference — all 69 opcodes
+## Quick reference — all 70 opcodes
 
 (`summary` is the one-line semantics from `bpf/include/pfw.h`; follow the detail
 link for the complete entry.)
@@ -95,3 +95,4 @@ link for the complete entry.)
 | 66 | `OP_MOD_I` | cur %= imm; a zero divisor yields 0 and faults | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
 | 67 | `OP_MOD_R` | cur %= r[reg]; a zero divisor yields 0 and faults | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
 | 68 | `OP_FHASH` | cur = a 32-bit hash of the packet's addresses, ports and protocol | [arith / moves / loads](instructions/01-arithmetic-and-loads.md) |
+| 69 | `OP_EMIT` | send the pushed fargs to the host as a typed event: imm = event id | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |

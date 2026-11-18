@@ -326,7 +326,7 @@ await vm.stop();                              // detached; the hook is free agai
 | `clear()` | stop enforcing but stay attached (standing bans still apply) |
 | `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
 | `addCidrs` / `removeCidrs`, `addHash` / `removeHash`, `addBloom` | the host-loaded sets (`src in set`, `src6 in set6`, `x in hash`, `x in bloom`) |
-| `onVerdict(cb)`, `onConsole(cb)` | events; each returns an unsubscribe function. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
+| `onVerdict(cb)`, `onConsole(cb)`, `onEmit(cb)` | events; each returns an unsubscribe function. An emit event is `{ name, values, ts, ifindex }`, the values as BigInt. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
 | `stats()` | global counters since `start()`; hits per rule name since the program was applied (`applied` is the apply count, `applied_at` when); `timing[rule] = { runs, ns }`, the decision time of the packets that ended on each rule (`"-"`: the ones that touched none); and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
 
 Things to know when embedding:
@@ -471,7 +471,7 @@ on real loopback traffic; they need `yeetd` + loopback.
 
 - **`test/isa/*.test.mjs`** (under `yeet test`, `npm run test:isa`): the ISA
   conformance vectors — a small program per case, asserting the registers,
-  flags or verdict `docs/isa/` says each of the 69 opcodes leaves behind.
+  flags or verdict `docs/isa/` says each of the 70 opcodes leaves behind.
 - **`test/unit/*.test.mjs`** (under `yeet test`): real programs through the
   reference interpreter, one file per feature, plus `ops.test.mjs` (every opcode,
   with a coverage gate), the front-end differentials (`dsl`/`fp` == source), and

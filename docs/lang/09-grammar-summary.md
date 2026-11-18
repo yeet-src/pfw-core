@@ -46,6 +46,8 @@ primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
             | ident "." ident                  (* knob struct field *)
             | ident "(" [ args ] ")" ;         (* call *)
+args        = arg { "," arg } ;
+arg         = expr | arith ;                   (* a condition, or arithmetic *)
 framefields = framefield { "," framefield } ;
 framefield  = "len" "=" ( readtype | "varint" ) "@" number
             | "type" "=" readtype "@" number

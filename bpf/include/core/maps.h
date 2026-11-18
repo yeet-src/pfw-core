@@ -154,6 +154,14 @@ PFW_LINK struct {
 } console_ring SEC(".maps");
 __attribute__((used)) static const struct pfw_console __pfw_console_anchor;
 
+/* emit() events, on a ring of their own: typed pfw_emit records, small enough
+ * that a program can report every connection it sees. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 18);
+} emits SEC(".maps");
+__attribute__((used)) static const struct pfw_emit __pfw_emit_anchor;
+
 /* The VM data stack (push/pop), one struct vmstack per CPU. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);

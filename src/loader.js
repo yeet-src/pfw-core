@@ -36,6 +36,7 @@ const STAGES = ["pfw_decode", "pfw_match", "pfw_resolve", "pfw_huff", "pfw_trans
 const MAPS = {
   events: { kind: "ringbuf", btf_struct: "pfw_event" },
   console_ring: { kind: "ringbuf", btf_struct: "pfw_console" },
+  emits: { kind: "ringbuf", btf_struct: "pfw_emit" },
   programs: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
   knobs: { kind: "array" }, knob_strs: { kind: "array" },
@@ -116,6 +117,7 @@ export class PfwVm {
     this._subs = [];
     this._verdictCbs = new Set();
     this._consoleCbs = new Set();
+    this._emitCbs = new Set();
     this._active = 0;          // the generation packets run
     this._stamp = 0;           // pfw_prog.gen: unique per apply, so flows restart their automaton
     this._written = [{ ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }, { ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }];
@@ -152,6 +154,7 @@ export class PfwVm {
       for (const part of chunks([...transformCells()], BATCH)) await this._map("tt_cells").updateBatch(part);
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
       this._subs.push(await new RingBuf(control, "console_ring").subscribe((w) => this._onConsole(w?.pfw_console ?? w)));
+      this._subs.push(await new RingBuf(control, "emits").subscribe((w) => this._onEmit(w?.pfw_emit ?? w)));
     } catch (e) {
       await this.stop();
       throw e;
@@ -293,6 +296,10 @@ export class PfwVm {
   /** Subscribe to console() messages, already formatted. Returns an unsubscriber. */
   onConsole(cb) { this._consoleCbs.add(cb); return () => this._consoleCbs.delete(cb); }
 
+  /** Subscribe to emit() events: `{ name, values, ts, ifindex }`, the values as
+   *  BigInt in the order the program gave them. Returns an unsubscriber. */
+  onEmit(cb) { this._emitCbs.add(cb); return () => this._emitCbs.delete(cb); }
+
   /** The global counters since start(); hits per rule name since that rule's
    *  program was applied (`applied` counts applies, so a change in it says the
    *  rule counts started over; `applied_at` is when, in ms); `timing`, the
@@ -357,6 +364,17 @@ export class PfwVm {
       data: Uint8Array.from(Array.from(e.data ?? []).slice(0, len)),
     };
     for (const cb of this._verdictCbs) { try { cb(ev); } catch (err) { console.error(err?.message ?? err); } }
+  }
+
+  _onEmit(e) {
+    if (!this._emitCbs.size || !e) return;
+    const id = Number(e.id ?? 0), n = Math.min(Number(e.n ?? 0), LIMITS.FARGS);
+    const ev = {
+      name: this._current?.emits?.[id]?.name, id,
+      values: Array.from({ length: n }, (_, i) => BigInt(e.vals?.[i] ?? 0)),
+      ts: BigInt(e.ts ?? 0), ifindex: Number(e.ifindex ?? 0),
+    };
+    for (const cb of this._emitCbs) { try { cb(ev); } catch (err) { console.error(err?.message ?? err); } }
   }
 
   _onConsole(e) {

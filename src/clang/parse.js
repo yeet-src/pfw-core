@@ -138,7 +138,7 @@ export function parse(toks) {
         if (member === "len") return { kind: "ringlen", line: t.line };
         if (member === "get") {
           eat("punct", "(");
-          const idx = parseExpr();
+          const idx = parseArg();
           eat("punct", ")");
           return { kind: "ringget", idx, line: t.line };
         }
@@ -180,11 +180,20 @@ export function parse(toks) {
     err(`unexpected \`${t.value ?? t.type}\``);
   };
 
+  /* An argument is a condition or, failing that, arithmetic — the same choice a
+   * parenthesis makes: `starts(p, pat)` and `emit("n", len * 2)` are both calls. */
+  const parseArg = () => {
+    const mark = pos;
+    const e = parseExpr();
+    if (peek().type === "punct" && (ARITH.includes(peek().value) || TERM.includes(peek().value))) { pos = mark; return parseArith(); }
+    return e;
+  };
+
   const parseCall = (name, line) => {
     eat("punct", "(");
     const args = [];
     while (!isP(")")) {
-      args.push(parseExpr());
+      args.push(parseArg());
       if (isP(",")) next();
       else break;
     }
@@ -412,7 +421,7 @@ export function parse(toks) {
       const member = eat("ident").value;
       if (member !== "push") err(`ring statement is \`ring.push(v);\` (read with ring.get/ring.len), not \`${member}\``);
       eat("punct", "(");
-      const value = parseExpr();
+      const value = parseArg();
       eat("punct", ")");
       eat("punct", ";");
       return { kind: "ringpush", value, line: t.line };

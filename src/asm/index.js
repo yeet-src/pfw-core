@@ -307,6 +307,10 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("console is `console $FMTID`");
         emit(OP.CONSOLE, 0, numberOf(a.text, "fmtid") & 0xffffffffn);
+      } else if (m === "emit") {
+        want(1);
+        if (a.kind !== "imm") fail("emit is `emit $EVENTID`");
+        emit(OP.EMIT, 0, numberOf(a.text, "event id") & 0xffffffffn);
       } else if (m === "printk") {
         want(1);
         if (a.kind !== "imm") fail("printk is `printk $FMTID`");

@@ -95,7 +95,7 @@ t("console: emits the format id with no arguments", { asm: `console $3`, console
 t("console: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nconsole $0`, cur: 4, zf: false, cf: true, ff: false });
 t("farg: queues %cur as a numeric argument, in order", { asm: `${li(7)}\nfarg\n${li(9)}\nfarg\nconsole $1`, console: [{ fmtid: 1, nums: [7, 9] }] });
 t("farg: arguments are 64-bit", { asm: `${li(MAX)}\nfarg\nconsole $0`, console: [{ fmtid: 0, nums: [MAX] }] });
-t("farg: at most 4 — a fifth is dropped", { asm: `${[1, 2, 3, 4, 5].map((n) => `${li(n)}\nfarg`).join("\n")}\nconsole $0`, console: [{ fmtid: 0, nums: [1, 2, 3, 4] }] });
+t("farg: at most 8 — a ninth is dropped", { asm: `${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${li(n)}\nfarg`).join("\n")}\nconsole $0`, console: [{ fmtid: 0, nums: [1, 2, 3, 4, 5, 6, 7, 8] }] });
 t("farg: leaves %cur and the flags", { asm: `${FLAGS}\nfarg`, cur: 4, zf: false, cf: true, ff: false });
 t("fargs: captures up to imm bytes at the cursor", { asm: `${li(4)}\nfargs $5\nconsole $0`, frame: "GET /path HTTP", console: [{ fmtid: 0, strs: ["/path"] }] });
 t("fargs: stops at %end", { asm: `${li(10)}\nfargs $64\nconsole $0`, frame: "GET /path HTTP", console: [{ fmtid: 0, strs: ["HTTP"] }] });
@@ -139,4 +139,13 @@ t("ret: a subroutine must balance the stack — a stray push is taken for the re
 t("budget: a ret loop is cut off after MAX_OPS steps, with pass", { ops: [[OP.AND_I], [OP.PUSH], [OP.RET], [OP.DROP, 1]], verdict: V.PASS });
 t("budget: a recursive call bottoms out when the stack fills", { asm: `${li(0)}\nf: add $1, %cur\ncall f`, cur: 65, regs: { sp: 64 } });
 
-t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS);
+/* ---- 69 EMIT -------------------------------------------------------------- */
+t("emit: sends the event id with no values", { asm: `emit $3`, emitted: [{ id: 3 }] });
+t("emit: carries the queued numbers, in order", { asm: `${li(7)}\nfarg\n${li(9)}\nfarg\nemit $1`, emitted: [{ id: 1, nums: [7, 9] }] });
+t("emit: values are 64-bit", { asm: `${li(MAX)}\nfarg\nemit $0`, emitted: [{ id: 0, nums: [MAX] }] });
+t("emit: eight values at most", { asm: `${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `${li(n)}\nfarg`).join("\n")}\nemit $0`, emitted: [{ id: 0, nums: [1, 2, 3, 4, 5, 6, 7, 8] }] });
+t("emit: consumes the queue, so the next event starts empty", { asm: `${li(7)}\nfarg\nemit $0\n${li(8)}\nfarg\nemit $1`, emitted: [{ id: 0, nums: [7] }, { id: 1, nums: [8] }] });
+t("emit: is not a console message", { asm: `${li(7)}\nfarg\nemit $0`, console: [] });
+t("emit: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nemit $0`, cur: 4, zf: false, cf: true, ff: false });
+
+t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS, OP.EMIT);
