@@ -34,6 +34,12 @@ export const LIMITS = {
   FMTS: 8, FMT_CAP: 64, STACK: 64, KNOBS: 32, KNOBSTRS: 16, KNOBSTR_CAP: 64, KNOB_SCAN: 256,
 };
 
+/* Upper bounds, in nanoseconds, of the decision-time histogram's buckets
+ * (DECIDE_BOUNDS in pfw.h): bucket i counts decisions that took less than
+ * DECIDE_BOUNDS[i] and at least DECIDE_BOUNDS[i - 1]; one more bucket after
+ * the last bound has no upper limit. */
+export const DECIDE_BOUNDS = [63, 100, 159, 252, 400, 635, 1008, 1600, 2540, 4032, 6400, 10159, 16127, 25600, 40637];
+
 export const VERDICT = { 0: "none", 1: "pass", 2: "drop", 3: "ban", 4: "rst" };
 
 /* The LOAD op packs size and byte order into `reg`. */

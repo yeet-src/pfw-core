@@ -80,6 +80,10 @@ check("stop() twice is harmless and leaves it not running", line("RUNNING_AFTER_
 const statsA = line("STATS_A");
 check("stats() counts the drop under its rule name", /"block_alpha":1/.test(statsA), statsA.slice(0, 120));
 check("onVerdict delivers verdict, rule name, port and the logged bytes", statsA.includes(`drop:block_alpha:${PORT}:ALPHA-A`), statsA.slice(-80));
+const hist = JSON.parse(line("HIST").slice(5) || "{}");
+/* The histogram is read after the counters and loopback is never quiet, so it
+ * may have counted a few packets more: never fewer. */
+check("stats() returns the decision-time histogram, one bucket per packet run", hist.buckets === 16 && hist.bounds === 15 && hist.ran > 0 && hist.sum >= hist.ran, line("HIST"));
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);

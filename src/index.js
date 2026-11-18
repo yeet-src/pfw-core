@@ -13,7 +13,7 @@
  */
 
 // The ISA contract (mirrors bpf/include/pfw.h; the test suite checks they agree).
-export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE } from "#/isa.js";
+export { OP, OP_NAME, REG, REG_NAME, LIMITS, VERDICT, DECODE, LOAD_BE, DECIDE_BOUNDS } from "#/isa.js";
 
 // Assembler: AT&T-syntax text -> program.
 export { assemble } from "#/asm";
