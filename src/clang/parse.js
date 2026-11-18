@@ -233,8 +233,21 @@ export function parse(toks) {
   };
 
   const CMP = { "==": 1, "!=": 1, "<": 1, ">": 1, "<=": 1, ">=": 1 };
+  /* What may follow an operand and can only mean arithmetic. `&` and `|` are
+   * left out: beside a scan they are the mask test and the pattern-or, and
+   * which they are is settled later, by what is on their left. */
+  const arithAhead = () => peek().type === "punct" && (["+", "-", "<<", ">>"].includes(peek().value) || TERM.includes(peek().value));
   const parseCompare = () => {
+    const mark = pos;
     let e = parseMaskOperand();
+    /* `len + 1 == 5`, `flow.hash % 16 == 0`: the left side is arithmetic, so
+     * read it as such. With no comparison after it, it is a plain value — fine
+     * as an argument or inside parentheses, and refused as a condition later. */
+    if (arithAhead()) {
+      pos = mark;
+      e = parseArith();
+      if (!(peek().type === "punct" && CMP[peek().value])) return e;
+    }
     if (peek().type === "ident" && peek().value === "in") {
       next();
       if (peek().type === "string") return { kind: "incidr", a: e, cidr: next().value, line: e.line };
@@ -251,7 +264,7 @@ export function parse(toks) {
     }
     if (peek().type === "punct" && CMP[peek().value]) {
       const op = next().value;
-      const rhs = parseMaskOperand();
+      const rhs = parseArith();          // the right of a comparison is always a value
       e = { kind: "cmp", op, a: e, b: rhs, line: e.line };
     }
     return e;

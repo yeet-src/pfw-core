@@ -375,12 +375,21 @@ export function codegen(ast) {
     if (asValue) bld.movToCur(REG.rv);
   };
 
+  /* A side of a comparison, as a value. `x & 6` parses as a mask test, because
+   * that is what `&` is after a scan; with anything else on its left it is the
+   * bitwise and, and `a | b` on its right the bitwise or. */
+  const asValue = (e) => {
+    if (e.kind === "band" && !isScan(e.a) && !(e.a.kind === "ref" && masks.has(e.a.name))) return { kind: "arith", op: "&", a: asValue(e.a), b: asValue(e.b), line: e.line };
+    if (e.kind === "por") return { kind: "arith", op: "|", a: asValue(e.a), b: asValue(e.b), line: e.line };
+    return e;
+  };
   const cmpToFlags = (e) => {
-    if (e.b.kind === "num" || e.b.kind === "char") { value(e.a); return bld.cmpImm(immVal(e.b)); }
-    const rb = stableReg(e.b);
-    if (rb !== null) { value(e.a); return bld.cmpReg(rb); }
+    const a = asValue(e.a), b = asValue(e.b);
+    if (b.kind === "num" || b.kind === "char") { materialize(a); return bld.cmpImm(immVal(b)); }
+    const rb = stableReg(b);
+    if (rb !== null) { materialize(a); return bld.cmpReg(rb); }
     const tmp = allocScratch(`__cmp${nTmp++}`, e.line);
-    materialize(e.b); bld.movFromCur(tmp); value(e.a); bld.cmpReg(tmp);
+    materialize(b); bld.movFromCur(tmp); materialize(a); bld.cmpReg(tmp);
   };
 
   const bandTest = (e) => {
@@ -423,6 +432,7 @@ export function codegen(ast) {
         if (e.name === "starts") { if (e.args.length !== 2) die('starts(ptr, pattern|"lit")', e.line); loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.jne(L); }
         die(`\`${e.name}(...)\` is not a condition`, e.line);
         return;
+      case "arith": die("arithmetic in a condition has to be compared with something: `a + b == c`", e.line); return;
       default: die("not a condition", e.line);
     }
   };
@@ -448,6 +458,7 @@ export function codegen(ast) {
         if (e.name === "starts") { loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.je(L); }
         die(`\`${e.name}(...)\` is not a condition`, e.line);
         return;
+      case "arith": die("arithmetic in a condition has to be compared with something: `a + b == c`", e.line); return;
       default: die("not a condition", e.line);
     }
   };
