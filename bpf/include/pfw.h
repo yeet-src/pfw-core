@@ -342,6 +342,11 @@ struct pfw_event {
     __u8 data[LOG_CAP];
 };
 
+/* Decision time by rule (the `rule_time` map, one slot per rule id per CPU):
+ * the nanoseconds spent on packets whose last-touched rule this was, and how
+ * many such packets there were. */
+struct rule_time { __u64 ns; __u64 runs; };
+
 /* The VM data stack (push/pop), one per CPU in the `stack` map. */
 struct vmstack { __u64 s[STACK_CAP]; };
 

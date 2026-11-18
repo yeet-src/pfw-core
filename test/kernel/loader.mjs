@@ -82,6 +82,10 @@ check("stats() counts the drop under its rule name", /"block_alpha":1/.test(stat
 check("onVerdict delivers verdict, rule name, port and the logged bytes", statsA.includes(`drop:block_alpha:${PORT}:ALPHA-A`), statsA.slice(-80));
 const statsA2 = line("STATS_A2");
 check("rule counts start over at apply: A applied twice, one drop each time", /"block_alpha":1[,}]/.test(statsA2), statsA2.slice(0, 120));
+/* In phase A_again one ALPHA was dropped by block_alpha and everything else on
+ * loopback left without touching a rule. */
+const timing = JSON.parse(line("TIMING").slice(7) || "{}");
+check("stats().timing charges decision time to the rule a packet ended on", timing.block_alpha?.runs === 1 && timing.block_alpha.ns > 0 && timing["-"]?.runs > 0, line("TIMING").slice(0, 160));
 const hist = JSON.parse(line("HIST").slice(5) || "{}");
 /* The histogram is read after the counters and loopback is never quiet, so it
  * may have counted a few packets more: never fewer. */
