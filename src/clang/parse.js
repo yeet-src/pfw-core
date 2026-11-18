@@ -113,8 +113,11 @@ export function parse(toks) {
         next();
         const member = eat("ident").value;
         if (member === "hash") return { kind: "flowhash", line: t.line };
+        if (/^r[0-3]$/.test(member)) return { kind: "flowreg", which: Number(member[1]), line: t.line };
+        if (member === "bytes") return { kind: "flowreg", which: 4, line: t.line };
+        if (member === "packets") return { kind: "flowreg", which: 5, line: t.line };
         if (member !== "state" && member !== "count")
-          err(`flow has no member \`${member}\` (only \`state\`, \`count\` and \`hash\`)`);
+          err(`flow has no member \`${member}\` (it has \`state\`, \`count\`, \`hash\`, \`r0\`–\`r3\`, \`bytes\` and \`packets\`)`);
         return { kind: member === "count" ? "flowcount" : "flowstate", line: t.line };
       }
       /* src.state / src.count / src.rate(r, b): the per-flow members, scoped to
@@ -450,7 +453,14 @@ export function parse(toks) {
       next();
       eat("punct", ".");
       const member = eat("ident").value;
-      if (member !== "state") err(`${t.value} has no member \`${member}\` (assignable: state)`);
+      /* flow.r0 = EXPR; — a per-connection register, any value */
+      if (scope === 0 && /^r[0-3]$/.test(member)) {
+        eat("punct", "=");
+        const value = parseArith();
+        eat("punct", ";");
+        return { kind: "setflowreg", which: Number(member[1]), value, line: t.line };
+      }
+      if (member !== "state") err(`${t.value} has no member \`${member}\` (assignable: state${scope === 0 ? ", r0–r3" : ""})`);
       eat("punct", "=");
       const value = parseExpr();
       let ttl = null;

@@ -27,6 +27,9 @@
 #define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
 #define TABLE_CELLS  131072 /* u64 cells of host-loaded lookup tables per generation (`NAME[i]`); a
                             * power of two, and past 65537 so a full-size Maglev table fits */
+#define FLOW_REGS    4     /* per-flow registers a program reads and writes (flow.r0 .. flow.r3); a power of two */
+#define FF_BYTES     4     /* OP_FLOAD reg: payload bytes this flow has carried, this packet included */
+#define FF_PACKETS   5     /* OP_FLOAD reg: packets of this flow, this one included */
 #define KV_MAX       16384 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
 #define NAT_MAX      16384 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
 #define SRC_MAX      65536 /* sources tracked for per-source state (the `sources` map, LRU) */
@@ -196,6 +199,8 @@ enum pfw_opcode {
     OP_EMIT,    /* send the pushed fargs to the host as a typed event: imm = event id */
     OP_TLOAD,   /* cur = tables[base + cur] if cur < size, else 0 and fault; imm = base (low 32) | size (high 32) */
     OP_KVGET,   /* cur = kv[cur] if the key is present, else imm and fault */
+    OP_FLOAD,   /* cur = a per-flow value: reg 0..3 = flow register, FF_BYTES, FF_PACKETS */
+    OP_FSTORE,  /* flow register reg (0..3) = cur */
     OP_COUNT_OPCODES,
 };
 
@@ -253,6 +258,9 @@ struct flow {
     __u32 ac_state;
     __u32 gen;
     __u64 mask;
+    __u64 ureg[FLOW_REGS]; /* per-connection registers the program reads and writes (flow.r0 ..) */
+    __u64 bytes;      /* payload bytes this flow has carried (flow.bytes) */
+    __u64 packets;    /* packets of this flow (flow.packets) */
     __u32 user_state; /* a per-connection state the program sets and reads */
     __u32 hits;       /* per-connection hit counter, for rate limiting */
     __u64 state_expires; /* ktime ns when user_state reverts to 0 (0 = never) */

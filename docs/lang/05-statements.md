@@ -125,14 +125,32 @@ dnat(knob("standby"), 8182);              // nowhere until the host sets it
 - `flow.count` — a per-connection hit counter (an expression). Every read
   increments it first and yields the new value, so the first read is 1; read it
   once into a `let` if you need the value twice.
+- `flow.r0` … `flow.r3` — four per-connection **registers**: 64-bit values the
+  program reads and writes freely (`flow.r0 = flow.r0 + len;`). The right side
+  is value arithmetic, not only a constant. Unlike `flow.state`, a write is seen
+  by a read later in the same packet.
+- `flow.bytes`, `flow.packets` — payload bytes and packets this connection has
+  carried in this direction, **the current packet included**. Read-only: the
+  kernel counts them. A connection is counted from the first packet on which
+  the program reads either (and TCP from its first packet carrying data), so
+  read them on every packet of the connections you mean to measure.
 - `src.state = N;` / `src.state = N for SECONDS;`, `src.count`, and the condition
   `src.rate(per_second, burst)` — the same three, keyed on the **source address**
   instead of the connection, so they hold across every connection a source opens.
 - `ring.push(v);` / `ring.get(i)` / `ring.len` — a 16-slot newest-wins per-flow
   ring (push is a statement; get/len are expressions).
 
-Writes are applied by the kernel on the **next** packet (deferred); the reference
-interpreter models this exactly.
+Writes to `flow.state`, `src.state` and the counts are applied by the kernel on
+the **next** packet (deferred); the reference interpreter models this exactly.
+The registers `flow.r0`–`flow.r3` are the exception: they read back at once.
+
+```c
+if (flow.bytes > 10485760) decide rst("upload_cap", 0);     // 10 MiB a connection
+if (starts(payload, get)) {                                  // the third request
+  flow.r0 = flow.r0 + 1;
+  if (flow.r0 >= 3) decide rst("too_many_requests", 0);
+}
+```
 
 ```c
 if (len == 0) decide pass;

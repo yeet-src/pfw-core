@@ -70,6 +70,10 @@ export function machine({ asm, tables, regex = null }) {
     const mark = flow.mark ?? 0;
     const userState = flow.userState ?? 0;
     let hits = flow.hits ?? 0, newState = userState, setMark = mark;
+    /* The flow's registers (read-your-writes within a run, unlike the state) and
+     * its byte and packet counts, which include the packet being judged. */
+    const ureg = [0, 1, 2, 3].map((i) => BigInt(flow.ureg?.[i] ?? 0) & U64);
+    const fbytes = BigInt(flow.bytes ?? 0) + BigInt(end > payload ? end - payload : 0), fpackets = BigInt(flow.packets ?? 0) + 1n;
     /* Per-SOURCE state (the `sources` map): src.state / src.count / src.rate and
      * the source ban. The caller threads the returned `source` back in to model
      * later packets from the same address, on any connection. */
@@ -244,6 +248,8 @@ export function machine({ asm, tables, regex = null }) {
           if (rawReg === 1) { srcHits = (srcHits + 1) >>> 0; cur = BigInt(srcHits); }
           else { hits = (hits + 1) >>> 0; cur = BigInt(hits); }
           break;
+        case OP.FLOAD: { const which = rawReg & 7; cur = which === 4 ? fbytes : which === 5 ? fpackets : ureg[which & 3]; break; }
+        case OP.FSTORE: ureg[rawReg & 3] = cur; break;
         case OP.FLOW: cur = BigInt(mark); break;
         case OP.MARK: setMark = rawReg; break;
         case OP.COUNT: rule = rawReg; break; // counter side effect; execution continues
@@ -330,7 +336,7 @@ export function machine({ asm, tables, regex = null }) {
     const isEnforce = vfinal === V.DROP || vfinal === V.BAN || vfinal === V.RST;
     return {
       verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
-      flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
+      flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits, ureg, bytes: fbytes, packets: fpackets },
       source: { userState: srcNewState, hits: srcHits, bucket: srcBucket ?? {}, banned: (source?.banned ?? false) || (vfinal === V.BAN && !shadow) },
       consoleMsgs, emitted, dnat,
     };

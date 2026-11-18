@@ -117,6 +117,8 @@ export class Builder {
   mark(v, ttl) { return this.op(OP.MARK, v, ttl); }
   sload(scope = 0) { return this.op(OP.SLOAD, scope); } // reg = scope: 0 this flow, 1 the source address
   sstore(state, ttl, scope = 0) { return this.op(OP.SSTORE, Number(ttl), (BigInt(state) & 0xffffffffn) | (BigInt(scope & 1) << 32n)); } // reg = ttl, imm = state | scope<<32
+  fload(which) { return this.op(OP.FLOAD, which & 7); }   // cur = flow register 0..3, or FLOW_FIELD.bytes / .packets
+  fstore(idx) { return this.op(OP.FSTORE, idx & 3); }     // flow register idx = cur
   bump(scope = 0) { return this.op(OP.BUMP, scope); } // reg = scope
   rpush() { return this.op(OP.RPUSH); }
   rget() { return this.op(OP.RGET); }

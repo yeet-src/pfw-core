@@ -1,7 +1,9 @@
 # 6. Per-connection and per-source state, rings, frames (recap)
 
 `flow.state` (a small user state machine, with optional TTL), `flow.count` (a hit
-counter), the per-flow `ring` (push/get/len), and the `frame` walker above are the
+counter), `flow.r0`–`flow.r3` (registers the program owns), `flow.bytes` and
+`flow.packets` (what the kernel counts), the per-flow `ring` (push/get/len), and
+the `frame` walker above are the
 stateful/structural features. They persist across packets of the same connection
 (state/count/ring) or structure one packet (`frame`). See [`isa.md`](isa.md) for
 the backing map layout and the deferred-write model.

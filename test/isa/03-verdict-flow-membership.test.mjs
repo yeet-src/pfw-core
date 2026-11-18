@@ -120,4 +120,26 @@ t("lpm6: a source under no prefix clears ZF", { asm: `lpm6`, opts: { src6: V6(0x
 t("lpm6: tests the source address, not %cur", { asm: `${li("0x20010db8")}\nlpm6`, opts: { src6: 1n, set6: SET6 }, zf: false, cur: 0x20010db8 });
 t("lpm6: an empty set matches nothing", { asm: `lpm6`, opts: { src6: 1n }, zf: false });
 
+/* ---- 72 FLOAD / 73 FSTORE -------------------------------------------------- */
+/* The default frame is 64 bytes with %payload at 0, so a packet is 64 bytes of payload. */
+t("fload: a flow register starts at zero", { asm: `fload $0`, cur: 0 });
+t("fload: reads what the flow held at entry", { asm: `fload $2`, flow: { ureg: [0n, 0n, 77n, 0n] }, cur: 77 });
+t("fstore: a store is read back in the same run", { asm: `${li(9)}\nfstore $1\n${li(0)}\nfload $1`, cur: 9 });
+t("fstore: and on the next packet", { asm: `fload $1\nmov %cur, %s0\n${li(9)}\nfstore $1\nmov %s0, %cur`, packets: 2, cur: 9 });
+t("fstore: writes one register and not its neighbours", { asm: `${li(9)}\nfstore $1\nfload $0\nmov %cur, %s0\nfload $2\nadd %s0, %cur`, cur: 0 });
+t("fstore: holds a full 64-bit value across packets", { asm: `fload $3\nmov %cur, %s0\n${li("0xffffffffffffffff")}\nfstore $3\nmov %s0, %cur`, packets: 2, cur: "0xffffffffffffffff" });
+t("fstore: a counter kept by the program — add one each packet", { asm: `fload $0\nadd $1, %cur\nfstore $0`, packets: 5, cur: 5 });
+t("fstore: without a store the registers carry over", { asm: `fload $2`, flow: { ureg: [0n, 0n, 5n, 0n] }, packets: 3, cur: 5 });
+t("fstore: the register index is masked to 2 bits", { asm: li(4), ops: [[OP.FSTORE, 4 + 1], [OP.FLOAD, 1]], cur: 4 });
+t("fload/fstore: touch no flag", { asm: `${li(1)}\ncmp $1, %cur\nfstore $0\nfload $0`, zf: true, cf: false, ff: false });
+t("fload bytes: this packet's payload is already counted", { asm: `fload $bytes`, cur: 64 });
+t("fload bytes: sums the payload of the flow's packets", { asm: `fload $bytes`, packets: 3, cur: 192 });
+t("fload bytes: on top of what the flow had", { asm: `fload $bytes`, flow: { bytes: 1000n }, cur: 1064 });
+t("fload bytes: counts payload, not headers", { asm: `fload $bytes`, frame: new Uint8Array(40), payload: 30, packets: 2, cur: 20 });
+t("fload packets: this packet is the first", { asm: `fload $packets`, cur: 1 });
+t("fload packets: counts every packet of the flow", { asm: `fload $packets`, packets: 4, cur: 4 });
+t("fload: the assembler refuses a register past 3", { asm: `fload $6`, rejects: /flow register/ });
+t("fstore: the assembler refuses to store to the counts", { asm: `fstore $bytes`, rejects: /0–3/ });
+
+t.covers(OP.FLOAD, OP.FSTORE);
 t.covers(OP.PASS, OP.DROP, OP.COUNT, OP.LOG, OP.BAN, OP.RST, OP.FLOW, OP.MARK, OP.SLOAD, OP.SSTORE, OP.BUMP, OP.CIDR, OP.RPUSH, OP.RGET, OP.RLEN, OP.LPM, OP.HASH, OP.BLOOM, OP.LPM6);

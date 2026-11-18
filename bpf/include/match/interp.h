@@ -362,6 +362,18 @@ static long pfw_step(__u32 i, void *pctx)
             st->state_ttl = op->reg;
         }
         break;
+    case OP_FLOAD: {
+        __u32 which = op->reg & 7;
+        if (which == FF_BYTES) { cur = st->fbytes; st->want_acct = 1; }
+        else if (which == FF_PACKETS) { cur = st->fpackets; st->want_acct = 1; }
+        else cur = st->ureg[which & (FLOW_REGS - 1)];
+        break;
+    }
+    case OP_FSTORE:
+        /* Unlike flow.state, a store is seen by a later read in the same run. */
+        st->ureg[op->reg & (FLOW_REGS - 1)] = cur;
+        st->set_ureg = 1;
+        break;
     case OP_BUMP:
         if (op->reg == SCOPE_SRC) {
             st->src_hits++;

@@ -64,8 +64,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;
 
-    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count)) {
-        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || pp->end > pp->payload)) {
+    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || st->set_ureg || st->want_acct)) {
+        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || st->set_ureg || st->want_acct || pp->end > pp->payload)) {
             bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
             f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
@@ -75,6 +75,11 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
             if (st->set_state) { f->user_state = st->new_state; f->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
             if (st->set_rl) { f->rl_tokens = st->rl_tokens; f->rl_ts = st->rl_ts; }
             if (st->set_hits) f->hits = st->hits;
+            if (st->set_ureg) __builtin_memcpy(f->ureg, st->ureg, sizeof(f->ureg));
+            /* Every packet of a tracked flow is counted, whether or not this
+             * run of the program looked: the entry added this packet in. */
+            f->bytes = st->fbytes;
+            f->packets = st->fpackets;
             /* Pushes made while the flow had no entry: they are its ring now. */
             if (st->pring_count) {
                 __builtin_memcpy(f->ring, st->pring, sizeof(f->ring));

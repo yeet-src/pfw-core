@@ -181,6 +181,14 @@ int pfw_xdp(struct xdp_md *ctx)
     st->new_state = 0;
     st->state_ttl = 0;
     st->hits = f ? f->hits : 0;
+    st->ureg[0] = f ? f->ureg[0] : 0;
+    st->ureg[1] = f ? f->ureg[1] : 0;
+    st->ureg[2] = f ? f->ureg[2] : 0;
+    st->ureg[3] = f ? f->ureg[3] : 0;
+    st->fbytes = (f ? f->bytes : 0) + (p.end > p.payload ? p.end - p.payload : 0);
+    st->fpackets = (f ? f->packets : 0) + 1;
+    st->set_ureg = 0;
+    st->want_acct = 0;
     st->set_hits = 0;
     st->rl_tokens = f ? f->rl_tokens : 0;
     st->rl_ts = f ? f->rl_ts : 0;

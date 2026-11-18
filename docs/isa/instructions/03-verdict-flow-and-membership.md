@@ -278,6 +278,30 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Notes:** exact (no false positives); host-loaded; reference models via
   `opts.hashset`.
 
+### 72 — `OP_FLOAD` (`fload $N`)
+
+- **Assembler:** `fload $0` … `fload $3`, `fload $bytes`, `fload $packets` —
+  **pfw-C:** `flow.r0` … `flow.r3`, `flow.bytes`, `flow.packets`
+- **Encoding:** code = 72; `reg` = which (0–3 a flow register, 4 = bytes,
+  5 = packets; masked to 3 bits); `imm` unused.
+- **Operation:** `cur ←` the flow register as loaded at entry or as stored since
+  (`st->ureg[reg & 3]`); or `flow.bytes` / `flow.packets` **with this packet
+  already added**. Reading a count sets `want_acct`, which has the write-back
+  create the flow's entry if it has none.
+- **Flags:** none. **Maps:** `flows` (through the per-CPU state).
+- **Notes:** the counts are written back for every packet of a flow that has an
+  entry, whether the program read them on that packet or not.
+
+### 73 — `OP_FSTORE` (`fstore $N`)
+
+- **Assembler:** `fstore $0` … `fstore $3` — **pfw-C:** `flow.r0 = expr;`
+- **Encoding:** code = 73; `reg` = the register (masked to 2 bits); `imm` unused.
+- **Operation:** `st->ureg[reg & 3] ← cur`, and marks the registers for
+  write-back to the flow (creating its entry if need be).
+- **Flags:** none. **Maps:** `flows`.
+- **Notes:** a store is visible to a later `fload` in the same run — unlike
+  `sstore`, whose value is only read back on the next packet.
+
 ### 71 — `OP_KVGET` (`kvget [$DEFAULT]`)
 
 - **Assembler:** `kvget`, `kvget $9` — **pfw-C:** `lookup(key)`, `lookup(key) ?? 9`

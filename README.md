@@ -473,7 +473,7 @@ on real loopback traffic; they need `yeetd` + loopback.
 
 - **`test/isa/*.test.mjs`** (under `yeet test`, `npm run test:isa`): the ISA
   conformance vectors — a small program per case, asserting the registers,
-  flags or verdict `docs/isa/` says each of the 72 opcodes leaves behind.
+  flags or verdict `docs/isa/` says each of the 74 opcodes leaves behind.
 - **`test/unit/*.test.mjs`** (under `yeet test`): real programs through the
   reference interpreter, one file per feature, plus `ops.test.mjs` (every opcode,
   with a coverage gate), the front-end differentials (`dsl`/`fp` == source), and

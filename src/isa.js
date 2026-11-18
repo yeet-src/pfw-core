@@ -9,7 +9,7 @@ export const OP = {
   REDACT: 43, REPLACE: 44, DNAT: 45, LPM: 46, HASH: 47, BLOOM: 48, LPM6: 49,
   REDIRECT: 50, RATE: 51, ARG: 52, ARGC: 53, FARG: 54, FARGS: 55, CONSOLE: 56, PRINTK: 57,
   PUSH: 58, POP: 59, CALL: 60, RET: 61, KNOB: 62, KNOBHAS: 63,
-  MUL_I: 64, MUL_R: 65, MOD_I: 66, MOD_R: 67, FHASH: 68, EMIT: 69, TLOAD: 70, KVGET: 71,
+  MUL_I: 64, MUL_R: 65, MOD_I: 66, MOD_R: 67, FHASH: 68, EMIT: 69, TLOAD: 70, KVGET: 71, FLOAD: 72, FSTORE: 73,
 };
 
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each
@@ -34,6 +34,7 @@ export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [
 export const LIMITS = {
   MAX_OPS: 8192, MAX_PATS: 64, PAT_CAP: 64, NRULES: 64, GENS: 2,
   AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256, RE_STATES: 1024, ARGC: 16, FARGS: 8, FSTR: 2, STRARG: 256,
+  FLOW_REGS: 4,
   TABLE_CELLS: 131072, TABLES: 16, KV_MAX: 16384,
   FMTS: 8, FMT_CAP: 64, STACK: 64, KNOBS: 32, KNOBSTRS: 16, KNOBSTR_CAP: 64, KNOB_SCAN: 256,
 };
@@ -45,6 +46,10 @@ export const LIMITS = {
 export const DECIDE_BOUNDS = [63, 100, 159, 252, 400, 635, 1008, 1600, 2540, 4032, 6400, 10159, 16127, 25600, 40637];
 
 export const VERDICT = { 0: "none", 1: "pass", 2: "drop", 3: "ban", 4: "rst" };
+
+/* What OP_FLOAD reads, by its `reg`: the per-flow registers 0..FLOW_REGS-1, then
+ * the two things the kernel counts for the flow itself. */
+export const FLOW_FIELD = { bytes: 4, packets: 5 };
 
 /* The LOAD op packs size and byte order into `reg`. */
 export const LOAD_BE = 16;
