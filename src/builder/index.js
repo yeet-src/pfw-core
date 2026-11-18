@@ -31,7 +31,7 @@ const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at final
  * helps nobody when q holds one register and a `frame` walk holds five. */
 const TEMP_KINDS = [
   [/^__f[erltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
-  [/^__cmp\d/, "comparison"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
+  [/^__cmp\d/, "comparison"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
 const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7];

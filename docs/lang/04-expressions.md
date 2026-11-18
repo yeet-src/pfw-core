@@ -20,8 +20,34 @@ inside value arithmetic it is **bitwise-or**.
 - `flow.state`, `flow.count`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
+- direct reads: `u8(p)`, `be16(p + 2)`, … (below);
 - calls: `scan(...)`, `after(...)`, `find(...)`, `starts(...)`, `any/all/seq(...)`,
   `rate(...)`, `pop()`, and subroutine calls.
+
+### Reading the packet
+
+`TYPE(ptr)` reads one field at a pointer and is a value like any other. The
+argument is value arithmetic, so the offset is written where it is used.
+
+| type | bytes | order |
+|---|---|---|
+| `u8` | 1 | — |
+| `u16` `u32` `u64` | 2, 4, 8 | little-endian |
+| `be16` `be24` `be32` `be64` | 2, 3, 4, 8 | big-endian (network order) |
+
+```c
+let opening = u8(l4 + 13) & 18;         // TCP flags: SYN set, ACK clear
+if (opening == 2) count("connections");
+let qtype = be16(name_end);              // a field wherever a pointer has got to
+let p = payload + u8(payload);           // a length byte, used as an offset
+```
+
+A read that runs past the end of the data — the packet's, or the current
+record's inside a `frame` body — yields **0**. It does not fault, so test the
+length first if 0 is a value the field can really hold.
+
+`frame` (§5) is still the tool for *walking* records; a read is for the one
+field at a known offset, which used to take a one-record `frame`.
 
 ### Comparisons
 

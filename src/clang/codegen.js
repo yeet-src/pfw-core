@@ -193,6 +193,34 @@ export function codegen(ast) {
     bld.label(done);
   };
 
+  /* A direct read: the field at a pointer, or 0 when any of it lies past the
+   * end of the data. LOAD faults on a short read and leaves %cur alone, and the
+   * fault flag is sticky, so it is cleared first (a `jf` to the next op) or a
+   * fault left by an earlier `find` would zero a read that worked. */
+  const readField = (e) => {
+    const sizes = { u8: [1, false], u16: [2, false], u32: [4, false], u64: [8, false], be16: [2, true], be32: [4, true], be64: [8, true] };
+    const bad = fresh(), done = fresh(), clear = fresh();
+    materialize(e.ptr);
+    if (e.ftype === "be24") {
+      /* Three bytes, read as two fields so the last byte of a packet is not a
+       * fault: be16 at 0, shifted up, plus the byte at 2. */
+      const at = allocScratch(`__rd${nTmp++}`, e.line), hi = allocScratch(`__rd${nTmp++}`, e.line);
+      bld.movFromCur(at);
+      bld.jf(clear); bld.label(clear);
+      bld.load(2, true, 0n); bld.jf(bad);
+      bld.shlImm(8n); bld.movFromCur(hi);
+      bld.movToCur(at); bld.load(1, false, 2n); bld.jf(bad);
+      bld.addReg(hi);
+    } else {
+      const [size, be] = sizes[e.ftype];
+      bld.jf(clear); bld.label(clear);
+      bld.load(size, be, 0n); bld.jf(bad);
+    }
+    bld.jmp(done);
+    bld.label(bad); bld.andImm(0n);
+    bld.label(done);
+  };
+
   const INV = { "==": "jne", "!=": "je", "<": "jae", ">": "jbe", "<=": "ja", ">=": "jb" };
   const DIR = { "==": "je", "!=": "jne", "<": "jb", ">": "ja", "<=": "jbe", ">=": "jae" };
   const ARITH_I = { "+": "addImm", "-": "subImm", "&": "andImm", "|": "orImm", "<<": "shlImm", ">>": "shrImm" };
@@ -212,6 +240,7 @@ export function codegen(ast) {
     if (e.kind === "ringlen") return bld.rlen();
     if (e.kind === "ringget") { value(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
+    if (e.kind === "read") return readField(e);
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
@@ -245,7 +274,7 @@ export function codegen(ast) {
       const tmp = allocScratch(`__a${nTmp++}`, e.line);
       bld.movFromCur(tmp); materialize(e.b); return bld.addReg(tmp);
     }
-    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc", "knob"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
