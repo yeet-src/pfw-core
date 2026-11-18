@@ -25,6 +25,15 @@ export class BuildError extends Error {}
 const fail = (m) => { throw new BuildError(m); };
 
 const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at finalize)
+
+/* The compiler's own temporaries are named `__<kind><n>`. When the registers
+ * run out, the error says which construct each one belongs to: "held by q"
+ * helps nobody when q holds one register and a `frame` walk holds five. */
+const TEMP_KINDS = [
+  [/^__f[erltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
+  [/^__cmp\d/, "comparison"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
+];
+const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
 const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7];
 
 export class Builder {
@@ -234,9 +243,22 @@ export class Builder {
         const k = free.findIndex((r) => !(iv.cross && banned.has(r)));
         if (k < 0) {
           const who = this.vregs[iv.v - VREG_BASE];
-          const held = active.map((a) => this.vregs[a.v - VREG_BASE].name).filter((n) => n && !n.startsWith("__"));
+          const isTemp = (v) => !v?.name || v.name.startsWith("__");
+          const holders = active.map((a) => this.vregs[a.v - VREG_BASE]);
+          const locals = holders.filter((v) => !isTemp(v)).map((v) => `\`${v.name}\``);
+          /* Temporaries, grouped by the construct that made them. */
+          const groups = new Map();
+          for (const v of holders.filter(isTemp)) {
+            const key = `the ${tempKind(v?.name ?? "")}${v?.line ? ` at line ${v.line}` : ""}`;
+            groups.set(key, (groups.get(key) ?? 0) + 1);
+          }
+          const parts = [
+            ...(locals.length ? [`${locals.length} by your locals (${locals.join(", ")})`] : []),
+            ...[...groups].map(([what, n]) => `${n} by ${what}`),
+          ];
+          const want = isTemp(who) ? `the ${tempKind(who?.name ?? "")}${who?.line ? ` at line ${who.line}` : ""}` : `\`${who.name}\``;
           const why = iv.cross && banned.size ? ` (it is live across a subroutine call, so it cannot share the ${banned.size} register(s) subroutines use)` : "";
-          errors.push({ line: who?.line ?? 0, text: `too many locals live at once: ${who?.name ? `\`${who.name}\`` : "a temporary"} needs a register but all ${SCRATCH.length} are held${held.length ? ` by ${held.join(", ")}` : ""}${why}` });
+          errors.push({ line: who?.line ?? 0, user: true, text: `too many locals live at once: ${want} needs a register, but all ${SCRATCH.length} are in use${parts.length ? `: ${parts.join(", ")}` : ""}${why}` });
           phys.set(iv.v, 0); active.push(iv); continue;
         }
         phys.set(iv.v, free.splice(k, 1)[0]);

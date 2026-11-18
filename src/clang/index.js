@@ -38,7 +38,9 @@ export function compileAst(ast) {
   }
   const r = bld.finalize();
   const asm = r.listing.map((l) => "        " + l.text).join("\n");
-  if (!r.ok) return { ok: false, errors: r.errors.map((e) => ({ line: 0, text: `internal: ${e.text}` })), asm };
+  /* Running out of registers is the program's doing, and has a line; anything
+   * else the Builder finds at this point is the compiler's own mistake. */
+  if (!r.ok) return { ok: false, errors: r.errors.map((e) => (e.user ? { line: e.line, text: e.text } : { line: 0, text: `internal: ${e.text}` })), asm };
   /* Compile the regex patterns into one DFA (null if there are none). */
   let regex = null;
   const regexPats = r.patterns.filter((p) => p.kind === "regex");
