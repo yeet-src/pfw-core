@@ -30,11 +30,12 @@ export function opText(op, patterns = [], rules = []) {
     case OP.REDACT: return `redact ${pat(op.reg & 0x3fff)}, 0x${(op.imm & 0xffn).toString(16)}${op.reg & 0x8000 ? " [re]" : ""}`;
     case OP.REPLACE: return `replace ${pat(op.reg & 0x3fff)}, ${pat(Number(op.imm & 0x3fn))}${op.reg & 0x8000 ? " [re]" : ""}`;
     case OP.DNAT: {
+      if (op.reg & 1) return "dnat %cur";
       const ip = Number(op.imm & 0xffffffffn), port = Number((op.imm >> 32n) & 0xffffn);
       return `dnat ${(ip >>> 24) & 255}.${(ip >>> 16) & 255}.${(ip >>> 8) & 255}.${ip & 255}:${port}`;
     }
     case OP.REDIRECT: return `redirect ${op.imm}`;
-    case OP.RATE: return `${op.reg ? "srcrate" : "rate"} ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
+    case OP.RATE: return op.reg & 2 ? `${op.reg & 1 ? "srcrate" : "rate"} %cur` : `${op.reg & 1 ? "srcrate" : "rate"} ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
     case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
     case OP.ARGC: return `argc`;
     case OP.KNOB: return `knob ${op.imm}`;

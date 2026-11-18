@@ -103,10 +103,20 @@ replace(key, "AKIAXXXXXXXXXXXXXXXX"); // same length as the match
   TCP works. It cannot move an established connection — call it on every packet
   of the connections to divert, from the first one (typically gated on
   `src.state`).
+  The address and the port may each be a value instead of written out —
+  `dnat("127.0.0.1", 8182 + n)`, `dnat(knob("ip"), knob("port"))` — the address
+  as a 32-bit number in host order. `dnat(target)` takes both as one value,
+  address in the low 32 bits and port in the 16 above, which is how one table
+  cell holds a backend. A computed address of 0 steers nothing: an unset knob or
+  an empty slot leaves the packet going where it was.
 - `redirect(ifindex);` — forward the packet out another interface
-  (`XDP_REDIRECT`); terminal on the forward path.
+  (`XDP_REDIRECT`); terminal on the forward path. `ifindex` is a constant.
 
-Both take compile-time constants.
+```c
+let n = flow.hash % 3;
+dnat("127.0.0.1", 8182 + n);              // three backends, no ladder of ifs
+dnat(knob("standby"), 8182);              // nowhere until the host sets it
+```
 
 ### Per-connection state
 

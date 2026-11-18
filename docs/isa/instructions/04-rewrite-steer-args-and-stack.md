@@ -73,10 +73,12 @@ are written back to the flow in `finish()`.
 
 ### 45 — `OP_DNAT` (`dnat A.B.C.D:PORT`)
 
-- **Assembler:** `dnat 10.0.0.2:8080` (IPv4 literal + port).
-- **Encoding:** `code = 45`, `reg = 0`. `imm` = destination IPv4 in the **low 32
-  bits** (host order) `|` destination port in **bits 32–47**. Builder:
-  `(ip & 0xffffffff) | (port & 0xffff) << 32`.
+- **Assembler:** `dnat 10.0.0.2:8080` (IPv4 literal + port), or `dnat %cur`.
+- **Encoding:** `code = 45`. With `reg = 0`, `imm` = destination IPv4 in the
+  **low 32 bits** (host order) `|` destination port in **bits 32–47**. Builder:
+  `(ip & 0xffffffff) | (port & 0xffff) << 32`. With `reg` bit 0 set, the target
+  is **`%cur`**, packed the same way, and `imm` is unused; a `%cur` whose low 32
+  bits are 0 steers nothing.
 - **Operation (kernel):** `do_dnat` (a `__noinline` helper). IPv4 TCP/UDP only
   (checks the version nibble at `l3`): rewrites the destination address at
   `l3+16` and the destination port at `l4+2`, then fixes the **IP header
@@ -89,12 +91,13 @@ are written back to the flow in `finish()`.
   restores the reply's source address and port (fixing both checksums) and
   passes it without running the program — so the client sees replies from the
   address it dialled, and a TCP connection diverted from its SYN completes.
-- **Operation (host):** kernel-only — a no-op in `interp.js` (the host frame
-  model is payload-only and has no L3/L4 headers to rewrite).
+- **Operation (host):** the host frame model is payload-only and has no L3/L4
+  headers to rewrite; `interp.js` records the target instead, and a run returns
+  it as `dnat: { ip, port }` (or `null`).
 - **Flags:** none. **Maps:** `nat` (writes the packet too).
 - **Example:** `dnat("10.0.0.2", 8080);`
-- **Notes:** the port/ip are compile-time constants — `argv` cannot feed `dnat`.
-  Pairs with `redirect` to steer a rewritten packet out another interface.
+- **Notes:** pfw-C emits the immediate form when both the address and the port
+  are written out, and otherwise computes the target into `%cur`. Pairs with `redirect` to steer a rewritten packet out another interface.
 
 ### 50 — `OP_REDIRECT` (`redirect IFINDEX`)
 
@@ -119,11 +122,13 @@ are written back to the flow in `finish()`.
 
 ### 51 — `OP_RATE` (`rate $PER_SECOND, $BURST`)
 
-- **Assembler:** `rate $5, $20` (both positive u32); `srcrate $5, $20` for the
-  source scope — **pfw-C:** `rate(5, 20)` / `src.rate(5, 20)`.
-- **Encoding:** `code = 51`, `reg` = scope (0 = one bucket per connection, 1 = one
-  bucket per source address, shared by all its connections). `imm` = tokens/second in the **low 32
-  bits** `|` burst (bucket capacity) in the **high 32 bits**.
+- **Assembler:** `rate $5, $20` (both positive u32), or `rate %cur`; `srcrate`
+  for the source scope — **pfw-C:** `rate(5, 20)` / `src.rate(5, 20)`.
+- **Encoding:** `code = 51`. `reg` bit 0 = scope (0 = one bucket per connection,
+  1 = one bucket per source address, shared by all its connections). With `reg`
+  bit 1 clear, `imm` = tokens/second in the **low 32 bits** `|` burst (bucket
+  capacity) in the **high 32 bits**; with it set, **`%cur`** holds the same
+  pair and `imm` is unused.
 - **Operation (kernel):** `do_rate` (a `__noinline` helper) — a token bucket kept
   per flow in `st->rl_tokens` / `st->rl_ts` (loaded from the flow at entry,
   written back in `finish()` when `set_rl`). Tokens are fixed-point, scaled by
@@ -140,7 +145,9 @@ are written back to the flow in `finish()`.
 - **Maps:** `flows` (the bucket is per-flow state).
 - **Example:** `if (rate(5, 20)) decide drop("rl");` — `rate(...)` is a condition
   that is **true when over the limit**.
-- **Notes:** `rate`'s arguments are compile-time constants.
+- **Notes:** pfw-C emits the immediate form when both arguments are written out
+  (and checks they are positive), and otherwise computes the pair into `%cur`.
+  A computed burst of 0 has no tokens to give: every packet is over the limit.
 
 ---
 

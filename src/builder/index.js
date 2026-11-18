@@ -31,7 +31,7 @@ const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at final
  * helps nobody when q holds one register and a `frame` walk holds five. */
 const TEMP_KINDS = [
   [/^__f[eltdv]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
-  [/^__cmp\d/, "comparison"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
+  [/^__cmp\d/, "comparison"], [/^__pk\d/, "`dnat`/`rate` argument"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
 const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7, REG.s8, REG.s9, REG.s10, REG.s11, REG.s12, REG.s13, REG.s14, REG.s15];
@@ -127,12 +127,14 @@ export class Builder {
   replace(pat, repl, isRe = false, rlen = 0) { return this.op(OP.REPLACE, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(repl) & 0x3fn) | (BigInt(rlen & 0x7f) << 8n)); }
   // DNAT: rewrite dst IPv4 (host-order u32) + port into imm (ip low 32, port bits 32..47).
   dnat(ip, port) { return this.op(OP.DNAT, 0, (BigInt(ip >>> 0) & 0xffffffffn) | (BigInt(port & 0xffff) << 32n)); }
+  dnatCur() { return this.op(OP.DNAT, 1); } // the target is %cur: ip low 32, port bits 32..47; ip 0 steers nothing
   lpm() { return this.op(OP.LPM); } // ZF = %cur is in the lpm CIDR set
   hash() { return this.op(OP.HASH); } // ZF = %cur is a key in the hashset
   bloom() { return this.op(OP.BLOOM); } // ZF = %cur is (probably) in the bloom filter
   lpm6() { return this.op(OP.LPM6); } // ZF = the IPv6 source is in the lpm6 CIDR set
   redirect(ifindex) { return this.op(OP.REDIRECT, 0, BigInt(ifindex >>> 0)); } // forward the packet out ifindex (XDP_REDIRECT)
   rate(perSec, burst, scope = 0) { return this.op(OP.RATE, scope, (BigInt(perSec >>> 0) & 0xffffffffn) | (BigInt(burst >>> 0) << 32n)); } // ZF = over the token-bucket limit
+  rateCur(scope = 0) { return this.op(OP.RATE, (scope & 1) | 2); } // the same, with rate (low 32) and burst (high 32) taken from %cur
   arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
   argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
   knob(slot) { return this.op(OP.KNOB, 0, BigInt(slot)); } // cur = knobs[slot] (live host-set control)

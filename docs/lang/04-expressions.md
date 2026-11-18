@@ -153,9 +153,9 @@ if (dport != argv[0] ?? 80) decide pass;   // port tunable per deploy
 if (len > argv[1] ?? 8192) decide drop("oversize");
 ```
 
-`argv` reads anywhere a value is expected (comparisons, arithmetic, thresholds).
-It is **not** usable as an argument to `rate` / `dnat` / `redirect` (those take
-compile-time constants).
+`argv` reads anywhere a value is expected: comparisons, arithmetic, thresholds,
+and the arguments of `rate` and `dnat`. `redirect` and `scan`'s length still
+want constants.
 
 ### Live control knobs
 
@@ -166,8 +166,8 @@ name a slot; `compile()` exposes the `name → slot` bindings so a loader knows 
 to write.
 
 - `knob("name")` — reads the current numeric value (unset reads `0`). Usable
-  anywhere a value is (comparisons, arithmetic, thresholds), but **not** as a
-  `rate`/`dnat`/`redirect` argument.
+  anywhere a value is: comparisons, arithmetic, thresholds, and the arguments of
+  `rate` and `dnat` — a limit or a backend the host changes with no reload.
 - `knob("name") ?? default` — the loader seeds `default` into the slot at load
   time. It is a seeded initial value, **not** a run-time if-zero, so the host can
   still override it to any value, `0` included.
@@ -188,7 +188,11 @@ numeric knobs and 16 string knobs per program.
 ### `rate`
 
 `rate(per_sec, burst)` is a per-flow token-bucket **condition**, true when the
-flow is over its limit. Both arguments are compile-time constants.
+flow is over its limit. Written-out numbers are checked at compile time and
+cost one instruction; either argument may instead be any value — a knob, a
+local — so the host can retune a limit while the program runs. A computed
+burst of 0 lets nothing through, which is what an unset knob reads as: seed it
+(`knob("burst") ?? 20`).
 `src.rate(per_sec, burst)` is the same with one bucket per **source address**,
 shared by every connection that source opens (§6).
 

@@ -136,9 +136,13 @@ export function assemble(source) {
         emit(OP.CIDR, 0, parseCidr(operands[0]));
         continue;
       }
+      if (m === "dnat" && operands.length === 1 && operands[0].toLowerCase() === "%cur") {
+        emit(OP.DNAT, 1);   // the target is in the cursor
+        continue;
+      }
       if (m === "dnat") {
         const mm = operands.length === 1 && operands[0].match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3}):(\d{1,5})$/);
-        if (!mm) fail("dnat is `dnat A.B.C.D:PORT`");
+        if (!mm) fail("dnat is `dnat A.B.C.D:PORT` or `dnat %cur`");
         const oct = mm.slice(1, 5).map(Number), port = Number(mm[5]);
         if (oct.some((x) => x > 255) || port > 65535) fail("bad dnat target");
         const ip = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
@@ -273,9 +277,11 @@ export function assemble(source) {
       } else if (m === "ret") {
         want(0);
         emit(OP.RET);
+      } else if ((m === "rate" || m === "srcrate") && o.length === 1 && isCur(a)) {
+        emit(OP.RATE, (m === "srcrate" ? 1 : 0) | 2);   // rate and burst are in the cursor
       } else if (m === "rate" || m === "srcrate") {
         want(2);
-        if (a.kind !== "imm" || b.kind !== "imm") fail(`${m} is \`${m} $PER_SECOND, $BURST\``);
+        if (a.kind !== "imm" || b.kind !== "imm") fail(`${m} is \`${m} $PER_SECOND, $BURST\` or \`${m} %cur\``);
         const r = numberOf(a.text, "per_second"), bu = numberOf(b.text, "burst");
         if (r < 1n || r > 0xffffffffn || bu < 1n || bu > 0xffffffffn) fail("rate args must be positive u32");
         emit(OP.RATE, m === "srcrate" ? 1 : 0, (r & 0xffffffffn) | (bu << 32n));

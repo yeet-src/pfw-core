@@ -83,12 +83,29 @@ export function codegen(ast) {
     die("expected a pattern name", e.line);
   };
 
-  const rateArgs = (e) => {
+  const isConst = (e) => e.kind === "num" || e.kind === "char";
+  /* Two values packed the way DNAT and RATE read them from %cur: `lo` in the
+   * low 32 bits, `hi` above. A constant half costs one op; two computed halves
+   * need the high one parked while the low is worked out. */
+  const packPair = (lo, hi, hiMask, line) => {
+    if (isConst(hi)) { materialize(lo); bld.andImm(0xffffffffn); return bld.addImm((immVal(hi) & hiMask) << 32n); }
+    materialize(hi); bld.andImm(hiMask); bld.shlImm(32n);
+    if (isConst(lo)) return bld.addImm(immVal(lo) & 0xffffffffn);
+    const high = allocScratch(`__pk${nTmp++}`, line);
+    bld.movFromCur(high); materialize(lo); bld.andImm(0xffffffffn); return bld.addReg(high);
+  };
+
+  /* rate(per_second, burst): constants go in the instruction; anything else — a
+   * knob, a local — is computed and handed over in %cur, so a limit can be
+   * retuned while the program runs. */
+  const emitRate = (e) => {
     if (e.args.length !== 2) die("rate(per_second, burst)", e.line);
+    const scope = e.scope ?? 0;
+    if (!e.args.every(isConst)) { packPair(e.args[0], e.args[1], 0xffffffffn, e.line); return bld.rateCur(scope); }
     const r = Number(immVal(e.args[0])), b = Number(immVal(e.args[1]));
     if (!Number.isInteger(r) || r < 1 || r > 0xffffffff) die("rate per_second must be a positive integer", e.line);
     if (!Number.isInteger(b) || b < 1 || b > 0xffffffff) die("rate burst must be a positive integer", e.line);
-    return [r, b];
+    return bld.rate(r, b, scope);
   };
 
   const matchGroup = (e, min) => {
@@ -371,7 +388,7 @@ export function codegen(ast) {
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.je(L); } // false when the routine returned 0
         if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.jne(L); } // false when the host string isn't present
-        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b, e.scope ?? 0); return bld.jne(L); }
+        if (e.name === "rate") { emitRate(e); return bld.jne(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.je(L); }
         if (e.name === "all") { const pats = matchGroup(e, 1); for (const p of pats) { bld.test(patBit(p)); bld.je(L); } return; }
         if (e.name === "seq") {
@@ -409,7 +426,7 @@ export function codegen(ast) {
       case "call":
         if (funcs.has(e.name)) { emitCall(e.name, e.args, true, e.line); bld.cmpImm(0n); return bld.jne(L); } // true when the routine returned nonzero
         if (e.name === "kstr") { bld.knobhas(kstrSlot(e)); return bld.je(L); } // true when the host string is present
-        if (e.name === "rate") { const [r, b] = rateArgs(e); bld.rate(r, b, e.scope ?? 0); return bld.je(L); }
+        if (e.name === "rate") { emitRate(e); return bld.je(L); }
         if (e.name === "any") { const pats = matchGroup(e, 1); bld.test(pats.reduce((m, p) => m | patBit(p), 0n)); return bld.jne(L); }
         if (e.name === "all" || e.name === "seq") { const cont = fresh(); jumpIfFalse(e, cont); bld.jmp(L); bld.label(cont); return; }
         if (e.name === "starts") { loadPtr(e.args[0]); bld.cmpstr(bld.patId(patArg(e.args[1]))); return bld.je(L); }
@@ -543,15 +560,28 @@ export function codegen(ast) {
           return bld.replace(mid, rid);
         }
         if (c.name === "dnat") {
-          if (c.args.length !== 2 || c.args[0].kind !== "string") die('dnat("A.B.C.D", port)', s.line);
-          const m = c.args[0].text.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
-          if (!m) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
-          const oct = m.slice(1, 5).map(Number);
-          if (oct.some((x) => x > 255)) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
-          const ip = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
-          const port = Number(immVal(c.args[1]));
-          if (port < 0 || port > 65535) die("dnat port 0–65535", s.line);
-          return bld.dnat(ip, port);
+          /* dnat("A.B.C.D", port) with both written out is one instruction. The
+           * address may instead be a value (a u32, host order) and so may the
+           * port; or the whole target is one value, address in the low 32 bits
+           * and port above, which is how a table cell holds a backend. */
+          if (c.args.length === 1 && c.args[0].kind !== "string") { materialize(c.args[0]); return bld.dnatCur(); }
+          if (c.args.length !== 2) die('dnat("A.B.C.D", port), dnat(address, port) or dnat(target)', s.line);
+          let ip = null;
+          if (c.args[0].kind === "string") {
+            const m = c.args[0].text.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+            if (!m) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
+            const oct = m.slice(1, 5).map(Number);
+            if (oct.some((x) => x > 255)) die(`bad IPv4 \`${c.args[0].text}\``, s.line);
+            ip = ((oct[0] << 24) | (oct[1] << 16) | (oct[2] << 8) | oct[3]) >>> 0;
+          }
+          if (isConst(c.args[1])) {
+            const port = Number(immVal(c.args[1]));
+            if (port < 0 || port > 65535) die("dnat port 0–65535", s.line);
+            if (ip !== null) return bld.dnat(ip, port);
+          }
+          const addr = ip !== null ? { kind: "num", text: String(ip), line: s.line } : c.args[0];
+          packPair(addr, c.args[1], 0xffffn, s.line);
+          return bld.dnatCur();
         }
         if (c.name === "redirect") {
           if (c.args.length !== 1) die("redirect(ifindex)", s.line);

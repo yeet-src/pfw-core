@@ -164,13 +164,15 @@ enum pfw_opcode {
     OP_RLEN,    /* cur = this flow's ring length */
     OP_REDACT,  /* overwrite every match of pattern reg in [cur, end) with fill byte imm */
     OP_REPLACE, /* overwrite every match of pattern reg in [cur, end) with pattern imm (same length) */
-    OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums */
+    OP_DNAT,    /* rewrite dst IPv4 + port to imm (ip = low 32, port = bits 32..47), fix IP + L4 csums;
+                 * reg bit 0 = the target is cur instead (same packing; an ip of 0 steers nothing) */
     OP_LPM,     /* ZF = cur (IPv4, host order) is in the lpm_trie CIDR set (longest-prefix match) */
     OP_HASH,    /* ZF = cur (low 32 bits) is a key in the `hashset` map (exact set membership) */
     OP_BLOOM,   /* ZF = cur (low 32 bits) is (probably) in the `bloom` filter */
     OP_LPM6,    /* ZF = the IPv6 source address is in the lpm6 CIDR set (longest-prefix) */
     OP_REDIRECT,/* forward the packet out ifindex imm (bpf_redirect -> XDP_REDIRECT); terminal on the pass path */
-    OP_RATE,    /* token-bucket rate limit: imm = rate/sec (low 32) | burst (high 32); reg = scope; ZF = over the limit */
+    OP_RATE,    /* token-bucket rate limit: imm = rate/sec (low 32) | burst (high 32); reg bit 0 = scope,
+                 * reg bit 1 = rate and burst come from cur instead (same packing); ZF = over the limit */
     OP_ARG,     /* cur = args[idx] if idx < argc else default; imm = idx (bits 32..47) | default (low 32) */
     OP_ARGC,    /* cur = argc (number of runtime args the host set) */
     OP_FARG,    /* push cur as the next numeric format argument (for console/printk) */
