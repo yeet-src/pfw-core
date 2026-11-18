@@ -33,7 +33,7 @@ yeet.test("tags name what was sampled; the program lists them", () => {
 
 yeet.test("one in N: sampling by the flow hash", () => {
   // Every packet of a connection is kept or none is, so a capture has whole flows.
-  const p = load(`filter { let pick = flow.hash % 16; if (pick == 0) sample(64, "one_in_16"); decide pass; }`);
+  const p = load(`filter { if (flow.hash % 16 == 0) sample(64, "one_in_16"); decide pass; }`);
   let kept = 0;
   for (let sport = 40000; sport < 40800; sport++) kept += p.exec(bytes("x"), { src: "10.0.0.1", dst: "10.0.0.2", sport, dport: 443 }).samples.length;
   if (kept < 25 || kept > 80) throw new Error(`kept ${kept} of 800: expected about 50`);

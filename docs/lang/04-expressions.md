@@ -71,7 +71,20 @@ table built there is indexed identically in the kernel.
 
 ### Comparisons
 
-`== != < > <= >=`. Ordered comparisons (`< > <= >=`) are **unsigned**.
+`== != < > <= >=`. Ordered comparisons (`< > <= >=`) are **unsigned**. Either
+side may be value arithmetic, so a computed value is tested where it is
+computed:
+
+```c
+if (flow.hash % 16 == 0) sample(64);          // one flow in sixteen
+if (flow.bytes < flow.packets * 8) decide rst("slow_sender", 0);
+if (u8(l4 + 13) & 18 == 2) count("syn");      // (flags & 18) == 2
+```
+
+Arithmetic binds tighter than the comparison, `&` included — unlike C, where
+`x & 18 == 2` is `x & (18 == 2)`. After a `scan` or a mask variable `&` is still
+the mask test, not the bitwise and. A sum on its own is not a condition: compare
+it with something.
 
 ```c
 if (dport != 80) decide pass;

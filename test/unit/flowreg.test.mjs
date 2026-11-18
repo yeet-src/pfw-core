@@ -47,7 +47,7 @@ yeet.test("flow.packets counts every packet, flow.count only its own reads", () 
 });
 
 yeet.test("slowloris: many packets, few bytes", () => {
-  const p = load(`filter { if (flow.packets > 4) { let floor = flow.packets * 8; if (flow.bytes < floor) decide rst("slow_sender", 0); } decide pass; }`);
+  const p = load(`filter { if (flow.packets > 4) { if (flow.bytes < flow.packets * 8) decide rst("slow_sender", 0); } decide pass; }`);
   eq(stream(p, [2, 2, 2, 2, 2]).at(-1), "rst:slow_sender", "five packets, ten bytes");
   eq(stream(p, [200, 2, 2, 2, 2]).at(-1), "pass", "a real request followed by small packets");
 });
