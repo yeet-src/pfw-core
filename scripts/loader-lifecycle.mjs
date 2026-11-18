@@ -36,6 +36,11 @@ await phase("started");                    // attached, no program: everything p
 await vm.apply(A);
 await phase("A");                          // ALPHA dropped, BRAVO passes
 console.log(`STATS_A ${J((await vm.stats()).rules)} EVENTS ${J(seen)}`);
+{
+  /* Every packet the program ran on is in exactly one histogram bucket. */
+  const s = await vm.stats(), h = s.decide_hist;
+  console.log(`HIST ${J({ buckets: h.counts.length, bounds: h.bounds.length, sum: h.counts.reduce((a, v) => a + v, 0n), ran: s.ran })}`);
+}
 
 await vm.apply(B);
 await phase("B");                          // swapped: ALPHA passes again, BRAVO dropped

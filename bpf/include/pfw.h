@@ -87,8 +87,8 @@
  * the last bucket being +inf: log-spaced at a ratio of 2^(2/3) from 63 ns
  * to 40.6 µs, so every other bound is a round doubling (100, 400, 1600 ...).
  * An X-macro, so the kernel compares against immediates and keeps no
- * table on its 512-byte stack. NS_BOUNDS in app/lib/pfw/metrics.js
- * mirrors this list; change both or neither. */
+ * table on its 512-byte stack. DECIDE_BOUNDS in src/isa.js mirrors this
+ * list (test/node/check-isa.mjs holds them together). */
 #define DECIDE_BOUNDS(X) \
     X(63) X(100) X(159) X(252) X(400) X(635) X(1008) X(1600) \
     X(2540) X(4032) X(6400) X(10159) X(16127) X(25600) X(40637)

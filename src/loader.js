@@ -24,7 +24,7 @@
 import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, PercpuArrayMap, RingBuf } from "yeet:bpf";
 import { build } from "#/ac.js";
 import { compile } from "#/clang";
-import { LIMITS, VERDICT } from "#/isa.js";
+import { DECIDE_BOUNDS, LIMITS, VERDICT } from "#/isa.js";
 import { formatMsg } from "#/program";
 import { transformCells } from "#/transform.js";
 
@@ -283,7 +283,10 @@ export class PfwVm {
   /** Subscribe to console() messages, already formatted. Returns an unsubscriber. */
   onConsole(cb) { this._consoleCbs.add(cb); return () => this._consoleCbs.delete(cb); }
 
-  /** Counters since start(): the global ones, and hits per rule name. */
+  /** Counters since start(): the global ones, hits per rule name, and the
+   *  histogram of how long each packet's decision took. `decide_hist.counts[i]`
+   *  is the number of decisions under `decide_hist.bounds[i]` nanoseconds (and
+   *  not under the bound before it); the last count has no upper bound. */
   async stats() {
     const control = this._need("stats");
     const bss = (await new DataSec(control, "vm.bss").read()) ?? {};
@@ -293,6 +296,13 @@ export class PfwVm {
     for (const r of this._current?.rules ?? []) {
       const perCpu = (await counters.lookup(r.id)) ?? [];
       out.rules[r.name] = perCpu.reduce((a, v) => a + BigInt(v ?? 0), 0n);
+    }
+    /* One slot per bucket, one count per CPU: the kernel never shares a line. */
+    const hist = new PercpuArrayMap(control, "decide_hist");
+    out.decide_hist = { bounds: [...DECIDE_BOUNDS], counts: [] };
+    for (let i = 0; i <= DECIDE_BOUNDS.length; i++) {
+      const perCpu = (await hist.lookup(i)) ?? [];
+      out.decide_hist.counts.push(perCpu.reduce((a, v) => a + BigInt(v ?? 0), 0n));
     }
     return out;
   }

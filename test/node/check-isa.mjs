@@ -5,7 +5,7 @@
  * under node (it reads the C header, which the yeet sandbox cannot); the rest of
  * the suite is `yeet test`. */
 import { readFileSync } from "node:fs";
-import { OP, REG } from "#/isa.js";
+import { DECIDE_BOUNDS, OP, REG } from "#/isa.js";
 
 const h = readFileSync(new URL("../../bpf/include/pfw.h", import.meta.url), "utf8");
 const parseEnum = (nm) => {
@@ -29,6 +29,11 @@ const ralias = { saddr: "R_SADDR", src: "R_SADDR" };
 let bad = 0;
 for (const [k, v] of Object.entries(OP)) if (cOps["OP_" + k] !== v) { bad++; console.log(`opcode ${k}: isa=${v} pfw.h=${cOps["OP_" + k]}`); }
 for (const [k, v] of Object.entries(REG)) { const hn = ralias[k] ?? "R_" + k.toUpperCase(); if (cRegs[hn] !== v) { bad++; console.log(`reg ${k}: isa=${v} pfw.h=${cRegs[hn]}`); } }
+
+/* The histogram's bucket bounds are an X-macro in the header and a list on the
+ * host; a host that disagrees mislabels every bucket. */
+const cBounds = [...h.match(/#define DECIDE_BOUNDS\(X\)([\s\S]*?)\n\n/)[1].matchAll(/X\((\d+)\)/g)].map((m) => Number(m[1]));
+if (JSON.stringify(cBounds) !== JSON.stringify(DECIDE_BOUNDS)) { bad++; console.log(`DECIDE_BOUNDS: isa=${DECIDE_BOUNDS} pfw.h=${cBounds}`); }
 
 console.log(bad ? `${bad} mismatch(es) between isa.js and pfw.h` : `isa.js <-> pfw.h: ${Object.keys(OP).length} opcodes, ${Object.keys(REG).length} registers agree`);
 process.exit(bad ? 1 : 0);
