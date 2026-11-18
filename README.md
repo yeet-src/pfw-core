@@ -327,7 +327,7 @@ await vm.stop();                              // detached; the hook is free agai
 | `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
 | `addCidrs` / `removeCidrs`, `addHash` / `removeHash`, `addBloom` | the host-loaded sets (`src in set`, `src6 in set6`, `x in hash`, `x in bloom`) |
 | `onVerdict(cb)`, `onConsole(cb)` | events; each returns an unsubscribe function. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
-| `stats()` | global counters since `start()`, hits per rule name, and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
+| `stats()` | global counters since `start()`; hits per rule name since the program was applied (`applied` is the apply count, `applied_at` when); and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
 
 Things to know when embedding:
 
@@ -337,6 +337,11 @@ Things to know when embedding:
   the first stops.
 - **One program at a time.** `apply` replaces the running program; it does not
   add to it. Programs that must coexist have to be merged into one source.
+- **Rule counts start at `apply`.** In the kernel a rule counter is a numbered
+  slot, and the next program's rules reuse the slots. `stats().rules` subtracts
+  what each slot held when the program went in, so a rule reads 0 after `apply`
+  whatever the last program did there. `stats().applied` changes on every
+  `apply`, for a consumer that keeps its own running totals.
 - **`stop()` forgets.** Bans, flow state and counters live in the object's maps
   and go with it. `apply` and `clear` keep them.
 - **Knob values follow the name.** A value set with `setKnob` or `apply({ knobs })`
