@@ -46,6 +46,11 @@ primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
             | ident "." ident                  (* knob struct field *)
             | ident "(" [ args ] ")" ;         (* call *)
+framefields = framefield { "," framefield } ;
+framefield  = "len" "=" ( readtype | "varint" ) "@" number
+            | "type" "=" readtype "@" number
+            | "adjust" "=" [ "-" ] number
+            | "head" "=" number ;
 readtype    = "u8" | "u16" | "u32" | "u64" | "be16" | "be24" | "be32" | "be64" ;
 ```
 

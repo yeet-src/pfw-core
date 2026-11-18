@@ -146,11 +146,17 @@ export function codegen(ast) {
     const f = s.fields;
     if (!f.len) die("frame needs a `len` field, e.g. `len = be16 @ 0`", s.line);
     if (f.head === undefined) die("frame needs `head = N` (the header byte count)", s.line);
-    if (!FIELD_LOAD[f.len.ftype]) die(`frame len type \`${f.len.ftype}\` (u8|u16|u32|be16|be24|be32)`, s.line);
+    const lenVar = f.len.ftype === "varint";
+    if (!lenVar && !FIELD_LOAD[f.len.ftype]) die(`frame len type \`${f.len.ftype}\` (u8|u16|u32|be16|be24|be32|varint)`, s.line);
     if (f.type && !FIELD_LOAD[f.type.ftype]) die(`frame type field \`${f.type.ftype}\``, s.line);
     if (!Number.isInteger(f.head) || f.head < 1 || f.head > 255) die("frame `head` is 1..255", s.line);
     const max = Number(s.max);
     if (!Number.isInteger(max) || max < 1 || max > 64) die("frame `up to N` is 1..64", s.line);
+    /* A varint length grows the header by a byte for each byte it runs on, so
+     * it has to be the header's last field for `head` to mean anything. */
+    if (lenVar && f.len.off !== f.head - 1) die(`a varint \`len\` is the last byte of the header: with head = ${f.head} it sits at @ ${f.head - 1}, not @ ${f.len.off}`, s.line);
+    const adjust = f.adjust ?? 0;
+    if (!Number.isInteger(adjust) || Math.abs(adjust) > 0xffff) die("frame `adjust` is an integer within ±65535", s.line);
 
     const realend = allocScratch(`__fe${nTmp++}`, s.line);
     bld.movToCur(REG.end);
@@ -172,9 +178,38 @@ export function codegen(ast) {
       bld.ja(done);                        // header runs past the data: stop
       bld.movFromCur(fdata);               // frame.data = record + head
       bld.subImm(head);                    // back to the record start
-      FIELD_LOAD[f.len.ftype](f.len.off);
-      bld.movFromCur(flen);                // frame.len
-      if (f.type) { bld.movToCur(fdata); bld.subImm(head); FIELD_LOAD[f.type.ftype](f.type.off); bld.movFromCur(ftype); }
+      /* The type is read first: a varint length moves frame.data, and after
+       * that the record's start can no longer be had from it. */
+      if (f.type) { FIELD_LOAD[f.type.ftype](f.type.off); bld.movFromCur(ftype); bld.movToCur(fdata); bld.subImm(head); }
+      if (lenVar) {
+        /* Seven bits a byte, low bits first, the top bit meaning "one more"
+         * (MQTT's remaining length; LEB128). Four bytes at most: each one past
+         * the first is read at frame.data, which then steps over it. */
+        const vb = allocScratch(`__fv${nTmp}`, s.line);
+        const got = fresh();
+        bld.load(1, false, BigInt(f.len.off));
+        bld.movFromCur(vb); bld.andImm(127n); bld.movFromCur(flen);
+        for (let k = 1; k < 4; k++) {
+          bld.movToCur(vb); bld.andImm(128n); bld.cmpImm(0n); bld.je(got);
+          bld.movToCur(fdata); bld.cmpReg(realend); bld.jae(done);   // the length runs off the data: stop
+          bld.load(1, false, 0n); bld.movFromCur(vb);
+          bld.movToCur(fdata); bld.addImm(1n); bld.movFromCur(fdata);
+          bld.movToCur(vb); bld.andImm(127n); bld.shlImm(BigInt(7 * k)); bld.addReg(flen); bld.movFromCur(flen);
+        }
+        bld.movToCur(vb); bld.andImm(128n); bld.cmpImm(0n); bld.jne(done); // a fifth byte: not a length
+        bld.label(got);
+      } else {
+        FIELD_LOAD[f.len.ftype](f.len.off);
+        bld.movFromCur(flen);              // frame.len
+      }
+      if (adjust < 0) {
+        /* A length that counts its own bytes or the header: take them off. One
+         * smaller than what it claims to include is malformed, and ends the walk. */
+        bld.movToCur(flen); bld.cmpImm(BigInt(-adjust)); bld.jb(done);
+        bld.subImm(BigInt(-adjust)); bld.movFromCur(flen);
+      } else if (adjust > 0) {
+        bld.movToCur(flen); bld.addImm(BigInt(adjust)); bld.movFromCur(flen);
+      }
       // narrow %end to min(rec + head + len, realend)
       bld.movToCur(fdata);
       bld.addReg(flen);

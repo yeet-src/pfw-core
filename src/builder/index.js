@@ -30,7 +30,7 @@ const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at final
  * run out, the error says which construct each one belongs to: "held by q"
  * helps nobody when q holds one register and a `frame` walk holds five. */
 const TEMP_KINDS = [
-  [/^__f[eltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
+  [/^__f[eltdv]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
   [/^__cmp\d/, "comparison"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";

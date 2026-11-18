@@ -373,11 +373,17 @@ export function parse(toks) {
         eat("punct", "=");
         if (fname === "head") {
           fields.head = Number(eat("number").value);
+        } else if (fname === "adjust") {
+          /* adjust = N | -N: added to the length field's value, for a length
+           * that counts more (or less) than the bytes after the header. */
+          const neg = isP("-");
+          if (neg) next();
+          fields.adjust = (neg ? -1 : 1) * Number(eat("number").value);
         } else if (fname === "len" || fname === "type") {
           const ftype = eat("ident").value;
           eat("punct", "@");
           fields[fname] = { ftype, off: Number(eat("number").value), line: t.line };
-        } else err(`frame field is len, type or head, not \`${fname}\``);
+        } else err(`frame field is len, type, adjust or head, not \`${fname}\``);
         if (isP(",")) { next(); continue; }
         break;
       }
