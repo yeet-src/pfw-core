@@ -311,7 +311,9 @@ export function parse(toks) {
       const type = next().value;
       const name = eat("ident").value;
       eat("punct", "=");
-      const init = parseExpr();
+      /* A pointer is an offset, so it is computed like any other value:
+       * `ptr q = payload + 5;`. A mask comes from a scan, which is a call. */
+      const init = type === "ptr" ? parseArith() : parseExpr();
       eat("punct", ";");
       return { kind: "decl", type, name, init, line: t.line };
     }
