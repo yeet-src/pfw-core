@@ -73,7 +73,7 @@ export class Program {
   bytes(gen = 0) { return serializeProgram(this.program, gen); }
 
   /** Run the program through the reference interpreter.
-   *  frame: the bytes; opts: { payload=0, proto=6, dport=80, src|saddr, flow, set } */
+   *  frame: the bytes; opts: { payload=0, proto=6, dport=80, sport, src|saddr, dst|daddr, flow, set } */
   exec(frame, opts = {}) {
     this._run ??= machine({ asm: { program: this.program }, tables: this.tables(), regex: this.regex });
     const { payload = 0, proto = 6, dport = 80, flow = {} } = opts;
@@ -82,9 +82,10 @@ export class Program {
     if (opts.source?.banned && !opts.shadow)
       return { verdict: "drop", code: V.DROP, rule: 0, ruleName: undefined, banned: true, flow, source: opts.source, console: [] };
     const saddr = opts.src != null ? ipToU32(opts.src) : (opts.saddr ?? 0);
+    const daddr = opts.dst != null ? ipToU32(opts.dst) : (opts.daddr ?? 0); /* only flow.hash reads it */
     const set = (opts.set ?? []).map(cidrNetMask); /* `src in set` membership, host-modelled */
     const buf = frame instanceof Uint8Array ? frame : Uint8Array.from(frame ?? []);
-    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, sport: opts.sport ?? 0, saddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
+    const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, sport: opts.sport ?? 0, saddr, daddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
       bucket: opts.bucket, source: opts.source ?? null, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
       knobs: this.knobs.map((name, slot) => opts.knobs?.[name] ?? this.knobDefaults[slot] ?? 0),

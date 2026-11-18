@@ -10,6 +10,19 @@
 
 #include "core/common.h"
 
+/* A 16-byte address as one 32-bit word: its four big-endian words XORed. An
+ * IPv4 address sits in the first four bytes with the rest zero, so it folds to
+ * itself in host order — the value %src holds. */
+static __always_inline __u32 addr_fold(const __u8 *a)
+{
+    __u32 w, h = 0;
+    __builtin_memcpy(&w, a, 4); h ^= bpf_ntohl(w);
+    __builtin_memcpy(&w, a + 4, 4); h ^= bpf_ntohl(w);
+    __builtin_memcpy(&w, a + 8, 4); h ^= bpf_ntohl(w);
+    __builtin_memcpy(&w, a + 12, 4); h ^= bpf_ntohl(w);
+    return h;
+}
+
 #ifndef ETH_P_IP
 #define ETH_P_IP 0x0800
 #define ETH_P_IPV6 0x86DD

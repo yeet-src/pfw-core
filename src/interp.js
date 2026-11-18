@@ -17,6 +17,27 @@ const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1
 const RL_SCALE = 1_000_000; /* OP_RATE fixed-point, mirrors RL_SCALE in pfw.h */
 export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
 
+/* OP_FHASH, as the kernel computes it (flow_hash in match/interp.h): the two
+ * addresses folded to 32 bits, the ports and the protocol, through the murmur3
+ * finaliser. Exported so a host can build a table the kernel will index the
+ * same way. Addresses are u32 (IPv4, host order) or a 128-bit BigInt (IPv6). */
+const fhMix = (h) => {
+  h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
+  return h >>> 0;
+};
+export const addrFold = (a) => {
+  if (typeof a !== "bigint") return Number(a) >>> 0;
+  let h = 0n;
+  for (let i = 0n; i < 4n; i++) h ^= (a >> (32n * i)) & 0xffffffffn;
+  return Number(h);
+};
+export function flowHash({ saddr = 0, daddr = 0, sport = 0, dport = 0, proto = 6 } = {}) {
+  let h = fhMix(addrFold(saddr));
+  h = fhMix((h ^ addrFold(daddr)) >>> 0);
+  h = fhMix((h ^ ((((sport & 0xffff) << 16) | (dport & 0xffff)) >>> 0)) >>> 0);
+  return fhMix((h ^ (proto >>> 0)) >>> 0);
+}
+
 export function machine({ asm, tables, regex = null }) {
   const ops = asm.program.ops, pats = asm.program.pats;
   const goto_ = new Map(tables.edges), fail = new Map(tables.fails), accept = new Map(tables.accepts);
@@ -25,7 +46,7 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, sport = 0, saddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, source = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [] } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, sport = 0, saddr = 0, daddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, source = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [] } = {}) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
@@ -95,6 +116,11 @@ export function machine({ asm, tables, regex = null }) {
         case OP.OR_I: cur |= imm; break;
         case OP.SHL_I: cur = (cur << (imm & 63n)) & U64; break;
         case OP.SHR_I: cur = cur >> (imm & 63n); break;
+        case OP.MUL_I: cur = (cur * imm) & U64; break;
+        case OP.MUL_R: cur = (cur * r[reg]) & U64; break;
+        case OP.MOD_I: if (imm) cur %= imm; else { cur = 0n; ff = true; } break; /* a zero divisor: 0 and a fault */
+        case OP.MOD_R: if (r[reg]) cur %= r[reg]; else { cur = 0n; ff = true; } break;
+        case OP.FHASH: cur = BigInt(flowHash({ saddr: src6 ? src6 : saddr, daddr, sport, dport, proto })); break;
         case OP.CMP_I: zf = cur === imm; cf = cur < imm; break;
         case OP.CIDR: {
           const net = imm & 0xffffffffn, prefix = Number((imm >> 32n) & 0xffn);

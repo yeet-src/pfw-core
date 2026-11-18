@@ -133,4 +133,41 @@ t("load: a size other than 1/2/4/8 faults", {
   asm: li(0), ops: [[OP.LOAD, 3, 0]], frame: F, cur: 0, ff: true,
 });
 
-t.covers(OP.END, OP.MOV_RC, OP.MOV_CR, OP.ADD_I, OP.SUB_I, OP.ADD_R, OP.SUB_R, OP.AND_I, OP.LOAD, OP.OR_I, OP.SHL_I, OP.SHR_I);
+/* ---- 64 MUL_I / 65 MUL_R --------------------------------------------------- */
+t("mul_i: cur *= imm", { asm: `${li(6)}\nmul $7, %cur`, cur: 42 });
+t("mul_i: by zero is zero", { asm: `${li(6)}\nmul $0, %cur`, cur: 0 });
+t("mul_i: wraps mod 2^64", { asm: `${li(TOP)}\nmul $2, %cur`, cur: 0 });
+t("mul_i: keeps the low 64 bits of a wide product", { asm: `${li("0x100000001")}\nmul $0x100000001, %cur`, cur: "0x200000001" });
+t("mul_i: touches no flag", { asm: `${li(1)}\ncmp $1, %cur\nmul $9, %cur`, zf: true, cf: false, ff: false });
+t("mul_r: cur *= r[reg]", { asm: `${li(5)}\nmov %cur, %s0\n${li(9)}\nmul %s0, %cur`, cur: 45, regs: { s0: 5 } });
+t("mul_r: by a packet register", { asm: `${li(3)}\nmul %dport, %cur`, opts: { dport: 100 }, cur: 300 });
+t("mul_r: wraps mod 2^64", { asm: `${li(TOP)}\nmov %cur, %s0\n${li(4)}\nmul %s0, %cur`, cur: 0 });
+t("mul: the assembler refuses a negative immediate", { asm: `mul $-1, %cur`, rejects: /unsigned/ });
+
+/* ---- 66 MOD_I / 67 MOD_R --------------------------------------------------- */
+t("mod_i: cur %= imm", { asm: `${li(65537)}\nmod $251, %cur`, cur: 65537 % 251 });
+t("mod_i: a value below the divisor is itself", { asm: `${li(7)}\nmod $251, %cur`, cur: 7 });
+t("mod_i: is unsigned over all 64 bits", { asm: `${li(MAX)}\nmod $10, %cur`, cur: 5 });
+t("mod_i: by one is zero", { asm: `${li(MAX)}\nmod $1, %cur`, cur: 0 });
+t("mod_i: touches ZF and CF not at all", { asm: `${li(9)}\ncmp $9, %cur\nmod $4, %cur`, zf: true, cf: false, ff: false });
+t("mod_i: the assembler refuses a zero divisor", { asm: `mod $0, %cur`, rejects: /fault/ });
+t("mod_i: a zero divisor in the bytecode yields 0 and faults", { asm: li(9), ops: [[OP.MOD_I, 0, 0]], cur: 0, ff: true });
+t("mod_r: cur %= r[reg]", { asm: `${li(7)}\nmov %cur, %s1\n${li(100)}\nmod %s1, %cur`, cur: 2, regs: { s1: 7 } });
+t("mod_r: a zero register yields 0 and faults", { asm: `${li(100)}\nmod %s2, %cur`, cur: 0, ff: true });
+t("mod_r: the fault leaves ZF/CF alone", { asm: `${li(3)}\ncmp $3, %cur\nmod %s2, %cur`, zf: true, cf: false, ff: true });
+
+/* ---- 68 FHASH -------------------------------------------------------------- */
+/* The values are pinned: a host builds tables from this hash (flowHash in
+ * interp.js) and the kernel indexes them with its own (flow_hash in
+ * match/interp.h), so the function is part of the contract. */
+const TUPLE = { saddr: 0x0a000001, daddr: 0x0a000002, sport: 40000, dport: 443, proto: 6 };
+t("fhash: cur = the hash of addresses, ports and protocol", { asm: `fhash %cur`, opts: TUPLE, cur: 798402819 });
+t("fhash: an all-zero tuple still mixes", { asm: `fhash %cur`, opts: { saddr: 0, daddr: 0, sport: 0, dport: 0, proto: 6 }, cur: 1558924552 });
+t("fhash: an IPv6 source is folded in", { asm: `fhash %cur`, opts: { src6: (0x20010db8n << 96n) | 1n, daddr: 0, sport: 1, dport: 2, proto: 17 }, cur: 4212318789 });
+t("fhash: fits in 32 bits and overwrites %cur", { asm: `${li(MAX)}\nfhash %cur\nshr $32, %cur`, opts: TUPLE, cur: 0 });
+t("fhash: touches no flag", { asm: `${li(1)}\ncmp $1, %cur\nfhash %cur`, opts: TUPLE, zf: true, cf: false, ff: false });
+t("fhash: the source port changes it", { asm: `fhash %cur\ncmp $798402819, %cur`, opts: { ...TUPLE, sport: 40001 }, zf: false });
+t("fhash: swapping the ports changes it", { asm: `fhash %cur\ncmp $798402819, %cur`, opts: { ...TUPLE, sport: 443, dport: 40000 }, zf: false });
+
+t.covers(OP.END, OP.MOV_RC, OP.MOV_CR, OP.ADD_I, OP.SUB_I, OP.ADD_R, OP.SUB_R, OP.AND_I, OP.LOAD, OP.OR_I, OP.SHL_I, OP.SHR_I,
+  OP.MUL_I, OP.MUL_R, OP.MOD_I, OP.MOD_R, OP.FHASH);

@@ -5,9 +5,15 @@ Two expression grammars, by context:
 - **Conditions** — used in `if (...)`, and as the first argument of the boolean
   grammar. Precedence, lowest to highest: `||` → `&&` → (`in` / `&` mask-test /
   comparison) → `|` (pattern-or) → primary. `!` negates a primary.
-- **Value arithmetic** — used in `let`, assignment, `return <expr>`, and the
-  `match`/`switch` scrutinee. A left-associative chain of `+ - & | << >>` over
-  primaries. It has **no** comparisons or `in`; it is pure integer math.
+- **Value arithmetic** — used in `let`, assignment, `return <expr>`, the
+  `match`/`switch` scrutinee and a read's pointer. `*` and `%` bind tightest;
+  `+ - & | << >>` are one level below them, left to right (so `a + b << 1` is
+  `(a + b) << 1`: parenthesise when mixing them). `( … )` groups. It has **no**
+  comparisons or `in`; it is pure unsigned 64-bit integer math, wrapping.
+
+  `+ - * %` take a constant, a register/local, or a parenthesised expression on
+  the right; `& | << >>` take a constant. `x % 0` is a compile error when the 0
+  is written out, and yields 0 at run time when it is not.
 
 Note `|` is overloaded by context: inside a condition's mask operand it is
 **pattern-or** (grouping patterns for a mask test, e.g. `scan(...) & (a | b)`);
@@ -17,7 +23,7 @@ inside value arithmetic it is **bitwise-or**.
 
 - literals (number, char, string), register reads, local reads;
 - `(expr)`, `!primary`;
-- `flow.state`, `flow.count`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
+- `flow.state`, `flow.count`, `flow.hash`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
 - direct reads: `u8(p)`, `be16(p + 2)`, … (below);
@@ -48,6 +54,19 @@ length first if 0 is a value the field can really hold.
 
 `frame` (§5) is still the tool for *walking* records; a read is for the one
 field at a known offset, which used to take a one-record `frame`.
+
+### The flow hash
+
+`flow.hash` is a 32-bit hash of the packet's source and destination address,
+ports and protocol — the same for every packet of a connection in one
+direction. It is what a balancer reduces to a slot:
+
+```c
+let slot = flow.hash % 65537;            // a prime-sized table
+```
+
+The host has the same function (`flowHash`, exported by `pfw-core`), so a
+table built there is indexed identically in the kernel.
 
 ### Comparisons
 

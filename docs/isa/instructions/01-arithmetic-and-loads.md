@@ -178,8 +178,65 @@ masked `& (NREGS−1)` before use. See [bytecode encoding](../05-bytecode-encodi
 - **Notes:** unsigned — there is no arithmetic (sign-extending) shift; `%cur` has
   no sign.
 
+### 64 — `OP_MUL_I` (`mul $N, %cur`)
+
+- **Assembler:** `mul $N, %cur`. `N` is unsigned.
+- **Encoding:** code = 64; `reg` unused; `imm` = the multiplier.
+- **Operation:** `cur ← (cur × imm) mod 2⁶⁴`.
+- **Flags:** none.
+- **Faults:** none.
+- **Example:** `mul $157, %cur` — spread neighbouring values before reducing them
+  to a table index.
+
+### 65 — `OP_MUL_R` (`mul %REG, %cur`)
+
+- **Assembler:** `mul %REG, %cur`.
+- **Encoding:** code = 65; `reg` = the register (masked like every register
+  operand); `imm` unused.
+- **Operation:** `cur ← (cur × r[reg]) mod 2⁶⁴`.
+- **Flags:** none.
+- **Faults:** none.
+
+### 66 — `OP_MOD_I` (`mod $N, %cur`)
+
+- **Assembler:** `mod $N, %cur`. The assembler refuses `$0`.
+- **Encoding:** code = 66; `reg` unused; `imm` = the divisor.
+- **Operation:** `cur ← cur mod imm`, unsigned, over all 64 bits.
+- **Flags:** `FF` is set when `imm` is 0; `ZF`/`CF` are untouched.
+- **Faults:** a zero divisor (only reachable in hand-built bytecode) leaves
+  `cur = 0` and sets `FF`. There is no trap.
+- **Example:** `fhash %cur; mod $65537, %cur` — a slot in a prime-sized table.
+
+### 67 — `OP_MOD_R` (`mod %REG, %cur`)
+
+- **Assembler:** `mod %REG, %cur`.
+- **Encoding:** code = 67; `reg` = the register; `imm` unused.
+- **Operation:** `cur ← cur mod r[reg]`, unsigned.
+- **Flags:** `FF` is set when the register holds 0; `ZF`/`CF` are untouched.
+- **Faults:** a zero divisor leaves `cur = 0` and sets `FF`; test it with `jf` if 0
+  is not a safe answer.
+
+### 68 — `OP_FHASH` (`fhash %cur`)
+
+- **Assembler:** `fhash %cur`.
+- **Encoding:** code = 68; `reg` and `imm` unused.
+- **Operation:** `cur ←` a 32-bit hash of the packet's source address,
+  destination address, source port, destination port and protocol. Each address
+  is first folded to 32 bits (its four big-endian words XORed, so an IPv4 address
+  folds to itself in host order); then, with `mix` the murmur3 finaliser:
+  `h = mix(src); h = mix(h ^ dst); h = mix(h ^ (sport << 16 | dport)); h = mix(h ^ proto)`.
+- **Flags:** none.
+- **Faults:** none.
+- **Host:** `flowHash({ saddr, daddr, sport, dport, proto })`, exported by the
+  package root, is the same function, so a table built on the host is indexed the
+  same way in the kernel. The conformance vectors pin its values.
+- **Notes:** every packet of a connection in one direction hashes the same; the
+  reply direction (addresses and ports swapped) does not. It is not keyed: it
+  spreads flows, it does not resist someone choosing their source port.
+
 ---
 
 **Covered:** `OP_END` (0), `OP_MOV_RC` (1), `OP_MOV_CR` (2), `OP_ADD_I` (3),
 `OP_SUB_I` (4), `OP_ADD_R` (5), `OP_SUB_R` (6), `OP_AND_I` (7), `OP_LOAD` (8),
-`OP_OR_I` (36), `OP_SHL_I` (37), `OP_SHR_I` (38) — 12 opcodes.
+`OP_OR_I` (36), `OP_SHL_I` (37), `OP_SHR_I` (38), `OP_MUL_I` (64), `OP_MUL_R` (65),
+`OP_MOD_I` (66), `OP_MOD_R` (67), `OP_FHASH` (68) — 17 opcodes.

@@ -187,6 +187,7 @@ struct pfw_state {
     __u32 verdict;
     __u32 rule;
     __u32 ttl;
+    __u32 fh_src, fh_dst; /* the source and destination addresses folded to 32 bits, for OP_FHASH */
     __u32 time_rule; /* the last rule this packet touched (count or verdict): who its decision time is charged to */
     __u32 set_mark;
     __u32 set_state; /* 1 = write new_state to the flow */

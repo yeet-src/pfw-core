@@ -168,6 +168,8 @@ int pfw_xdp(struct xdp_md *ctx)
         st->r[R_SADDR] = bpf_ntohl(sa); /* host order, so cidr's net is host order too */
     }
     st->r[R_SHADOW] = shadow; /* readable as %shadow */
+    st->fh_src = addr_fold(p.saddr);
+    st->fh_dst = addr_fold(p.daddr);
     st->pc = 0;
     st->flags = 0;
     st->verdict = V_NONE;

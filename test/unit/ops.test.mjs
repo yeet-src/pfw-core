@@ -37,6 +37,13 @@ yeet.test("add/sub/and/or/shl/shr (imm)", () => {
   expectRst("shl", eq("        and     $0, %cur\n        add     $3, %cur\n        shl     $4, %cur", 48));
   expectRst("shr", eq("        and     $0, %cur\n        add     $48, %cur\n        shr     $4, %cur", 3));
 });
+yeet.test("mul/mod (imm and reg), fhash", () => {
+  expectRst("mul", eq("        and     $0, %cur\n        add     $6, %cur\n        mul     $7, %cur", 42));
+  expectRst("mod", eq("        and     $0, %cur\n        add     $65537, %cur\n        mod     $251, %cur", 65537 % 251));
+  expectRst("mul reg", eq("        and     $0, %cur\n        add     $5, %cur\n        mov     %cur, %s0\n        mul     %s0, %cur", 25));
+  expectRst("mod reg", eq("        and     $0, %cur\n        add     $7, %cur\n        mov     %cur, %s0\n        and     $0, %cur\n        add     $100, %cur\n        mod     %s0, %cur", 2));
+  expectRst("fhash", eq("        fhash   %cur", 798402819), { opts: { saddr: 0x0a000001, daddr: 0x0a000002, sport: 40000, dport: 443, proto: 6 } });
+});
 yeet.test("mov reg<->cur, add/sub reg", () => {
   expectRst("mov_cr/mov_rc", eq("        and     $0, %cur\n        add     $42, %cur\n        mov     %cur, %s0\n        and     $0, %cur\n        mov     %s0, %cur", 42));
   expectRst("add_r", eq("        and     $0, %cur\n        add     $10, %cur\n        mov     %cur, %s0\n        and     $0, %cur\n        add     $3, %cur\n        add     %s0, %cur", 13));

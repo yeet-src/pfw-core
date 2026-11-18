@@ -86,6 +86,24 @@ static __noinline int do_knobhas(struct pfw_ctx *pc, __u32 slot)
     return c.found;
 }
 
+/* The flow hash (OP_FHASH): the two addresses, folded to 32 bits each at the
+ * entry, with the ports and the protocol, through the murmur3 finaliser. The
+ * same packet hashes the same on every host and in the reference interpreter
+ * (flowHash in src/interp.js): a table built on the host from this hash is
+ * indexed the same way in the kernel. Not keyed: it spreads, it does not hide. */
+static __always_inline __u32 fh_mix(__u32 h)
+{
+    h ^= h >> 16; h *= 0x85ebca6bu; h ^= h >> 13; h *= 0xc2b2ae35u; h ^= h >> 16;
+    return h;
+}
+static __always_inline __u32 flow_hash(const struct pfw_state *st)
+{
+    __u32 h = fh_mix(st->fh_src);
+    h = fh_mix(h ^ st->fh_dst);
+    h = fh_mix(h ^ (((__u32) st->r[R_SPORT] << 16) | ((__u32) st->r[R_DPORT] & 0xffff)));
+    return fh_mix(h ^ (__u32) st->r[R_PROTO]);
+}
+
 static long pfw_step(__u32 i, void *pctx)
 {
     struct pfw_ctx *c = pctx;
@@ -141,6 +159,23 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     case OP_SHR_I:
         cur >>= (imm & 63);
+        break;
+    case OP_MUL_I:
+        cur *= imm;
+        break;
+    case OP_MUL_R:
+        cur *= st->r[reg];
+        break;
+    case OP_MOD_I:
+    case OP_MOD_R: {
+        /* No trap to take: a zero divisor leaves 0 and the fault flag. */
+        __u64 d = code == OP_MOD_I ? imm : st->r[reg];
+        if (d) cur %= d;
+        else { cur = 0; fl |= FL_FF; }
+        break;
+    }
+    case OP_FHASH:
+        cur = flow_hash(st);
         break;
     case OP_CIDR: {
         /* imm packs the network (low 32 bits, host order) and the prefix

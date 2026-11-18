@@ -14,6 +14,11 @@ export function opText(op, patterns = [], rules = []) {
       const prefix = Number(op.imm >> 32n), net = Number(op.imm & 0xffffffffn);
       return `cidr ${[(net >>> 24) & 255, (net >>> 16) & 255, (net >>> 8) & 255, net & 255].join(".")}/${prefix}`;
     }
+    case OP.MUL_I: return `mul ${op.imm}`;
+    case OP.MOD_I: return `mod ${op.imm}`;
+    case OP.MUL_R: return `mul %${REG_NAME[op.reg] ?? op.reg}`;
+    case OP.MOD_R: return `mod %${REG_NAME[op.reg] ?? op.reg}`;
+    case OP.FHASH: return "fhash";
     case OP.MOV_RC: case OP.MOV_CR: case OP.ADD_R: case OP.SUB_R: case OP.CMP_R:
       return `${name} %${REG_NAME[op.reg] ?? op.reg}`;
     case OP.LOAD: return `load ${op.reg & 15}${op.reg & LOAD_BE ? "be" : ""} +${op.imm}`;

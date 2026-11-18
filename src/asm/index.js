@@ -17,7 +17,7 @@ import { unescape, parseNumber, parseCidr, parseOperand, isWritable, isCur } fro
 export { opText };
 
 /* Opcodes whose `reg` field names a register (so the Builder may allocate it). */
-const REG_OPS = new Set([OP.MOV_RC, OP.MOV_CR, OP.ADD_R, OP.SUB_R, OP.CMP_R]);
+const REG_OPS = new Set([OP.MOV_RC, OP.MOV_CR, OP.ADD_R, OP.SUB_R, OP.CMP_R, OP.MUL_R, OP.MOD_R]);
 const SIZE_SUFFIX = { b: 1, w: 2, l: 4, q: 8 };
 const JUMPS = { jmp: OP.JMP, je: OP.JE, jz: OP.JE, jne: OP.JNE, jnz: OP.JNE, jb: OP.JB, jae: OP.JAE, ja: OP.JA, jbe: OP.JBE, jf: OP.JF, call: OP.CALL };
 
@@ -182,6 +182,20 @@ export function assemble(source) {
           emit((m === "add") !== neg ? OP.ADD_I : OP.SUB_I, 0, neg ? -n : n);
         } else if (a.kind === "reg") emit(m === "add" ? OP.ADD_R : OP.SUB_R, a.idx);
         else fail(`${m} wants $N or %reg`);
+      } else if (m === "mul" || m === "mod") {
+        want(2);
+        if (!isCur(b)) fail(`${m} writes %cur`);
+        if (a.kind === "imm") {
+          const n = numberOf(a.text);
+          if (n < 0n) fail(`${m} wants an unsigned $N`);
+          if (m === "mod" && n === 0n) fail("mod $0 is always a fault");
+          emit(m === "mul" ? OP.MUL_I : OP.MOD_I, 0, n);
+        } else if (a.kind === "reg") emit(m === "mul" ? OP.MUL_R : OP.MOD_R, a.idx);
+        else fail(`${m} wants $N or %reg`);
+      } else if (m === "fhash") {
+        want(1);
+        if (!isCur(a)) fail("fhash is `fhash %cur`");
+        emit(OP.FHASH);
       } else if (m === "and") {
         want(2);
         if (a.kind !== "imm" || !isCur(b)) fail("and is `and $MASK, %cur`");
