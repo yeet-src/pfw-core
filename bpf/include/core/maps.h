@@ -180,6 +180,19 @@ PFW_LINK struct {
     __type(value, __u64);
 } knobs SEC(".maps");
 
+/* Host-loaded lookup tables, read by OP_TLOAD (`NAME[i]`). One flat array of
+ * u64 cells per generation; the compiler gives each declared table a base and
+ * a size within it. Per generation, like the automaton, because a table's
+ * place is the program's to decide: apply() lays the next program's tables out
+ * in the idle half and they come into force with the flip, whole. The host
+ * rewrites cells of the live half whenever it likes. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_GENS * TABLE_CELLS);
+    __type(key, __u32);
+    __type(value, __u64);
+} tables SEC(".maps");
+
 /* Live host-set string knobs: the needle OP_KNOBHAS searches for in the payload. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);

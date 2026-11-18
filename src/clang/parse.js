@@ -28,6 +28,8 @@ export function parse(toks) {
   const patterns = [];
   const macros = [];
   const functions = [];
+  const tables = [];                 // table NAME[SIZE]; declarations
+  const tableNames = new Set();
   const structKnobs = [];            // knob struct NAME { fields } declarations
   const structKnobNames = new Map(); // NAME -> Set(field) for member resolution in parsePrimary
   let nocase = false;
@@ -155,6 +157,13 @@ export function parse(toks) {
         return { kind: "arg", index: idx, def, line: t.line };
       }
       if (name === "argc") return { kind: "argc", line: t.line };
+      /* NAME[index]: a cell of a declared table. */
+      if (tableNames.has(name) && isP("[")) {
+        next();
+        const idx = parseArith();
+        eat("punct", "]");
+        return { kind: "tableget", name, idx, line: t.line };
+      }
       if (structKnobNames.has(name) && isP(".")) {
         next(); const field = eat("ident").value;
         if (!structKnobNames.get(name).has(field)) err(`struct knob \`${name}\` has no field \`${field}\``);
@@ -484,6 +493,19 @@ export function parse(toks) {
       if (peek().type === "number") reasmDport = Number(next().value);
       eat("punct", ";");
       decode = kind; reasm = true;
+    } else if (isKw("table")) {
+      // table NAME[SIZE]; — a lookup table the host fills, read as NAME[i]
+      const line = peek().line;
+      next();
+      const name = eat("ident").value;
+      if (tableNames.has(name)) err(`table \`${name}\` already declared`);
+      eat("punct", "[");
+      const st = eat("number").value;
+      const size = Number(st.startsWith("0x") || st.startsWith("0X") ? parseInt(st, 16) : st);
+      eat("punct", "]");
+      eat("punct", ";");
+      tables.push({ name, size, line });
+      tableNames.add(name);
     } else if (isKw("pattern")) {
       parsePatternDecl();
     } else if (isKw("regex")) {
@@ -548,5 +570,5 @@ export function parse(toks) {
     }
   }
   if (!body) throw new CError("a program needs a `filter { … }` block", 0);
-  return { patterns, macros, functions, structKnobs, nocase, reasm, reasmDport, decode, body };
+  return { patterns, macros, functions, structKnobs, tables, nocase, reasm, reasmDport, decode, body };
 }

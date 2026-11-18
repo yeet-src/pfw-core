@@ -8,6 +8,7 @@ item        = "nocase" ";"
             | "pattern" patdecl { "," patdecl } ";"
             | "regex" ident "=" string ";"
             | "knob" "struct" ident "{" knobfield { "," knobfield } "}" ";"
+            | "table" ident "[" number "]" ";"
             | "macro" ident "{" { stmt } "}"
             | "fn" ident "(" [ ident { "," ident } ] ")" "{" { stmt } "}"
             | "filter" "{" { stmt } "}" ;      (* required, once *)
@@ -42,6 +43,7 @@ primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!
             | ("flow"|"src") "." ("state"|"count") | "flow" "." "hash" | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
             | readtype "(" arith ")"           (* direct read *)
+            | ident "[" arith "]"              (* table cell *)
             | "argv" "[" number "]" [ "??" (number|char) ] | "argc"
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
             | ident "." ident                  (* knob struct field *)

@@ -298,6 +298,12 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("knob is `knob $SLOT`");
         emit(OP.KNOB, 0, numberOf(a.text, "slot") & 0xffffffffn);
+      } else if (m === "tload") {
+        want(2);
+        if (a.kind !== "imm" || b.kind !== "imm") fail("tload is `tload $BASE, $SIZE`");
+        const base = numberOf(a.text, "base"), size = numberOf(b.text, "size");
+        if (base < 0n || size < 1n || base + size > BigInt(LIMITS.TABLE_CELLS)) fail(`a table lies within 0–${LIMITS.TABLE_CELLS} cells`);
+        emit(OP.TLOAD, 0, base | (size << 32n));
       } else if (m === "knobhas") {
         want(1);
         if (a.kind !== "imm") fail("knobhas is `knobhas $SLOT`");

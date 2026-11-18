@@ -10,6 +10,7 @@ decode h2|huffman|<table> [PORT];  // normalize the stream before matching (impl
 pattern NAME = "lit" | { bytes } [, NAME = ...];
 regex NAME = "regex";
 knob struct NAME { f [?? d], ... };  // group live control knobs, read as NAME.f (§4)
+table NAME[SIZE];               // a lookup table the host fills, read as NAME[i] (§4)
 macro NAME { statements }       // a reusable statement block, expanded by `NAME;`
 fn NAME(p0, …) { statements }   // a subroutine (§7)
 filter { statements }           // REQUIRED — the program body

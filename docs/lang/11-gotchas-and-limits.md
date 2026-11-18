@@ -59,6 +59,7 @@
 | data-stack depth | 64 |
 | rules (named verdicts) | 64 |
 | runtime args (`argv`) | 16 |
+| lookup tables / cells in all | 16 / 131072 |
 | numeric knobs (`knob`) | 32 |
 | string knobs (`kstr`) | 16 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |

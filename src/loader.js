@@ -39,7 +39,7 @@ const MAPS = {
   emits: { kind: "ringbuf", btf_struct: "pfw_emit" },
   programs: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
-  knobs: { kind: "array" }, knob_strs: { kind: "array" },
+  knobs: { kind: "array" }, knob_strs: { kind: "array" }, tables: { kind: "array" },
   counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
   hashset: { kind: "hash" }, bloom: { kind: "bloom_filter" },
@@ -118,6 +118,8 @@ export class PfwVm {
     this._verdictCbs = new Set();
     this._consoleCbs = new Set();
     this._emitCbs = new Set();
+    this._tableValues = {};          // name -> BigInt[]: what the host has put in each table
+    this._tableWritten = [[], []];   // per generation: the cells holding something
     this._active = 0;          // the generation packets run
     this._stamp = 0;           // pfw_prog.gen: unique per apply, so flows restart their automaton
     this._written = [{ ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }, { ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }];
@@ -147,6 +149,7 @@ export class PfwVm {
       this._active = 0;
       this._current = null;
       for (const g of this._written) for (const k of Object.keys(g)) g[k] = [];
+      this._tableWritten = [[], []];
       /* An empty program in both generations: the entry passes when nops == 0. */
       await this._map("programs").update(0, progValue(EMPTY, 0, []));
       await this._map("programs").update(1, progValue(EMPTY, 0, []));
@@ -186,6 +189,7 @@ export class PfwVm {
    * @param {Array<number|bigint>} [opts.argv]          runtime args (argv[i])
    * @param {Record<string, number|bigint>} [opts.knobs]     numeric knobs by name
    * @param {Record<string, string>} [opts.knobStrs]         string knobs by name
+   * @param {Record<string, Array<number|bigint>>} [opts.tables]  contents of declared tables, by name
    * @param {boolean} [opts.shadow]                     dry-run: count and log, never block
    */
   async apply(program, opts = {}) {
@@ -214,6 +218,22 @@ export class PfwVm {
       const stale = this._written[g][name].filter((k) => !keep.has(k)).map((k) => [k, zero]);
       for (const part of chunks(stale.concat(want[name]), BATCH)) await this._map(name).updateBatch(part);
       this._written[g][name] = [...keep];
+    }
+    /* Lookup tables: laid out by this program, so written into the idle half of
+     * the cell space with everything else and brought in by the flip. What the
+     * host has set carries over by NAME; cells nobody set are 0. Cells the
+     * generation's last program used and this one does not are zeroed, so a
+     * table that shrank or moved leaves nothing behind. */
+    for (const [name, values] of Object.entries(opts.tables ?? {})) this._tableValues[name] = Array.from(values, (v) => BigInt(v));
+    {
+      const base = g * LIMITS.TABLE_CELLS, cells = new Map();
+      for (const t of c.lookupTables ?? []) {
+        const have = this._tableValues[t.name] ?? [];
+        for (let i = 0; i < t.size; i++) { const v = have[i] ?? 0n; if (v !== 0n) cells.set(base + t.base + i, v); }
+      }
+      const stale = (this._tableWritten[g] ?? []).filter((k) => !cells.has(k)).map((k) => [k, 0n]);
+      for (const part of chunks(stale.concat([...cells]), BATCH)) await this._map("tables").updateBatch(part);
+      this._tableWritten[g] = [...cells.keys()];
     }
     await this._map("programs").update(g, progValue(c, ++this._stamp, opts.argv ?? []));
 
@@ -258,6 +278,33 @@ export class PfwVm {
     const slot = (this._current?.knobs ?? []).indexOf(name);
     if (slot < 0) return false;                       // remembered; applied when a program declares it
     await this._map("knobs").update(slot, BigInt(value));
+    return true;
+  }
+
+  /**
+   * Fill a declared `table` (or part of it) of the running program, live: the
+   * next packet reads the new cells. `values` are written from `offset` on.
+   * The table is remembered by name, so a later apply() of a program that
+   * declares it starts with these values. Cells are written in batches and a
+   * packet may run between two of them: a table whose every cell is valid on
+   * its own (a backend in each slot) can be rewritten under traffic; one whose
+   * cells must agree with each other wants an apply().
+   * Returns false if the running program declares no such table.
+   */
+  async setTable(name, values, offset = 0) {
+    this._need("setTable");
+    const kept = (this._tableValues[name] ??= []);
+    const list = Array.from(values, (v) => BigInt(v));
+    list.forEach((v, i) => { kept[offset + i] = v; });
+    const t = (this._current?.lookupTables ?? []).find((x) => x.name === name);
+    if (!t) return false;                              // remembered; applied when a program declares it
+    const base = this._active * LIMITS.TABLE_CELLS + t.base;
+    const pairs = [];
+    list.forEach((v, i) => { if (offset + i < t.size) pairs.push([base + offset + i, v]); });
+    for (const part of chunks(pairs, BATCH)) await this._map("tables").updateBatch(part);
+    const written = new Set(this._tableWritten[this._active] ?? []);
+    for (const [k] of pairs) written.add(k);
+    this._tableWritten[this._active] = [...written];
     return true;
   }
 

@@ -24,6 +24,11 @@ Each construct lowers to ISA ops through the `Builder`; op names below are the
 | `knob("n")` / `knob("n") ?? d` / `cfg.field` | `KNOB $slot` (default seeded into the slot at load) |
 | `kstr("n")` | `KNOBHAS $slot` (`ZF` = needle found) |
 | `console` / `printk` | `FARG`/`FARGS` + `CONSOLE` / `PRINTK` |
+| `emit("name", v…)` | `FARG` per value + `EMIT` |
+| `NAME[i]` (a `table`) | the index, then `TLOAD base, size` |
+| `u8(p)` … `be64(p)` | the pointer, then `LOAD` (0 past the end) |
+| `*` `%` / `flow.hash` | `MUL_I`/`MUL_R`, `MOD_I`/`MOD_R` / `FHASH` |
+| `dnat`/`rate` with a computed argument | the packed operand in `%cur`, then `DNAT`/`RATE` with its flag bit |
 | `push` / `pop` / call / `return` | `PUSH` / `POP` / `CALL` / `RET` (value return: `MOV_CR %rv` + `RET`) |
 | `if` / `match` / `switch` | compare + forward jumps (`JE/JNE/JMP`), one scrutinee eval into a temp |
 | `repeat` / `frame` | the body emitted inline, N / up-to-MAX times |

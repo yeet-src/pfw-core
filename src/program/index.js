@@ -59,6 +59,7 @@ export class Program {
     this.nocase = compiled.nocase;
     this.regex = compiled.regex ?? null;
     this.consoleFormats = compiled.consoleFormats ?? [];
+    this.lookupTables = compiled.lookupTables ?? []; // declared `table`s: { name, base, size }
     this.emits = compiled.emits ?? [];   // emit() events: { id, name, arity }, by id
     this.knobs = compiled.knobs ?? [];   // knob name by slot (slot = index)
     this.knobDefaults = compiled.knobDefaults ?? []; // seeded initial value by slot
@@ -72,6 +73,16 @@ export class Program {
 
   /** The `programs` map value (Uint8Array), optionally stamped with a gen. */
   bytes(gen = 0) { return serializeProgram(this.program, gen); }
+
+  /* The cell space as the interpreter reads it: `given` is { name: values } for
+   * the declared tables, as the loader's setTable takes them. */
+  _cells(given) {
+    if (!this.lookupTables.length) return null;
+    return (index) => {
+      const t = this.lookupTables.find((x) => index >= x.base && index < x.base + x.size);
+      return t ? given?.[t.name]?.[index - t.base] ?? 0 : 0;
+    };
+  }
 
   /** Run the program through the reference interpreter.
    *  frame: the bytes; opts: { payload=0, proto=6, dport=80, sport, src|saddr, dst|daddr, flow, set } */
@@ -89,6 +100,7 @@ export class Program {
     const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, sport: opts.sport ?? 0, saddr, daddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
       bucket: opts.bucket, source: opts.source ?? null, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
+      cells: this._cells(opts.tables),
       knobs: this.knobs.map((name, slot) => opts.knobs?.[name] ?? this.knobDefaults[slot] ?? 0),
       knobStrs: this.knobStrs.map((name) => opts.knobStrs?.[name] ?? "") });
     const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));
