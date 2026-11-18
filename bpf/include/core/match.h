@@ -55,6 +55,11 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     bi &= DECIDE_BUCKETS - 1;
     __u64 *slot = bpf_map_lookup_elem(&decide_hist, &bi);
     if (slot) (*slot)++;
+    /* And to the rule the packet ended on. `bi` is reused as the key: this
+     * frame has no room for another local. */
+    bi = st->time_rule & (PFW_NRULES - 1);
+    struct rule_time *rt = bpf_map_lookup_elem(&rule_time, &bi);
+    if (rt) { rt->ns += dt; rt->runs++; }
 
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;

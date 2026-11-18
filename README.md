@@ -327,7 +327,7 @@ await vm.stop();                              // detached; the hook is free agai
 | `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
 | `addCidrs` / `removeCidrs`, `addHash` / `removeHash`, `addBloom` | the host-loaded sets (`src in set`, `src6 in set6`, `x in hash`, `x in bloom`) |
 | `onVerdict(cb)`, `onConsole(cb)` | events; each returns an unsubscribe function. A verdict event is `{ verdict, rule, src, dst, sport, dport, proto, data, ts, … }` with names, not ids |
-| `stats()` | global counters since `start()`; hits per rule name since the program was applied (`applied` is the apply count, `applied_at` when); and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
+| `stats()` | global counters since `start()`; hits per rule name since the program was applied (`applied` is the apply count, `applied_at` when); `timing[rule] = { runs, ns }`, the decision time of the packets that ended on each rule (`"-"`: the ones that touched none); and `decide_hist`: how long decisions took, as `{ bounds, counts }` (`counts[i]` decisions under `bounds[i]` ns; one more count past the last bound) |
 
 Things to know when embedding:
 

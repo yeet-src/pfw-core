@@ -51,6 +51,7 @@ await phase("B_knob_off");                 // live knob: nothing dropped
 await vm.setKnob("enforce", 1);
 await vm.apply(A);                         // back into the generation A used before
 await phase("A_again");
+console.log(`TIMING ${J((await vm.stats()).timing)}`);
 console.log(`STATS_A2 ${J((await vm.stats()).rules)}`);   // counted from this apply, not from A's first run
 
 await vm.clear();

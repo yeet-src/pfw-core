@@ -172,6 +172,7 @@ int pfw_xdp(struct xdp_md *ctx)
     st->flags = 0;
     st->verdict = V_NONE;
     st->rule = 0;
+    st->time_rule = 0;
     st->ttl = 0;
     st->set_mark = 0;
     st->set_state = 0;

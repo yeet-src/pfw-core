@@ -39,7 +39,7 @@ const MAPS = {
   programs: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
   knobs: { kind: "array" }, knob_strs: { kind: "array" },
-  counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
+  counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
   hashset: { kind: "hash" }, bloom: { kind: "bloom_filter" },
   "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" },
@@ -232,7 +232,11 @@ export class PfwVm {
      * the slots: slot 2 was the last program's second rule and is now this
      * one's. What each slot held at the flip is what the new rules start from. */
     this._ruleBase = new Map();
-    for (const r of c.rules ?? []) this._ruleBase.set(r.id, await this._ruleCount(r.id));
+    this._timeBase = new Map();
+    for (const r of c.rules ?? []) {
+      this._ruleBase.set(r.id, await this._ruleCount(r.id));
+      this._timeBase.set(r.id, await this._ruleTime(r.id));
+    }
     this._appliedAt = Date.now();
     return this;
   }
@@ -291,7 +295,10 @@ export class PfwVm {
 
   /** The global counters since start(); hits per rule name since that rule's
    *  program was applied (`applied` counts applies, so a change in it says the
-   *  rule counts started over; `applied_at` is when, in ms); and the
+   *  rule counts started over; `applied_at` is when, in ms); `timing`, the
+   *  decision time by rule — `timing[name] = { runs, ns }` for the packets whose
+   *  last-touched rule (a count, or the verdict's) was that one, with "-" for
+   *  packets that touched none; and the
    *  histogram of how long each packet's decision took. `decide_hist.counts[i]`
    *  is the number of decisions under `decide_hist.bounds[i]` nanoseconds (and
    *  not under the bound before it); the last count has no upper bound. */
@@ -303,6 +310,13 @@ export class PfwVm {
     for (const r of this._current?.rules ?? []) {
       const now = await this._ruleCount(r.id), base = this._ruleBase?.get(r.id) ?? 0n;
       out.rules[r.name] = now >= base ? now - base : now;
+    }
+    /* Decision time by the rule each packet ended on, from the same baseline. */
+    out.timing = {};
+    for (const r of this._current?.rules ?? []) {
+      const now = await this._ruleTime(r.id), base = this._timeBase?.get(r.id) ?? { ns: 0n, runs: 0n };
+      const fresh = now.runs < base.runs;
+      out.timing[r.name] = { runs: fresh ? now.runs : now.runs - base.runs, ns: fresh ? now.ns : now.ns - base.ns };
     }
     /* One slot per bucket, one count per CPU: the kernel never shares a line. */
     const hist = new PercpuArrayMap(control, "decide_hist");
@@ -318,6 +332,11 @@ export class PfwVm {
 
   _need(what) { if (!this._control) throw new Error(`PfwVm.${what}(): not running — call start() first`); return this._control; }
   _map(name) { return new ArrayMap(this._control, name); }
+  /* One rule slot's decision time, summed over CPUs: { ns, runs }. */
+  async _ruleTime(id) {
+    const perCpu = (await new PercpuArrayMap(this._control, "rule_time").lookup(id)) ?? [];
+    return perCpu.reduce((a, v) => ({ ns: a.ns + BigInt(v?.ns ?? 0), runs: a.runs + BigInt(v?.runs ?? 0) }), { ns: 0n, runs: 0n });
+  }
   /* One rule slot's count, summed over CPUs. */
   async _ruleCount(id) {
     const perCpu = (await new PercpuArrayMap(this._control, "counters").lookup(id)) ?? [];

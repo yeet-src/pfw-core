@@ -277,12 +277,14 @@ static long pfw_step(__u32 i, void *pctx)
     case OP_DROP:
         st->verdict = V_DROP;
         st->rule = op->reg & (PFW_NRULES - 1);
+        st->time_rule = st->rule;
         break;
     case OP_COUNT: {
         __u32 key = op->reg & (PFW_NRULES - 1);
         __u64 *n = bpf_map_lookup_elem(&counters, &key);
         if (n)
             (*n)++;
+        st->time_rule = key;
         break;
     }
     case OP_LOG:
@@ -292,12 +294,14 @@ static long pfw_step(__u32 i, void *pctx)
     case OP_BAN:
         st->verdict = V_BAN;
         st->rule = op->reg & (PFW_NRULES - 1);
+        st->time_rule = st->rule;
         st->ttl = (__u32) imm;
         st->set_mark = MARK_DROP;
         break;
     case OP_RST:
         st->verdict = V_RST;
         st->rule = op->reg & (PFW_NRULES - 1);
+        st->time_rule = st->rule;
         st->ttl = (__u32) imm;
         st->set_mark = MARK_RST;
         break;

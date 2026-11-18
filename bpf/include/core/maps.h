@@ -57,6 +57,17 @@ PFW_LINK struct {
     __type(value, __u64);
 } decide_hist SEC(".maps");
 
+/* rule_time: the same clock, split by rule. A packet's decision time goes to
+ * the last rule it touched — a `count`, or the rule of its verdict — and to
+ * rule 0 if it touched none. The global mean is dominated by packets that leave
+ * at the first port check; this is what the path that reached a rule cost. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, PFW_NRULES);
+    __type(key, __u32);
+    __type(value, struct rule_time);
+} rule_time SEC(".maps");
+
 #define DECIDE_COUNT_ONE(n) +1
 _Static_assert((0 DECIDE_BOUNDS(DECIDE_COUNT_ONE)) == DECIDE_BUCKETS - 1, "DECIDE_BOUNDS must list DECIDE_BUCKETS - 1 bounds");
 _Static_assert((DECIDE_BUCKETS & (DECIDE_BUCKETS - 1)) == 0, "DECIDE_BUCKETS must be a power of two: the index is masked");
@@ -176,6 +187,7 @@ struct pfw_state {
     __u32 verdict;
     __u32 rule;
     __u32 ttl;
+    __u32 time_rule; /* the last rule this packet touched (count or verdict): who its decision time is charged to */
     __u32 set_mark;
     __u32 set_state; /* 1 = write new_state to the flow */
     __u32 new_state;
