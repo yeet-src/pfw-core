@@ -40,10 +40,12 @@ arith       = primary { ("+"|"-"|"&"|"|"|"<<"|">>") primary } ;  (* value gramma
 primary     = number | char | string | ident | "(" expr ")" | "!" primary
             | ("flow"|"src") "." ("state"|"count") | "src" "." "rate" "(" expr "," expr ")" | "ring" "." ("len"|"get" "(" expr ")")
             | "frame" "." ("len"|"type"|"data")
+            | readtype "(" arith ")"           (* direct read *)
             | "argv" "[" number "]" [ "??" (number|char) ] | "argc"
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
             | ident "." ident                  (* knob struct field *)
             | ident "(" [ args ] ")" ;         (* call *)
+readtype    = "u8" | "u16" | "u32" | "u64" | "be16" | "be24" | "be32" | "be64" ;
 ```
 
 ---

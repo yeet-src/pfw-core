@@ -2,7 +2,7 @@
 import { CError } from "#/clang/errors.js";
 import { LIMITS } from "#/isa.js";
 import { TRANSFORM_TABLES } from "#/transform.js";
-import { VERDICTS } from "#/clang/lang.js";
+import { READS, VERDICTS } from "#/clang/lang.js";
 
 export function parse(toks) {
   let pos = 0;
@@ -150,6 +150,14 @@ export function parse(toks) {
         let def = null;
         if (isP("??")) { next(); const d = peek(); if (d.type !== "number" && d.type !== "char") err("`??` default must be a number or char literal"); next(); def = { kind: d.type === "char" ? "char" : "num", text: d.value, line: d.line }; }
         return { kind: "knob", knob: kn, def, line: t.line };
+      }
+      /* u8(p), be16(p + 2), ...: read one field at a pointer. The argument is
+       * value arithmetic, so the offset is written where it is used. */
+      if (READS.has(name) && isP("(")) {
+        next();
+        const ptr = parseArith();
+        eat("punct", ")");
+        return { kind: "read", ftype: name, ptr, line: t.line };
       }
       if (isP("(")) return parseCall(name, t.line);
       return { kind: "ref", name, line: t.line };
