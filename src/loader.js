@@ -37,6 +37,7 @@ const MAPS = {
   events: { kind: "ringbuf", btf_struct: "pfw_event" },
   console_ring: { kind: "ringbuf", btf_struct: "pfw_console" },
   emits: { kind: "ringbuf", btf_struct: "pfw_emit" },
+  samples: { kind: "ringbuf", btf_struct: "pfw_sample" },
   programs: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
   knobs: { kind: "array" }, knob_strs: { kind: "array" }, tables: { kind: "array" },
@@ -47,7 +48,7 @@ const MAPS = {
 };
 
 /* Counters in vm.bss worth reporting (all u64). */
-const COUNTERS = ["seen", "ran", "passed", "dropped", "rsts", "bans", "enforced", "src_enforced", "shadowed", "faults", "logged",
+const COUNTERS = ["seen", "ran", "passed", "dropped", "rsts", "bans", "enforced", "src_enforced", "shadowed", "faults", "logged", "sampled",
   "ring_full", "flows_created", "scanned_bytes", "decide_ns", "nat_reversed",
   "reasm_retrans", "reasm_midjoin", "reasm_over", "reasm_slid", "reasm_held", "reasm_trunc",
   "h2_blocks", "h2_raw", "h2_unresolved", "h2_trunc", "h2_failed"];
@@ -118,6 +119,7 @@ export class PfwVm {
     this._verdictCbs = new Set();
     this._consoleCbs = new Set();
     this._emitCbs = new Set();
+    this._sampleCbs = new Set();
     this._tableValues = {};          // name -> BigInt[]: what the host has put in each table
     this._tableWritten = [[], []];   // per generation: the cells holding something
     this._active = 0;          // the generation packets run
@@ -158,6 +160,7 @@ export class PfwVm {
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
       this._subs.push(await new RingBuf(control, "console_ring").subscribe((w) => this._onConsole(w?.pfw_console ?? w)));
       this._subs.push(await new RingBuf(control, "emits").subscribe((w) => this._onEmit(w?.pfw_emit ?? w)));
+      this._subs.push(await new RingBuf(control, "samples").subscribe((w) => this._onSample(w?.pfw_sample ?? w)));
     } catch (e) {
       await this.stop();
       throw e;
@@ -357,6 +360,12 @@ export class PfwVm {
   /** Subscribe to console() messages, already formatted. Returns an unsubscriber. */
   onConsole(cb) { this._consoleCbs.add(cb); return () => this._consoleCbs.delete(cb); }
 
+  /** Subscribe to sample() copies of frames: `{ tag, data, wireLen, ts, ifindex }`
+   *  — `data` the captured bytes from the frame's first byte (a Uint8Array),
+   *  `wireLen` the frame's real length, `tag` the name the program gave or null.
+   *  Returns an unsubscriber. */
+  onSample(cb) { this._sampleCbs.add(cb); return () => this._sampleCbs.delete(cb); }
+
   /** Subscribe to emit() events: `{ name, values, ts, ifindex }`, the values as
    *  BigInt in the order the program gave them. Returns an unsubscriber. */
   onEmit(cb) { this._emitCbs.add(cb); return () => this._emitCbs.delete(cb); }
@@ -425,6 +434,17 @@ export class PfwVm {
       data: Uint8Array.from(Array.from(e.data ?? []).slice(0, len)),
     };
     for (const cb of this._verdictCbs) { try { cb(ev); } catch (err) { console.error(err?.message ?? err); } }
+  }
+
+  _onSample(e) {
+    if (!this._sampleCbs.size || !e) return;
+    const n = Math.min(Number(e.cap_len ?? 0), LIMITS.SAMPLE_CAP);
+    const ev = {
+      tag: this._current?.sampleTags?.[Number(e.tag ?? 0)] || null,
+      data: Uint8Array.from(Array.from(e.data ?? []).slice(0, n)),
+      wireLen: Number(e.wire_len ?? 0), ts: BigInt(e.ts ?? 0), ifindex: Number(e.ifindex ?? 0),
+    };
+    for (const cb of this._sampleCbs) { try { cb(ev); } catch (err) { console.error(err?.message ?? err); } }
   }
 
   _onEmit(e) {

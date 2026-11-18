@@ -27,6 +27,7 @@
 | `rule_time` | PERCPU_ARRAY (64) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
 | `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
+| `samples` | RINGBUF (4 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[2048]) |
 | `emits` | RINGBUF (256 KiB) | — | `emit()` events (`pfw_emit`: ts, ifindex, id, n, vals[8]) |
 | `decode_jmp` | PROG_ARRAY (7) | u32 → prog | tail-call targets (§8) |
 
@@ -38,7 +39,7 @@
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,
   reasm_midjoin, reasm_over, reasm_slid, reasm_held, reasm_trunc`), the h2 counters
   (`h2_blocks, h2_raw, h2_unresolved, h2_trunc, h2_failed`), `src_enforced`,
-  `nat_reversed`, `decide_ns`, `scanned_bytes`, `flows_created`.
+  `nat_reversed`, `decide_ns`, `scanned_bytes`, `flows_created`, `sampled`.
 
 ### Event records
 

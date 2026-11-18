@@ -30,6 +30,7 @@
 #define FLOW_REGS    4     /* per-flow registers a program reads and writes (flow.r0 .. flow.r3); a power of two */
 #define FF_BYTES     4     /* OP_FLOAD reg: payload bytes this flow has carried, this packet included */
 #define FF_PACKETS   5     /* OP_FLOAD reg: packets of this flow, this one included */
+#define SAMPLE_CAP   2048  /* bytes of a frame one sample() carries to the host; a power of two */
 #define KV_MAX       16384 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
 #define NAT_MAX      16384 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
 #define SRC_MAX      65536 /* sources tracked for per-source state (the `sources` map, LRU) */
@@ -201,6 +202,7 @@ enum pfw_opcode {
     OP_KVGET,   /* cur = kv[cur] if the key is present, else imm and fault */
     OP_FLOAD,   /* cur = a per-flow value: reg 0..3 = flow register, FF_BYTES, FF_PACKETS */
     OP_FSTORE,  /* flow register reg (0..3) = cur */
+    OP_SAMPLE,  /* copy the first imm bytes of the frame to the host (the `samples` ring); reg = tag id */
     OP_COUNT_OPCODES,
 };
 
@@ -386,6 +388,18 @@ struct pfw_emit {
     __u32 n;                 /* values carried */
     __u32 _pad;
     __u64 vals[FARGS_MAX];
+};
+
+/* A sample(): a copy of the frame as it arrived, from its first byte (the
+ * Ethernet header where there is one), for the host to store or inspect.
+ * `wire_len` is the frame's real length, `cap_len` how much of it is in data. */
+struct pfw_sample {
+    __u64 ts;
+    __u32 ifindex;
+    __u32 tag;               /* the sample's tag, by the id the compiler gave its name (0 = none) */
+    __u32 wire_len;
+    __u32 cap_len;
+    __u8 data[SAMPLE_CAP];
 };
 
 /* A console() message: the format id, the numeric args, and the captured %s

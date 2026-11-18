@@ -244,6 +244,25 @@ by `console`/`printk`.
 - **Notes:** reading the output needs root — `sudo cat
   /sys/kernel/debug/tracing/trace_pipe`.
 
+### 74 — `OP_SAMPLE` (`sample $LEN[, $TAG]`)
+
+- **Assembler:** `sample $256`, `sample $256, $1`. **Encoding:** `code = 74`,
+  `reg` = tag id (0 = untagged), `imm` = bytes wanted (1–`SAMPLE_CAP` = 2048).
+- **Operation (kernel):** `do_sample` (a `__noinline` helper) reserves a
+  `struct pfw_sample` on the `samples` ring and copies `min(imm, frame length,
+  SAMPLE_CAP)` bytes **from offset 0 of the frame** with `bpf_xdp_load_bytes`,
+  recording the frame's real length (`wire_len`) and how much was captured
+  (`cap_len`). A full ring counts in `ring_full` and the sample is lost; the
+  packet is not. Each sample counts in `sampled`.
+- **Operation (host):** appends `{ tag, data, wireLen }` to the run's samples.
+- **Flags:** none. **Maps:** `samples`.
+- **Example:** `sample(256, "exploit");`
+- **Notes:** the copy is of the packet as it is *now*: after a `dnat` earlier in
+  the program it is the rewritten packet. It is the packet, not the program's
+  view of it — `%cur`, a narrowed `%end`, reassembly and decoding do not apply.
+  A record is 2 kB whatever was asked for, so the 4 MiB ring holds about 2000:
+  sample what matters, not everything.
+
 ### 70 — `OP_TLOAD` (`tload $BASE, $SIZE`)
 
 - **Assembler:** `tload $0, $65537`. **Encoding:** `code = 70`, `reg = 0`, `imm` =

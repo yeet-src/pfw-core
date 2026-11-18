@@ -59,6 +59,7 @@ export function machine({ asm, tables, regex = null }) {
     r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
     const emitted = []; /* OP_EMIT events: { id, nums } */
+    const sampled = []; /* OP_SAMPLE copies of the frame: { tag, data, wireLen } */
     let dnat = null;    /* OP_DNAT: where the packet was steered, { ip, port } */
     const fargs = [], fstrs = [], consoleMsgs = []; /* OP_FARG numeric + OP_FARGS string buffers + collected console() messages */
     const hstack = new Array(64).fill(0n); /* the data stack (push/pop), %sp indexes it */
@@ -304,6 +305,11 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.CONSOLE: consoleMsgs.push({ fmtid: Number(imm), nums: fargs.splice(0), strs: fstrs.splice(0) }); break; /* emit a console message */
+        case OP.SAMPLE: { /* the frame from its first byte, as it is now, cut at imm and at the cap */
+          const n = Math.min(Number(imm > BigInt(LIMITS.SAMPLE_CAP) ? BigInt(LIMITS.SAMPLE_CAP) : imm), frame.length);
+          sampled.push({ tag: rawReg & 0xff, data: frame.slice(0, n), wireLen: frame.length });
+          break;
+        }
         case OP.EMIT: emitted.push({ id: Number(imm & 0xffffffffn), nums: fargs.splice(0) }); break; /* a typed event: the id and the numbers */
         case OP.PRINTK: fargs.splice(0); break; /* kernel-only: bpf_trace_printk to the trace pipe; host no-op (clears args) */
         case OP.PUSH: { const sp = Number(r[REG.sp]); if (sp < 64) { hstack[sp] = cur; r[REG.sp] = BigInt(sp + 1); } break; } /* push cur, sp++ */
@@ -338,7 +344,7 @@ export function machine({ asm, tables, regex = null }) {
       verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
       flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits, ureg, bytes: fbytes, packets: fpackets },
       source: { userState: srcNewState, hits: srcHits, bucket: srcBucket ?? {}, banned: (source?.banned ?? false) || (vfinal === V.BAN && !shadow) },
-      consoleMsgs, emitted, dnat,
+      consoleMsgs, emitted, dnat, sampled,
     };
   };
 }

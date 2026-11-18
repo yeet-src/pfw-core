@@ -28,6 +28,7 @@
  *   frameOut the packet bytes afterwards (string | Uint8Array) — redact/replace
  *   console  the console messages emitted: [{ fmtid, nums, strs }]
  *   emitted  the typed events emitted: [{ id, nums }]
+ *   sampled  the frame copies sent to the host: [{ tag, data, wireLen }]
  *   dnat     where the packet was steered: { ip, port } (ip a host-order u32), or null
  *            (these two are host-side observations: the kernel shows them on
  *            the wire and in the event stream, not in the verdict)
@@ -130,6 +131,11 @@ function check(subject, v) {
   if (v.frameOut !== undefined) {
     const want = typeof v.frameOut === "string" ? bytes(v.frameOut) : v.frameOut, got = execute(subject, [], v).frame;
     if (got.length !== want.length || got.some((b, i) => b !== want[i])) bad.push(`frame: want ${show(want)}, got ${show(got)}`);
+  }
+  if (v.sampled !== undefined) {
+    const shape = (list) => JSON.stringify((list ?? []).map((x) => ({ tag: x.tag ?? 0, data: show(typeof x.data === "string" ? bytes(x.data) : x.data), wireLen: x.wireLen })));
+    const got = shape(execute(subject, [], v).sampled), want = shape(v.sampled);
+    if (got !== want) bad.push(`sampled: want ${want}, got ${got}`);
   }
   if (v.dnat !== undefined) {
     const got = JSON.stringify(execute(subject, [], v).dnat ?? null), want = JSON.stringify(v.dnat);

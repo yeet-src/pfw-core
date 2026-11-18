@@ -162,6 +162,16 @@ PFW_LINK struct {
 } emits SEC(".maps");
 __attribute__((used)) static const struct pfw_emit __pfw_emit_anchor;
 
+/* sample() copies of frames, for the host: a capture, an IDS feed, a look at
+ * what a rule is matching. XDP cannot clone a packet to another interface, so
+ * this is how traffic is mirrored — to userspace, which can send it on. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_RINGBUF);
+    __uint(max_entries, 1 << 22);
+} samples SEC(".maps");
+__attribute__((used)) static const struct pfw_sample __pfw_sample_anchor;
+PFW_LINK volatile __u64 sampled; /* frames copied to the samples ring */
+
 /* The VM data stack (push/pop), one struct vmstack per CPU. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);

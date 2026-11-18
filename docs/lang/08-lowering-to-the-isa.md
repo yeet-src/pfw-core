@@ -25,6 +25,7 @@ Each construct lowers to ISA ops through the `Builder`; op names below are the
 | `kstr("n")` | `KNOBHAS $slot` (`ZF` = needle found) |
 | `console` / `printk` | `FARG`/`FARGS` + `CONSOLE` / `PRINTK` |
 | `emit("name", v…)` | `FARG` per value + `EMIT` |
+| `sample(len, "tag")` | `SAMPLE len`, the tag's id in `reg` |
 | `NAME[i]` (a `table`) | the index, then `TLOAD base, size` |
 | `lookup(k) ?? d` | the key, then `KVGET d` |
 | `flow.r0`… / `flow.bytes` / `flow.packets` | `FLOAD`; `flow.rN = e` is the value, then `FSTORE` |

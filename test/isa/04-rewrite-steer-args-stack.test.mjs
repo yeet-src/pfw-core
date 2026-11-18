@@ -191,5 +191,17 @@ t("kvget: a present key with value 0 is 0 without a fault", { asm: `${li(9)}\nkv
 t("kvget: with an empty map every key is absent", { asm: `${li(5)}\nkvget $3`, cur: 3, ff: true });
 t("kvget: touches ZF and CF not at all", { asm: `${li(5)}\ncmp $5, %cur\nkvget`, ...KV, zf: true, cf: false });
 
-t.covers(OP.TLOAD, OP.KVGET);
+/* ---- 74 SAMPLE ------------------------------------------------------------ */
+const PKT = "ETHERNET-HDR..IP-HEADER....payload bytes";
+t("sample: copies the frame from its first byte, not from the cursor", { asm: `${li(28)}\nsample $8`, frame: PKT, sampled: [{ data: "ETHERNET", wireLen: PKT.length }] });
+t("sample: a length past the frame gets the whole frame", { asm: `sample $2048`, frame: PKT, sampled: [{ data: PKT, wireLen: PKT.length }] });
+t("sample: the tag rides along", { asm: `sample $4, $3`, frame: PKT, sampled: [{ tag: 3, data: "ETHE", wireLen: PKT.length }] });
+t("sample: ignores a narrowed %end — it is the packet, not the program's view of it", { asm: `${li(4)}\nmov %cur, %end\nsample $8`, frame: PKT, sampled: [{ data: "ETHERNET", wireLen: PKT.length }] });
+t("sample: each one is its own copy", { asm: `sample $2\nsample $3, $1`, frame: PKT, sampled: [{ data: "ET", wireLen: PKT.length }, { tag: 1, data: "ETH", wireLen: PKT.length }] });
+t("sample: none taken, none reported", { asm: `and $0, %cur`, sampled: [] });
+t("sample: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nsample $8`, cur: 4, zf: false, cf: true, ff: false });
+t("sample: the program still reaches its verdict", { asm: `sample $8\ndrop $1`, verdict: V.DROP });
+t("sample: the assembler bounds the length", { asm: `sample $4096`, rejects: /length/ });
+
+t.covers(OP.TLOAD, OP.KVGET, OP.SAMPLE);
 t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS, OP.EMIT);
