@@ -228,6 +228,12 @@ export class PfwVm {
     await new DataSec(control, "vm.bss").patch(patch);
     this._active = g;
     this._current = c;
+    /* A rule counter belongs to a slot, not a name, and both generations share
+     * the slots: slot 2 was the last program's second rule and is now this
+     * one's. What each slot held at the flip is what the new rules start from. */
+    this._ruleBase = new Map();
+    for (const r of c.rules ?? []) this._ruleBase.set(r.id, await this._ruleCount(r.id));
+    this._appliedAt = Date.now();
     return this;
   }
 
@@ -283,19 +289,20 @@ export class PfwVm {
   /** Subscribe to console() messages, already formatted. Returns an unsubscriber. */
   onConsole(cb) { this._consoleCbs.add(cb); return () => this._consoleCbs.delete(cb); }
 
-  /** Counters since start(): the global ones, hits per rule name, and the
+  /** The global counters since start(); hits per rule name since that rule's
+   *  program was applied (`applied` counts applies, so a change in it says the
+   *  rule counts started over; `applied_at` is when, in ms); and the
    *  histogram of how long each packet's decision took. `decide_hist.counts[i]`
    *  is the number of decisions under `decide_hist.bounds[i]` nanoseconds (and
    *  not under the bound before it); the last count has no upper bound. */
   async stats() {
     const control = this._need("stats");
     const bss = (await new DataSec(control, "vm.bss").read()) ?? {};
-    const out = { active: this._active, shadow: Number(bss.shadow ?? 0) !== 0, rules: {} };
+    const out = { active: this._active, shadow: Number(bss.shadow ?? 0) !== 0, applied: this._stamp, applied_at: this._appliedAt ?? null, rules: {} };
     for (const k of COUNTERS) if (bss[k] !== undefined) out[k] = BigInt(bss[k]);
-    const counters = new PercpuArrayMap(control, "counters");
     for (const r of this._current?.rules ?? []) {
-      const perCpu = (await counters.lookup(r.id)) ?? [];
-      out.rules[r.name] = perCpu.reduce((a, v) => a + BigInt(v ?? 0), 0n);
+      const now = await this._ruleCount(r.id), base = this._ruleBase?.get(r.id) ?? 0n;
+      out.rules[r.name] = now >= base ? now - base : now;
     }
     /* One slot per bucket, one count per CPU: the kernel never shares a line. */
     const hist = new PercpuArrayMap(control, "decide_hist");
@@ -311,6 +318,11 @@ export class PfwVm {
 
   _need(what) { if (!this._control) throw new Error(`PfwVm.${what}(): not running — call start() first`); return this._control; }
   _map(name) { return new ArrayMap(this._control, name); }
+  /* One rule slot's count, summed over CPUs. */
+  async _ruleCount(id) {
+    const perCpu = (await new PercpuArrayMap(this._control, "counters").lookup(id)) ?? [];
+    return perCpu.reduce((a, v) => a + BigInt(v ?? 0), 0n);
+  }
 
   _onEvent(e) {
     if (!this._verdictCbs.size || !e) return;
