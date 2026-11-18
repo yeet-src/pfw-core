@@ -167,4 +167,19 @@ t("emit: consumes the queue, so the next event starts empty", { asm: `${li(7)}\n
 t("emit: is not a console message", { asm: `${li(7)}\nfarg\nemit $0`, console: [] });
 t("emit: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nemit $0`, cur: 4, zf: false, cf: true, ff: false });
 
+/* ---- 70 TLOAD ------------------------------------------------------------- */
+/* imm = base | size << 32. The cell space here: cells 4..7 hold 40..43. */
+const CELLS = { opts: { cells: [0, 0, 0, 0, 40, 41, 42, 43, 99] } };
+t("tload: cur = the cell at base + cur", { asm: `${li(2)}\ntload $4, $4`, ...CELLS, cur: 42, ff: false });
+t("tload: index 0 is the base cell", { asm: `${li(0)}\ntload $4, $4`, ...CELLS, cur: 40 });
+t("tload: the last index is size - 1", { asm: `${li(3)}\ntload $4, $4`, ...CELLS, cur: 43, ff: false });
+t("tload: an index at the size reads 0 and faults — not the next table's cell", { asm: `${li(4)}\ntload $4, $4`, ...CELLS, cur: 0, ff: true });
+t("tload: a huge index reads 0 and faults", { asm: `${li(MAX)}\ntload $4, $4`, ...CELLS, cur: 0, ff: true });
+t("tload: a cell nobody set reads 0, with no fault", { asm: `${li(1)}\ntload $0, $4`, ...CELLS, cur: 0, ff: false });
+t("tload: cells are 64-bit", { asm: `${li(0)}\ntload $0, $1`, opts: { cells: [0xffffffffffffffffn] }, cur: MAX });
+t("tload: with no cells loaded, every cell is 0", { asm: `${li(1)}\ntload $0, $4`, cur: 0, ff: false });
+t("tload: touches ZF and CF not at all", { asm: `${li(1)}\ncmp $1, %cur\ntload $4, $4`, ...CELLS, zf: true, cf: false });
+t("tload: the assembler refuses a table outside the cell space", { asm: `tload $131072, $1`, rejects: /cells/ });
+
+t.covers(OP.TLOAD);
 t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS, OP.EMIT);

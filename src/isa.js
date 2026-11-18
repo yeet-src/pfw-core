@@ -9,7 +9,7 @@ export const OP = {
   REDACT: 43, REPLACE: 44, DNAT: 45, LPM: 46, HASH: 47, BLOOM: 48, LPM6: 49,
   REDIRECT: 50, RATE: 51, ARG: 52, ARGC: 53, FARG: 54, FARGS: 55, CONSOLE: 56, PRINTK: 57,
   PUSH: 58, POP: 59, CALL: 60, RET: 61, KNOB: 62, KNOBHAS: 63,
-  MUL_I: 64, MUL_R: 65, MOD_I: 66, MOD_R: 67, FHASH: 68, EMIT: 69,
+  MUL_I: 64, MUL_R: 65, MOD_I: 66, MOD_R: 67, FHASH: 68, EMIT: 69, TLOAD: 70,
 };
 
 /* L7 decode front-ends (pfw_prog.decode), mirroring DECODE_* in pfw.h. Each
@@ -34,6 +34,7 @@ export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [
 export const LIMITS = {
   MAX_OPS: 8192, MAX_PATS: 64, PAT_CAP: 64, NRULES: 64, GENS: 2,
   AC_STATES: 4096, SCAN_CAP: 2048, LOG_CAP: 256, RE_STATES: 1024, ARGC: 16, FARGS: 8, FSTR: 2, STRARG: 256,
+  TABLE_CELLS: 131072, TABLES: 16,
   FMTS: 8, FMT_CAP: 64, STACK: 64, KNOBS: 32, KNOBSTRS: 16, KNOBSTR_CAP: 64, KNOB_SCAN: 256,
 };
 

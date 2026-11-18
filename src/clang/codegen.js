@@ -43,6 +43,18 @@ export function codegen(ast) {
   const knobStrNames = []; // kstr("name") string knobs, by slot (the host writes the `knob_strs` map by this slot)
   const internKnobStr = (name) => { const i = knobStrNames.indexOf(name); if (i >= 0) return i; if (knobStrNames.length >= LIMITS.KNOBSTRS) return -1; return knobStrNames.push(name) - 1; };
   const kstrSlot = (e) => { if (e.args.length !== 1 || e.args[0].kind !== "string") die('kstr("name")', e.line); const s = internKnobStr(e.args[0].text); if (s < 0) die(`too many string knobs (max ${LIMITS.KNOBSTRS})`, e.line); return s; };
+  /* Declared tables, laid out one after another in the cell space. */
+  const tableLayout = new Map(); // name -> { name, base, size }
+  {
+    let base = 0;
+    for (const t of ast.tables ?? []) {
+      if (!Number.isInteger(t.size) || t.size < 1) throw new CError(`table \`${t.name}\` needs a size of at least 1`, t.line);
+      if (tableLayout.size >= LIMITS.TABLES) throw new CError(`more than ${LIMITS.TABLES} tables`, t.line);
+      if (base + t.size > LIMITS.TABLE_CELLS) throw new CError(`tables hold ${LIMITS.TABLE_CELLS} cells in all; \`${t.name}[${t.size}]\` does not fit after the ${base} already declared`, t.line);
+      tableLayout.set(t.name, { name: t.name, base, size: t.size });
+      base += t.size;
+    }
+  }
   const macroMap = new Map((ast.macros ?? []).map((m) => [m.name, m]));
   const expanding = new Set();
   const frameScope = []; // stack of { len, type, data } vreg tokens, for frame.X
@@ -297,6 +309,7 @@ export function codegen(ast) {
     if (e.kind === "ringget") { materialize(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
     if (e.kind === "read") return readField(e);
+    if (e.kind === "tableget") { const t = tableLayout.get(e.name); materialize(e.idx); return bld.tload(t.base, t.size); }
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
@@ -340,7 +353,7 @@ export function codegen(ast) {
       const right = allocScratch(`__ar${nTmp++}`, e.line);
       bld.movFromCur(right); bld.movToCur(tmp); return bld[ARITH_R[op]](right);
     }
-    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
@@ -681,6 +694,7 @@ export function codegen(ast) {
   }
   bld._consoleFormats = consoleFormats;
   bld._printkFormats = printkFormats;
+  bld._tables = [...tableLayout.values()];
   bld._emits = emitNames.map((name, id) => ({ id, name, arity: emitArity[id] }));
   bld._knobs = knobNames;
   bld._knobDefaults = knobNames.map((_, i) => knobDefaults[i] ?? 0n);

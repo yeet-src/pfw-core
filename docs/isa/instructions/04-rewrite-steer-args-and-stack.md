@@ -244,6 +244,22 @@ by `console`/`printk`.
 - **Notes:** reading the output needs root — `sudo cat
   /sys/kernel/debug/tracing/trace_pipe`.
 
+### 70 — `OP_TLOAD` (`tload $BASE, $SIZE`)
+
+- **Assembler:** `tload $0, $65537`. **Encoding:** `code = 70`, `reg = 0`, `imm` =
+  the table's base cell in the **low 32 bits** `|` its size in the **high 32**.
+- **Operation:** with `i = %cur`: if `i < size`, `cur ← tables[gen * TABLE_CELLS
+  + base + i]`, a 64-bit host-loaded cell (0 if never set); otherwise `cur ← 0`
+  and `FF` is set.
+- **Flags:** `FF` on an index at or past `size`; `ZF`/`CF` untouched.
+- **Maps:** `tables`. The cell space is per generation: the loader lays a
+  program's tables out in the idle half before the flip, so a program never
+  reads cells placed for another.
+- **Example:** `table backends[251]; … dnat(backends[flow.hash % 251]);` →
+  `fhash; mod 251; tload 0 251; dnat %cur`.
+- **Notes:** the bound is the table's own size, not the cell space's: a bad
+  index cannot read the table declared after it.
+
 ### 69 — `OP_EMIT` (`emit $EVENTID`)
 
 - **Assembler:** `emit $0`. **Encoding:** `code = 69`, `reg = 0`, `imm = event id`.

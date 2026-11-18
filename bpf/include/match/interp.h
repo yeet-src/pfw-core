@@ -501,6 +501,18 @@ static long pfw_step(__u32 i, void *pctx)
         cur = v ? *v : 0;
         break;
     }
+    case OP_TLOAD: { /* cur = the declared table's cell at index cur */
+        __u32 size = (__u32) (imm >> 32);
+        if (cur < size) {
+            __u32 k = (c->gen & (PFW_GENS - 1)) * TABLE_CELLS + (((__u32) imm + (__u32) cur) & (TABLE_CELLS - 1));
+            __u64 *v = bpf_map_lookup_elem(&tables, &k);
+            cur = v ? *v : 0;
+        } else {
+            cur = 0;        /* past the table's end: nothing there, and say so */
+            fl |= FL_FF;
+        }
+        break;
+    }
     case OP_KNOBHAS: /* ZF = the live host-set string knob occurs in the payload window */
         fl = (fl & FL_FF) | (do_knobhas(c, (__u32) imm) ? FL_ZF : 0);
         break;

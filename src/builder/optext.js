@@ -40,6 +40,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.ARGC: return `argc`;
     case OP.KNOB: return `knob ${op.imm}`;
     case OP.KNOBHAS: return `knobhas ${op.imm}`;
+    case OP.TLOAD: return `tload ${op.imm & 0xffffffffn} ${op.imm >> 32n}`;
     case OP.FARG: return `farg`;
     case OP.FARGS: return `fargs ${op.imm}`;
     case OP.CONSOLE: return `console ${op.imm}`;

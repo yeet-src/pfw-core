@@ -27,6 +27,7 @@ inside value arithmetic it is **bitwise-or**.
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
 - direct reads: `u8(p)`, `be16(p + 2)`, … (below);
+- table cells: `NAME[index]` (below);
 - calls: `scan(...)`, `after(...)`, `find(...)`, `starts(...)`, `any/all/seq(...)`,
   `rate(...)`, `pop()`, and subroutine calls.
 
@@ -120,6 +121,38 @@ ptr path = find(payload, ' ', 16);   // to the first space
 skip(path, ' ');                     // past the space(s)
 if (starts(path, admin)) decide rst("admin_probe", 0);
 ```
+
+### Lookup tables
+
+`table NAME[SIZE];` declares a table of `SIZE` 64-bit cells; `NAME[index]` reads
+one. The host fills it — at load, and whenever it likes afterwards — so what a
+program decides can be data rather than code:
+
+```c
+table backends[65537];                     // one backend per slot
+filter {
+  if (dport != 8181) decide pass;
+  dnat(backends[flow.hash % 65537]);       // the cell is a whole dnat target
+  decide pass;
+}
+```
+
+That is a balancer whose backends change with no new program: the host
+recomputes the table (Maglev, or any other assignment) and rewrites the slots.
+`flow.hash` is the same function on the host, so its table lines up.
+
+- A cell nobody set reads **0**. An index at or past `SIZE` reads 0 too, and
+  never another table's cell.
+- The index is value arithmetic. A cell is a value like any other: compare it,
+  do arithmetic on it, pass it to `dnat` or `rate`.
+- Tables share one space of 131072 cells (so a 65537-slot Maglev table fits,
+  with room beside it); up to 16 tables.
+- Contents follow the table's **name**: a new program that declares the same
+  table starts with what the host last put in it. A new program's tables come
+  into force together with the program, never half of one.
+
+Where `x in hash` answers yes or no for a set of keys, a table answers *what*
+for a dense range of indices.
 
 ### Source / set membership
 
