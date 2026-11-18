@@ -57,6 +57,7 @@ export function machine({ asm, tables, regex = null }) {
     r[REG.shadow] = shadow ? 1n : 0n; /* readable as %shadow */
     r[REG.m] = flow.mask;
     const emitted = []; /* OP_EMIT events: { id, nums } */
+    let dnat = null;    /* OP_DNAT: where the packet was steered, { ip, port } */
     const fargs = [], fstrs = [], consoleMsgs = []; /* OP_FARG numeric + OP_FARGS string buffers + collected console() messages */
     const hstack = new Array(64).fill(0n); /* the data stack (push/pop), %sp indexes it */
     const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
@@ -250,7 +251,11 @@ export function machine({ asm, tables, regex = null }) {
         case OP.DROP: verdict = V.DROP; rule = rawReg & 63; break;
         case OP.BAN: verdict = V.BAN; rule = rawReg & 63; break;
         case OP.RST: verdict = V.RST; rule = rawReg & 63; break;
-        case OP.DNAT: break; /* kernel-only: rewrites packet headers, which the host frame model (payload-only) has not got */
+        case OP.DNAT: { /* the headers are the kernel's to rewrite; the host model records where the packet was sent */
+          const t = rawReg & 1 ? cur : imm;
+          if (!(rawReg & 1) || (t & 0xffffffffn)) dnat = { ip: Number(t & 0xffffffffn), port: Number((t >> 32n) & 0xffffn) };
+          break;
+        }
         case OP.LPM: zf = set.some((c) => (cur & c.mask) === (c.net & c.mask)); cf = false; break; /* src in the CIDR set */
         case OP.HASH: zf = hashset.has(cur & 0xffffffffn); cf = false; break; /* x in the exact hash set */
         case OP.BLOOM: zf = bloom.has(cur & 0xffffffffn); cf = false; break; /* x (probably) in the bloom set (modelled exact) */
@@ -287,8 +292,9 @@ export function machine({ asm, tables, regex = null }) {
         case OP.RET: { let sp = Number(r[REG.sp]); if (sp > 0) { sp--; next = Number(hstack[sp]); r[REG.sp] = BigInt(sp); } break; } /* pop pc */
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
-          const rate = Number(imm & 0xffffffffn), cap = Number((imm >> 32n) & 0xffffffffn) * RL_SCALE;
-          const b = rawReg === 1 ? srcBucket : bucket, nowN = Number(now);
+          const packed = rawReg & 2 ? cur : imm; /* reg bit 1: rate and burst were computed, and are in the cursor */
+          const rate = Number(packed & 0xffffffffn), cap = Number((packed >> 32n) & 0xffffffffn) * RL_SCALE;
+          const b = rawReg & 1 ? srcBucket : bucket, nowN = Number(now);
           if (!b) { zf = false; cf = false; break; }
           let tokens;
           if (b.ts === undefined) tokens = cap; /* unseeded: full bucket (kernel uses rl_ts==0, where ktime is never 0) */
@@ -312,7 +318,7 @@ export function machine({ asm, tables, regex = null }) {
       verdict: shadow && isEnforce ? V.PASS : vfinal, would: shadow && isEnforce ? vfinal : undefined, rule,
       flow: { ac, mask: r[REG.m], ring, ringHead, ringCount, mark: setMark, userState: newState, hits },
       source: { userState: srcNewState, hits: srcHits, bucket: srcBucket ?? {}, banned: (source?.banned ?? false) || (vfinal === V.BAN && !shadow) },
-      consoleMsgs, emitted,
+      consoleMsgs, emitted, dnat,
     };
   };
 }

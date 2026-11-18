@@ -32,6 +32,15 @@ t("replace: not terminal; leaves %cur and the flags", { asm: `${RW}\n${FLAGS}\nr
 /* ---- 45 DNAT / 50 REDIRECT (kernel-only effects) -------------------------- */
 t("dnat: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\ndnat 127.0.0.2:8080`, cur: 4, zf: false, cf: true, ff: false });
 t("dnat: the program still reaches its verdict", { asm: `dnat 127.0.0.2:8080\ndrop $1`, verdict: V.DROP });
+t("dnat: the target is the immediate's address and port", { asm: `dnat 127.0.0.2:8080`, dnat: { ip: 0x7f000002, port: 8080 } });
+t("dnat: no dnat, no target", { asm: `and $0, %cur`, dnat: null });
+/* The computed form: reg bit 0, the target in %cur with the same packing. */
+t("dnat %cur: the target is the cursor — address low 32, port above", { asm: `${li("0x1f900a000005")}\ndnat %cur`, dnat: { ip: 0x0a000005, port: 8080 } });
+t("dnat %cur: bits above the port are ignored", { asm: `${li("0xffff1f900a000005")}\ndnat %cur`, dnat: { ip: 0x0a000005, port: 8080 } });
+t("dnat %cur: an address of 0 steers nothing", { asm: `${li("0x1f9000000000")}\ndnat %cur`, dnat: null });
+t("dnat %cur: … so an unset value leaves an earlier dnat standing", { asm: `dnat 127.0.0.2:8080\n${li(0)}\ndnat %cur`, dnat: { ip: 0x7f000002, port: 8080 } });
+t("dnat %cur: the last one to steer wins", { asm: `dnat 127.0.0.2:8080\n${li("0x00500a000001")}\ndnat %cur`, dnat: { ip: 0x0a000001, port: 80 } });
+t("dnat %cur: leaves %cur and the flags", { asm: `${FLAGS}\ndnat %cur`, cur: 4, zf: false, cf: true, ff: false });
 t("redirect: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nredirect 3`, cur: 4, zf: false, cf: true, ff: false });
 t("redirect: the program still reaches its verdict", { asm: `redirect 3\ndrop $1`, verdict: V.DROP });
 
@@ -46,6 +55,16 @@ t("rate: refill is proportional to the rate", { asm: `rate $10, $1`, ...BUCKET, 
 t("rate: less than one token's worth of time is still over", { asm: `rate $10, $1`, ...BUCKET, clock: [SEC, SEC + SEC / 20], zf: true });
 t("rate: refill is capped at the burst", { asm: `rate $1, $2`, ...BUCKET, clock: [SEC, 100 * SEC, 100 * SEC, 100 * SEC], zf: true });
 t("rate: a clock running backwards refills nothing", { asm: `rate $1, $1`, ...BUCKET, clock: [10 * SEC, 5 * SEC], zf: true });
+/* The computed form: reg bit 1, rate (low 32) and burst (high 32) in %cur. */
+const R1B3 = li("0x300000001"); // 1 a second, burst 3
+t("rate %cur: the burst in the cursor is allowed", { asm: `${R1B3}\nrate %cur`, ...BUCKET, clock: [SEC, SEC, SEC], zf: false });
+t("rate %cur: past it -> ZF", { asm: `${R1B3}\nrate %cur`, ...BUCKET, clock: [SEC, SEC, SEC, SEC], zf: true });
+t("rate %cur: refills at the rate in the cursor", { asm: `${li("0x10000000a")}\nrate %cur`, ...BUCKET, clock: [SEC, SEC + SEC / 10], zf: false });
+t("rate %cur: a rate and burst of 0 lets nothing through", { asm: `${li(0)}\nrate %cur`, ...BUCKET, clock: [SEC], zf: true });
+t("rate %cur: leaves %cur", { asm: `${R1B3}\nrate %cur`, ...BUCKET, clock: [SEC], cur: "0x300000001" });
+t("srcrate %cur: the source's bucket, shared across its connections", {
+  asm: `${R1B3}\nsrcrate %cur`, opts: { source: {} }, clock: [SEC, SEC, SEC, SEC], zf: true,
+});
 t("rate: clears CF, preserves FF, leaves %cur", { asm: `${FAULT}\ncmp $1, %cur\nrate $1, $3`, frame: "", ...BUCKET, clock: [SEC], zf: false, cf: false, ff: true, cur: 0 });
 t("srcrate: one bucket per source", { asm: `srcrate $1, $2`, opts: { source: {} }, clock: [SEC, SEC, SEC], zf: true });
 t("srcrate: apart from the flow's bucket", { asm: `rate $1, $1\nsrcrate $1, $2`, opts: { bucket: {}, source: {} }, clock: [SEC, SEC], zf: false });

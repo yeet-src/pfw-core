@@ -433,8 +433,13 @@ static long pfw_step(__u32 i, void *pctx)
         /* Rewrite dst IPv4 + port and fix both checksums, then the program
          * forwards (PASS) and the stack routes the rewritten packet. In its own
          * (__noinline) frame so its locals don't bloat pfw_step's stack. */
-        if (!c->reasm)
-            do_dnat(c->xdp, st, imm);
+        if (!c->reasm) {
+            /* reg bit 0: the target was computed (a knob, a table cell) and is in
+             * the cursor. A computed address of 0 is "nowhere", not 0.0.0.0: an
+             * unset knob or an empty slot leaves the packet where it was going. */
+            if (!(op->reg & 1)) do_dnat(c->xdp, st, imm);
+            else if ((__u32) cur) do_dnat(c->xdp, st, cur);
+        }
         break;
     case OP_LPM: {
         /* ZF = cur (an IPv4 address, host order) is in the lpm_trie CIDR set.
@@ -478,7 +483,7 @@ static long pfw_step(__u32 i, void *pctx)
         /* Token-bucket rate limit on this flow. ZF = 1 when over the limit
          * (the packet consumed no token). __noinline so the 64-bit refill math
          * gets its own frame. imm = rate/sec (low 32) | burst (high 32). */
-        fl = (fl & FL_FF) | (do_rate(st, c->now, imm, op->reg) ? FL_ZF : 0);
+        fl = (fl & FL_FF) | (do_rate(st, c->now, (op->reg & 2) ? cur : imm, op->reg & 1) ? FL_ZF : 0);
         break;
     case OP_ARG: {
         /* cur = args[idx] when the host set that many args, else the inline

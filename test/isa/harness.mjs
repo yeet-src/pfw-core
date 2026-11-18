@@ -28,6 +28,7 @@
  *   frameOut the packet bytes afterwards (string | Uint8Array) — redact/replace
  *   console  the console messages emitted: [{ fmtid, nums, strs }]
  *   emitted  the typed events emitted: [{ id, nums }]
+ *   dnat     where the packet was steered: { ip, port } (ip a host-order u32), or null
  *            (these two are host-side observations: the kernel shows them on
  *            the wire and in the event stream, not in the verdict)
  *   rejects  a RegExp: the assembler must refuse `asm` with a matching error
@@ -129,6 +130,10 @@ function check(subject, v) {
   if (v.frameOut !== undefined) {
     const want = typeof v.frameOut === "string" ? bytes(v.frameOut) : v.frameOut, got = execute(subject, [], v).frame;
     if (got.length !== want.length || got.some((b, i) => b !== want[i])) bad.push(`frame: want ${show(want)}, got ${show(got)}`);
+  }
+  if (v.dnat !== undefined) {
+    const got = JSON.stringify(execute(subject, [], v).dnat ?? null), want = JSON.stringify(v.dnat);
+    if (got !== want) bad.push(`dnat: want ${want}, got ${got}`);
   }
   if (v.emitted !== undefined) {
     const shape = (list) => JSON.stringify((list ?? []).map((e) => ({ id: e.id, nums: (e.nums ?? []).map((n) => u64(n).toString()) })));

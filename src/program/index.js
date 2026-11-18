@@ -95,7 +95,8 @@ export class Program {
     if (opts.onConsole) for (const line of consoleOut) opts.onConsole(line);
     const events = (r.emitted ?? []).map((e) => ({ name: this.emits[e.id]?.name, values: e.nums }));
     if (opts.onEmit) for (const e of events) opts.onEmit(e);
-    return { events, verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
+    const u32ToIp = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255].join(".");
+    return { events, dnat: r.dnat ? { ip: u32ToIp(r.dnat.ip), port: r.dnat.port } : null, verdict: VNAME[r.verdict] ?? "pass", code: r.verdict, would: r.would != null ? VNAME[r.would] : undefined, rule: r.rule, ruleName: this.rules[r.rule]?.name, flow: r.flow, source: r.source, console: consoleOut };
   }
 }
 

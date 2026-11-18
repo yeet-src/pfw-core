@@ -15,8 +15,10 @@
 - `console`: ≤ 8 numeric args + ≤ 2 `%s` (packet pointer). `emit`: ≤ 8 values,
   and one name always carries the same number of them. `printk`: ≤ 3 numeric
   args, no `%s`.
-- `argv` and `knob("…")` are not `rate`/`dnat`/`redirect` arguments (those need
-  constants). `knob("x") ?? d` seeds `d` at load; it is overridable to `0`, not an
+- `rate` and `dnat` take values as well as constants (`argv`, `knob("…")`,
+  locals); `redirect`'s ifindex and `scan`'s length are constants. A computed
+  `dnat` address of 0 steers nothing, and a computed `rate` burst of 0 passes
+  nothing. `knob("x") ?? d` seeds `d` at load; it is overridable to `0`, not an
   if-zero default. `kstr("…")` is a condition only.
 
 **Runtime behaviour worth knowing**
