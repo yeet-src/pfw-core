@@ -343,6 +343,16 @@ PFW_LINK struct {
     __type(value, __u32);
 } hashset SEC(".maps");
 
+/* A host-loaded map from a 64-bit key to a 64-bit value, read by OP_KVGET
+ * (`lookup(key)`): where `hashset` says whether a key is known, this says what
+ * goes with it — the tenant behind an API key, the policy for a port. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, KV_MAX);
+    __type(key, __u64);
+    __type(value, __u64);
+} kv SEC(".maps");
+
 /* Probabilistic membership for `x in bloom`: a host-loaded Bloom filter of u32
  * values, for very large sets where an exact hash would be too big (may yield
  * false positives, never false negatives). No key; map_extra = hash functions. */

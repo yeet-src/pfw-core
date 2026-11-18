@@ -458,6 +458,16 @@ static long pfw_step(__u32 i, void *pctx)
         fl = (fl & FL_FF) | (v ? FL_ZF : 0);
         break;
     }
+    case OP_KVGET: {
+        /* cur = the value stored under key cur. A key that is not there yields
+         * the op's default and sets the fault flag, so "absent" and "present
+         * with value 0" can be told apart by whoever needs to. */
+        __u64 k = cur;
+        __u64 *v = bpf_map_lookup_elem(&kv, &k);
+        if (v) cur = *v;
+        else { cur = imm; fl |= FL_FF; }
+        break;
+    }
     case OP_BLOOM: {
         /* ZF = cur (low 32 bits) is (probably) in the bloom filter. peek returns
          * 0 when present, an error when definitely absent. */

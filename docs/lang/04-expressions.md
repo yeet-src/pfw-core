@@ -27,7 +27,7 @@ inside value arithmetic it is **bitwise-or**.
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
 - `argv[i] ?? default`, `argc` (§5);
 - direct reads: `u8(p)`, `be16(p + 2)`, … (below);
-- table cells: `NAME[index]` (below);
+- table cells: `NAME[index]`, and `lookup(key) ?? default` (below);
 - calls: `scan(...)`, `after(...)`, `find(...)`, `starts(...)`, `any/all/seq(...)`,
   `rate(...)`, `pop()`, and subroutine calls.
 
@@ -154,6 +154,25 @@ recomputes the table (Maglev, or any other assignment) and rewrites the slots.
 Where `x in hash` answers yes or no for a set of keys, a table answers *what*
 for a dense range of indices.
 
+### The key → value map
+
+`lookup(key)` reads the value the host stored under a 64-bit key, for keys that
+are sparse — an API key's hash, an address, a port worth naming — where a table
+would be mostly empty:
+
+```c
+let tenant = lookup(key_hash);                 // 0 if the key is unknown
+if (tenant == 0) decide rst("unknown_key", 0);
+if (rate(lookup(tenant) ?? 5, 20)) decide drop("over_quota");
+```
+
+- A key that is not in the map yields **0**, or the literal after `??`. A key
+  stored *with* the value 0 yields 0 either way: `??` is for absence.
+- There is one map, shared by every program and kept across `apply`, like the
+  sets. Programs that want separate namespaces put one in the key's high bits
+  (`lookup(tenant + 0x100000000)`).
+- Up to 16384 entries; keys and values are 64-bit.
+
 ### Source / set membership
 
 | form | tests |
@@ -163,6 +182,8 @@ for a dense range of indices.
 | `src6 in set6` | the packet's IPv6 source is in the host-loaded v6 trie (`lpm6`) |
 | `a in hash` | `a`'s low 32 bits are a key in the host-loaded exact set (`hash`) |
 | `a in bloom` | `a`'s low 32 bits are (probably) in the host-loaded Bloom filter |
+
+(For *what goes with* a key rather than whether it is known, see `lookup` above.)
 
 The host populates `set`/`set6`/`hash`/`bloom` out of band (see the README's
 probe section). `src6 in set6` reads the v6 source from the packet itself — the

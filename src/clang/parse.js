@@ -157,6 +157,15 @@ export function parse(toks) {
         return { kind: "arg", index: idx, def, line: t.line };
       }
       if (name === "argc") return { kind: "argc", line: t.line };
+      /* lookup(key) [?? default]: the value the host stored under a key. */
+      if (name === "lookup" && isP("(")) {
+        next();
+        const key = parseArith();
+        eat("punct", ")");
+        let def = null;
+        if (isP("??")) { next(); const d = peek(); if (d.type !== "number" && d.type !== "char") err("`??` default must be a number or char literal"); next(); def = { kind: d.type === "char" ? "char" : "num", text: d.value, line: d.line }; }
+        return { kind: "kvget", key, def, line: t.line };
+      }
       /* NAME[index]: a cell of a declared table. */
       if (tableNames.has(name) && isP("[")) {
         next();

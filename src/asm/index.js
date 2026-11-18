@@ -298,6 +298,10 @@ export function assemble(source) {
         want(1);
         if (a.kind !== "imm") fail("knob is `knob $SLOT`");
         emit(OP.KNOB, 0, numberOf(a.text, "slot") & 0xffffffffn);
+      } else if (m === "kvget") {
+        if (o.length > 1) fail("kvget is `kvget [$DEFAULT]`");
+        if (a && a.kind !== "imm") fail("kvget is `kvget [$DEFAULT]`");
+        emit(OP.KVGET, 0, a ? numberOf(a.text, "default") : 0n);
       } else if (m === "tload") {
         want(2);
         if (a.kind !== "imm" || b.kind !== "imm") fail("tload is `tload $BASE, $SIZE`");

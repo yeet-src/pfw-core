@@ -46,7 +46,9 @@ export function machine({ asm, tables, regex = null }) {
   const nocase = !!asm.program.nocase;
   const fold = (b) => (nocase && b >= 65 && b <= 90 ? b + 32 : b);
 
-  return function run(frame, payload, flow, { proto = 6, dport = 80, sport = 0, saddr = 0, daddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, source = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [], cells = null } = {}) {
+  return function run(frame, payload, flow, { proto = 6, dport = 80, sport = 0, saddr = 0, daddr = 0, set = [], hashset: hashArr = [], bloom: bloomArr = [], src6 = 0n, set6 = [], bucket = null, source = null, now = 0n, argv = [], shadow = false, knobs = [], knobStrs = [], cells = null, kv = null } = {}) {
+    /* The key -> value map (`lookup`): a Map, or a plain object of entries. */
+    const kvMap = new Map([...(kv instanceof Map ? kv : Object.entries(kv ?? {}))].map(([k, v]) => [BigInt(k) & U64, BigInt(v) & U64]));
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
@@ -263,6 +265,11 @@ export function machine({ asm, tables, regex = null }) {
         case OP.ARG: { const idx = Number((imm >> 32n) & 0xffffn); cur = idx < argv.length ? BigInt(argv[idx]) & U64 : (imm & 0xffffffffn); break; } /* runtime arg or inline default */
         case OP.ARGC: cur = BigInt(argv.length); break; /* number of args the host set */
         case OP.KNOB: { const slot = Number(imm) & 31; cur = BigInt(knobs[slot] ?? 0) & U64; break; } /* live host-set control value */
+        case OP.KVGET: { /* the value under key cur, or the default and a fault */
+          if (kvMap.has(cur)) cur = kvMap.get(cur);
+          else { cur = imm & U64; ff = true; }
+          break;
+        }
         case OP.TLOAD: { /* a host-loaded table cell; `cells` is the program's cell space: an array, or (index) -> value */
           const base = imm & 0xffffffffn, size = imm >> 32n;
           const at = (i) => (typeof cells === "function" ? cells(i) : cells?.[i]) ?? 0;

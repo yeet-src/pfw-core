@@ -278,6 +278,19 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Notes:** exact (no false positives); host-loaded; reference models via
   `opts.hashset`.
 
+### 71 — `OP_KVGET` (`kvget [$DEFAULT]`)
+
+- **Assembler:** `kvget`, `kvget $9` — **pfw-C:** `lookup(key)`, `lookup(key) ?? 9`
+- **Encoding:** code = 71; `reg` unused; `imm` = the value an absent key yields.
+- **Operation:** `cur ← kv[cur]` when the 64-bit key is present; otherwise
+  `cur ← imm` and `FF` is set.
+- **Flags:** `FF` on an absent key; `ZF`/`CF` untouched. A key stored with the
+  value 0 reads 0 *without* a fault, which is how `jf` tells the two apart.
+- **Maps:** `kv` (`BPF_MAP_TYPE_HASH`, u64 → u64, 16384 entries).
+- **Example:** `let tenant = lookup(key_hash); if (tenant == 0) decide rst("unknown_key", 0);`
+- **Notes:** host-loaded and shared by both generations, like `hashset`: it is
+  the host's data, not the program's. The reference models it via `opts.kv`.
+
 ### 48 — `OP_BLOOM` (`bloom`)
 
 - **Assembler:** `bloom` (tests `%cur`) — **pfw-C:** `x in bloom`

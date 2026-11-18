@@ -27,6 +27,7 @@
 #define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
 #define TABLE_CELLS  131072 /* u64 cells of host-loaded lookup tables per generation (`NAME[i]`); a
                             * power of two, and past 65537 so a full-size Maglev table fits */
+#define KV_MAX       16384 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
 #define NAT_MAX      16384 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
 #define SRC_MAX      65536 /* sources tracked for per-source state (the `sources` map, LRU) */
 #define SCOPE_FLOW   0    /* state ops act on this connection (flow.state / flow.count / rate) */
@@ -194,6 +195,7 @@ enum pfw_opcode {
     OP_FHASH,   /* cur = a 32-bit hash of the packet's addresses, ports and protocol */
     OP_EMIT,    /* send the pushed fargs to the host as a typed event: imm = event id */
     OP_TLOAD,   /* cur = tables[base + cur] if cur < size, else 0 and fault; imm = base (low 32) | size (high 32) */
+    OP_KVGET,   /* cur = kv[cur] if the key is present, else imm and fault */
     OP_COUNT_OPCODES,
 };
 

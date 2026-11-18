@@ -130,6 +130,7 @@ export class Builder {
   dnatCur() { return this.op(OP.DNAT, 1); } // the target is %cur: ip low 32, port bits 32..47; ip 0 steers nothing
   lpm() { return this.op(OP.LPM); } // ZF = %cur is in the lpm CIDR set
   hash() { return this.op(OP.HASH); } // ZF = %cur is a key in the hashset
+  kvget(def = 0n) { return this.op(OP.KVGET, 0, BigInt(def)); } // cur = kv[cur], or `def` (and a fault) when the key is absent
   bloom() { return this.op(OP.BLOOM); } // ZF = %cur is (probably) in the bloom filter
   lpm6() { return this.op(OP.LPM6); } // ZF = the IPv6 source is in the lpm6 CIDR set
   redirect(ifindex) { return this.op(OP.REDIRECT, 0, BigInt(ifindex >>> 0)); } // forward the packet out ifindex (XDP_REDIRECT)
