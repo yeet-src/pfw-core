@@ -34,7 +34,7 @@
     "test:node": "node test/node/check-isa.mjs && node test/node/examples.mjs && node test/node/examples-behavior.mjs",
     "test:verify": "yeet run scripts/verify-load.mjs",
     "test:kernel": "node test/kernel/diff.mjs",
-    "gen:huff": "node src/huffman/index.js",
+    "gen:huff": "node scripts/gen-huff.mjs",
     "bpf": "make bpf",
     "package": "make package",
     "test:rewrite": "node test/kernel/rewrite.mjs",

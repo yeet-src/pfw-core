@@ -24,7 +24,7 @@ PKG_ROLLING ?= no
 package: bpf | toolchain
 	node build/package.mjs "$(ESBUILD)" $(PKG_ROLLING)
 
-# Regenerate bpf/include/huff_table.h from the RFC 7541 table in src/huffman.js.
+# Regenerate bpf/include/huff_table.h from the RFC 7541 table in src/huffman/table.js.
 .PHONY: gen-huff
 gen-huff:
-	node src/huffman.js
+	node scripts/gen-huff.mjs
