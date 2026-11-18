@@ -130,7 +130,9 @@ if (recent > 3000) { if (flow.state == 1) decide rst("bulk_exfil", 0); flow.stat
 - `name = expr;` — reassign an existing local, or write a **writable register**
   (`sp`/`bp`/`rv`/`a0`…`a6`).
 - `mask name = scan(...);` — name a scan result (§4).
-- `ptr name = payload | after(...) | find(...);` — name a pointer.
+- `ptr name = expr;` — name a pointer: `payload`, `after(...)`, `find(...)`, or
+  arithmetic on one (`ptr q = payload + 5;`). A pointer is an offset, so the
+  same value arithmetic as `let` applies; `ptr` is what `skip` asks for.
 
 ### Bounded repetition
 

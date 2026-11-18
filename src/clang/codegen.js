@@ -423,7 +423,7 @@ export function codegen(ast) {
       case "frame": return frameLower(s);
       case "decl": {
         if (s.type === "mask") { if (!isScan(s.init)) die("a mask is assigned from scan(...) or within(...)", s.line); doScan(s.init); masks.add(s.name); }
-        else { const reg = allocScratch(s.name, s.line); loadPtr(s.init); bld.movFromCur(reg); }
+        else { const reg = allocScratch(s.name, s.line); materialize(s.init); bld.movFromCur(reg); }
         return;
       }
       case "exprstmt": {

@@ -55,3 +55,11 @@ yeet.test("a malformed '\\x' literal is a compile error, not a crash", async () 
   const r = compile(`filter { ptr z = find(payload, '\\x0', 16); decide pass; }`);
   if (r.ok || !/two hex digits/.test(r.errors[0].text)) throw new Error("want a hex-digits error, got " + JSON.stringify(r.errors));
 });
+
+yeet.test("a ptr is declared from arithmetic, like a let", () => {
+  const s = `pattern v="value"; filter { ptr p = payload + 4; if (starts(p, v)) decide drop("h"); decide pass; }`;
+  eq(v(s, "key=value"), V.DROP, "payload + 4 is the value");
+  eq(v(s, "k=value"), V.PASS, "and only there");
+  const t = `pattern v="value"; filter { ptr e = find(payload, '=', 16) + 1; skip(e, ' '); if (starts(e, v)) decide drop("h"); decide pass; }`;
+  eq(v(t, "key=  value"), V.DROP, "find(...) + 1, then skip, which wants a ptr");
+});
