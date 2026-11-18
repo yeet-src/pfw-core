@@ -150,6 +150,24 @@ Repetition is a **compile-time unroll** (there are no runtime loops):
   Field types: `u8 u16 u32 be16 be24 be32`; `len` required, `type` optional,
   `head` is `1..255`, `MAX` is `1..64`.
 
+  Two things a length field does that a plain integer cannot say:
+
+  - **`len = varint @ OFF`** — seven bits a byte, low bits first, the top bit
+    meaning "one more byte" (MQTT's remaining length, LEB128), up to four bytes.
+    It must be the header's last byte (`OFF = head - 1`); `head` is the header
+    when the length fits in one byte, and `frame.data` moves on a byte for each
+    extra one. A length that does not end within four bytes stops the walk.
+  - **`adjust = N`** (or `-N`) — added to the field's value, for a length that
+    counts more or less than the bytes after the header. A value smaller than
+    what it claims to include stops the walk.
+
+  ```c
+  // MQTT: type byte, then the remaining length as a varint.
+  frame (type = u8 @ 0, len = varint @ 1, head = 2) up to 8 { ... }
+  // Postgres: type byte, then a four-byte length that counts itself.
+  frame (type = u8 @ 0, len = be32 @ 1, adjust = -4, head = 5) up to 8 { ... }
+  ```
+
 ```c
 frame (len = be24 @ 0, type = u8 @ 3, head = 9) up to 8 {
   if (frame.type == 1) {                      // HTTP/2 HEADERS
