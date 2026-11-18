@@ -52,3 +52,24 @@ yeet.test("a program over the instruction budget is a compile error, not a throw
   eq(c.ok, false, "must not compile");
   if (!c.errors[0].text.includes(String(LIMITS.MAX_OPS))) throw new Error("unhelpful error: " + c.errors[0].text);
 });
+
+yeet.test("running out of registers names what holds them, by line", () => {
+  /* One local and two nested frame walks: the local holds one register, the
+   * frames hold the rest. The old message said "all 8 are held by q". */
+  const r = compile(`filter {
+    let q = payload + 2;
+    frame (type = u8 @ 0, len = u8 @ 1, head = 2) up to 2 {
+      frame at (q) (type = u8 @ 0, len = be16 @ 1, head = 3) up to 1 {
+        if (frame.type == 35) decide drop("x");
+      }
+    }
+    decide pass;
+  }`);
+  eq(r.ok, false, "it does not fit");
+  const e = r.errors[0];
+  if (!/too many locals live at once/.test(e.text)) throw new Error("wrong error: " + e.text);
+  if (/^internal/.test(e.text)) throw new Error("it is the program's error, not the compiler's: " + e.text);
+  if (!/1 by your locals \(`q`\)/.test(e.text)) throw new Error("does not count the local: " + e.text);
+  if (!/by the `frame` walk at line 3/.test(e.text) || !/the `frame` walk at line 4 needs a register/.test(e.text)) throw new Error("does not name the frames: " + e.text);
+  eq(e.line, 4, "the error is at the construct that could not be placed");
+});
