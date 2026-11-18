@@ -40,3 +40,18 @@ yeet.test("a ptr initialized from payload is the whole buffer", () => {
   eq(v(s, "GET /"), V.DROP, "starts at 0");
   eq(v(s, "POST /"), V.PASS, "no");
 });
+
+yeet.test("a '\\xNN' character literal is the byte it names", () => {
+  // The name of a prepared statement ends at a zero byte: find it by value.
+  const s = `pattern q="drop"; filter { ptr z = find(payload, '\\x00', 16); let p = z + 1; if (starts(p, q)) decide drop("h"); decide pass; }`;
+  const frame = (text) => Uint8Array.from(text, (ch) => ch.charCodeAt(0));
+  eq(fromC(s).run(frame("stmt\0drop table"), {}, {}).verdict, V.DROP, "'\\x00' finds the zero byte");
+  eq(fromC(s).run(frame("stmt drop table"), {}, {}).verdict, V.PASS, "no zero byte, no match");
+  eq(fromC(`filter { if (dport == '\\x50') decide drop("p80"); decide pass; }`).run(new Uint8Array(8), {}, { dport: 80 }).verdict, V.DROP, "'\\x50' is 80");
+});
+
+yeet.test("a malformed '\\x' literal is a compile error, not a crash", async () => {
+  const { compile } = await import("#/clang");
+  const r = compile(`filter { ptr z = find(payload, '\\x0', 16); decide pass; }`);
+  if (r.ok || !/two hex digits/.test(r.errors[0].text)) throw new Error("want a hex-digits error, got " + JSON.stringify(r.errors));
+});
