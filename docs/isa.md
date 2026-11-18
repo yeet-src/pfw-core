@@ -10,8 +10,8 @@ enums agree.
 Counts, verified against `src/isa.js`:
 
 - **69 opcodes** (`OP_END = 0` … `OP_FHASH = 68`; `OP_COUNT_OPCODES = 69`).
-- **32 physical registers** (indices `0`–`31`, `NREGS = 32`). The host register
-  map has **33 names** because `%src` is an assembler alias for `%saddr`
+- **40 named registers** in a file of 64 (`NREGS = 64`; indices `40`–`63` are
+  padding that reads zero). The host register map has **41 names** because `%src` is an assembler alias for `%saddr`
   (both index 20).
 
 pfw is a **forward-only cursor machine**. A program inspects one packet (or a

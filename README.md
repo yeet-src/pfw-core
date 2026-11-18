@@ -114,7 +114,7 @@ Consequences to design around:
   | scan window | 2048 B | the matcher never reads past it |
   | automaton states | 4096 | across all literal patterns |
   | regex DFA states | 1024 | across all regex patterns |
-  | scratch registers | 8 | locals reuse them by live range |
+  | scratch registers | 16 | locals reuse them by live range |
   | subroutine args | 7 | `%a0..%a6`, result in `%rv` |
   | data stack depth | 64 | `push`/`pop`, `call`/`ret` |
   | rules | 64 | named verdicts, per program |

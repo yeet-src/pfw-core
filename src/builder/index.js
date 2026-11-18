@@ -11,7 +11,7 @@
  *   const { program, patterns, rules, listing, errors } = b.finalize();
  *
  * Register operands may be a physical register index or a virtual register from
- * b.vreg() (for compiler locals); finalize() maps the virtuals onto the eight
+ * b.vreg() (for compiler locals); finalize() maps the virtuals onto the sixteen
  * scratch registers by live range. Jumps take a label name, resolved (forward
  * only) at finalize. Methods throw BuildError on misuse; callers that parse
  * untrusted text (the assembler) catch per line.
@@ -30,11 +30,11 @@ const VREG_BASE = 1 << 20; // reg values >= this are virtual (allocated at final
  * run out, the error says which construct each one belongs to: "held by q"
  * helps nobody when q holds one register and a `frame` walk holds five. */
 const TEMP_KINDS = [
-  [/^__f[erltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
+  [/^__f[eltd]\d/, "`frame` walk"], [/^__seq\d/, "`seq(...)`"], [/^__sw\d/, "`switch`"], [/^__m\d/, "`match`"],
   [/^__cmp\d/, "comparison"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
-const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7];
+const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7, REG.s8, REG.s9, REG.s10, REG.s11, REG.s12, REG.s13, REG.s14, REG.s15];
 
 export class Builder {
   constructor() {
@@ -217,7 +217,7 @@ export class Builder {
    * `fn`). The allocator needs it: see _allocate. */
   fnRegion(from, to) { (this.fnRegions ??= []).push([from, to]); return this; }
 
-  /* Linear-scan allocation of virtual registers onto the 8 scratch registers, by
+  /* Linear-scan allocation of virtual registers onto the scratch registers, by
    * live range (forward-only ISA ⇒ a vreg is live from first to last mention).
    *
    * A live range is a span of op INDICES, and a subroutine's body sits elsewhere

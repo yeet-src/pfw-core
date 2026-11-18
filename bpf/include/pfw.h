@@ -115,10 +115,12 @@ enum pfw_reg {
     R_BP,        /* data-stack base pointer, readable/writable as %bp */
     R_A0, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, /* subroutine argument registers (%a0..%a6) */
     R_RV,        /* subroutine return-value register (%rv) */
+    R_S8, R_S9, R_S10, R_S11, R_S12, R_S13, R_S14, R_S15, /* the second eight scratch registers */
     /* The file is padded to a power of two: pfw_step bounds the index
      * with `& (NREGS - 1)`, which is only a modulo when NREGS is one.
-     * (At 20 the mask was 0b10011 and %dport read as %payload.) */
-    NREGS = 32,
+     * (At 20 the mask was 0b10011 and %dport read as %payload.) 40 are
+     * named; 40..63 read as zero and are not for programs to use. */
+    NREGS = 64,
 };
 
 enum pfw_opcode {

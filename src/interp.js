@@ -11,7 +11,7 @@
  * ring { ring, ringHead, ringCount } — so a multi-packet test threads the
  * returned flow back in. Only the ops the tests exercise are modelled; an
  * unmodelled op throws rather than silently passing. */
-import { OP, REG } from "#/isa.js";
+import { NREGS, OP, REG } from "#/isa.js";
 
 const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
 const RL_SCALE = 1_000_000; /* OP_RATE fixed-point, mirrors RL_SCALE in pfw.h */
@@ -50,7 +50,7 @@ export function machine({ asm, tables, regex = null }) {
     const hashset = new Set(hashArr.map((v) => BigInt(v) & 0xffffffffn));
     const bloom = new Set(bloomArr.map((v) => BigInt(v) & 0xffffffffn));
     const end = frame.length;
-    const r = new Array(32).fill(0n);
+    const r = new Array(NREGS).fill(0n);
     r[REG.payload] = BigInt(payload); r[REG.end] = BigInt(end); r[REG.proto] = BigInt(proto);
     r[REG.dport] = BigInt(dport); r[REG.sport] = BigInt(sport); r[REG.cur] = BigInt(payload); r[REG.len] = BigInt(end > payload ? end - payload : 0);
     r[REG.saddr] = BigInt(saddr) & 0xffffffffn; /* IPv4 source, host order */
@@ -98,7 +98,7 @@ export function machine({ asm, tables, regex = null }) {
     };
     for (let i = 0; i < MAX_OPS && !verdict && pc < ops.length; i++) {
       const { code, reg: rawReg, imm } = ops[pc];
-      const reg = rawReg & 31; /* a register index, masked & (NREGS - 1) as the kernel does; ops that pack something else into reg read rawReg */
+      const reg = rawReg & (NREGS - 1); /* a register index, masked & (NREGS - 1) as the kernel does; ops that pack something else into reg read rawReg */
       let cur = r[REG.cur], next = pc + 1;
       const jump = (take) => {
         if (!take) return;

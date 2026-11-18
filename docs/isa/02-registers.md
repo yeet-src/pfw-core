@@ -1,7 +1,8 @@
 # 2. Registers
 
-32 registers (`NREGS = 32`), 64-bit each, in `st->r[]`. The index is masked
-`& (NREGS - 1)`, so `NREGS` must stay a power of two. Read with `mov %reg, %cur`
+40 registers, 64-bit each, in a file of 64 (`st->r[]`, `NREGS = 64`). The index
+is masked `& (NREGS - 1)`, so `NREGS` must stay a power of two; indices 40–63
+are padding that reads zero. Read with `mov %reg, %cur`
 (`MOV_RC`); write with `mov %cur, %reg` (`MOV_CR`, which ignores a write to
 `%cur`).
 
@@ -27,6 +28,7 @@
 | 23 | `%bp` | data-stack base pointer (frame marker) | program, writable |
 | 24–30 | `%a0`–`%a6` | subroutine argument registers | caller |
 | 31 | `%rv` | subroutine return-value register | callee |
+| 32–39 | `%s8`–`%s15` | more scratch / `let` locals | program |
 
 Notes:
 
@@ -34,7 +36,7 @@ Notes:
 - At entry, `%cur` is initialised to `%payload`. In reassembly mode `%payload`,
   `%cur` are 0 and `%end`/`%len` span the reassembled prefix.
 - Every register is physically writable via `MOV_CR` (except `%cur`, which takes
-  op results); by convention a program writes only `%s0`–`%s7`, `%sp`/`%bp`,
+  op results); by convention a program writes only `%s0`–`%s15`, `%sp`/`%bp`,
   `%a0`–`%a6`, `%rv`. `%m` is written by `scan`.
 
 ---
