@@ -100,7 +100,7 @@ export class Program {
     const r = this._run(buf, payload, { ac: 0, mask: 0n, ...flow }, { proto, dport, sport: opts.sport ?? 0, saddr, daddr, set, hashset: opts.hashset ?? [], bloom: opts.bloom ?? [],
       src6: opts.src6 != null ? ip6ToBig(opts.src6) : 0n, set6: (opts.set6 ?? []).map(cidr6NetMask),
       bucket: opts.bucket, source: opts.source ?? null, now: opts.now ?? 0n, argv: opts.argv ?? [], shadow: !!opts.shadow,
-      cells: this._cells(opts.tables),
+      cells: this._cells(opts.tables), kv: opts.kv ?? null,
       knobs: this.knobs.map((name, slot) => opts.knobs?.[name] ?? this.knobDefaults[slot] ?? 0),
       knobStrs: this.knobStrs.map((name) => opts.knobStrs?.[name] ?? "") });
     const consoleOut = (r.consoleMsgs ?? []).map((m) => formatMsg(this.consoleFormats[m.fmtid] ?? "", m.nums, m.strs));

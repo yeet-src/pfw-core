@@ -15,6 +15,7 @@
 | `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
 | `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 32`) |
 | `tables` | ARRAY (2 × 131072) | u32 → u64 | host-loaded lookup tables (`NAME[i]`), one half per generation; key = `gen * TABLE_CELLS + base + index` |
+| `kv` | HASH (16384) | u64 → u64 | the host-loaded key → value map (`lookup(key)`) |
 | `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 16`) |
 | `sources` | LRU_HASH | `src_key` → `source` | per-source state and the source ban (`SRC_MAX = 65536`) |
 | `nat` | LRU_HASH | `nat_key` → `nat_val` | reply path of `dnat`: reply tuple → original destination (`NAT_MAX = 16384`) |

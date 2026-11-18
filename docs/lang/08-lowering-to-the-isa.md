@@ -26,6 +26,7 @@ Each construct lowers to ISA ops through the `Builder`; op names below are the
 | `console` / `printk` | `FARG`/`FARGS` + `CONSOLE` / `PRINTK` |
 | `emit("name", v…)` | `FARG` per value + `EMIT` |
 | `NAME[i]` (a `table`) | the index, then `TLOAD base, size` |
+| `lookup(k) ?? d` | the key, then `KVGET d` |
 | `u8(p)` … `be64(p)` | the pointer, then `LOAD` (0 past the end) |
 | `*` `%` / `flow.hash` | `MUL_I`/`MUL_R`, `MOD_I`/`MOD_R` / `FHASH` |
 | `dnat`/`rate` with a computed argument | the packed operand in `%cur`, then `DNAT`/`RATE` with its flag bit |

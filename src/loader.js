@@ -42,7 +42,7 @@ const MAPS = {
   knobs: { kind: "array" }, knob_strs: { kind: "array" }, tables: { kind: "array" },
   counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
-  hashset: { kind: "hash" }, bloom: { kind: "bloom_filter" },
+  hashset: { kind: "hash" }, kv: { kind: "hash" }, bloom: { kind: "bloom_filter" },
   "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" },
 };
 
@@ -328,6 +328,20 @@ export class PfwVm {
   /** `x in hash`: add or remove u32 members. */
   async addHash(values) { const h = new HashMap(this._need("addHash"), "hashset"); for (const v of [].concat(values)) await h.update(Number(v) >>> 0, 1); }
   async removeHash(values) { const h = new HashMap(this._need("removeHash"), "hashset"); for (const v of [].concat(values)) await h.delete(Number(v) >>> 0); }
+
+  /** `lookup(key)`: store values under 64-bit keys. `entries` is a Map, an array
+   *  of [key, value] pairs, or a plain object. Shared by every program, like
+   *  the sets: it is the host's data, and outlives an apply(). */
+  async setKv(entries) {
+    const h = new HashMap(this._need("setKv"), "kv");
+    const pairs = entries instanceof Map || Array.isArray(entries) ? [...entries] : Object.entries(entries ?? {});
+    for (const [k, v] of pairs) await h.update(BigInt(k), BigInt(v));
+  }
+  /** Remove keys from the `lookup` map; a key that is not there is not an error. */
+  async deleteKv(keys) {
+    const h = new HashMap(this._need("deleteKv"), "kv");
+    for (const k of [].concat(keys)) { try { await h.delete(BigInt(k)); } catch { /* it was not there */ } }
+  }
 
   /** `x in bloom`: add u32 members (a Bloom filter cannot forget). */
   async addBloom(values) { const b = new BloomFilter(this._need("addBloom"), "bloom"); for (const v of [].concat(values)) await b.insert(Number(v) >>> 0); }

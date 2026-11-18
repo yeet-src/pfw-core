@@ -309,6 +309,7 @@ export function codegen(ast) {
     if (e.kind === "ringget") { materialize(e.idx); return bld.rget(); }
     if (e.kind === "framefield") return bld.movToCur(frameReg(e.field, e.line));
     if (e.kind === "read") return readField(e);
+    if (e.kind === "kvget") { materialize(e.key); return bld.kvget(e.def ? immVal(e.def) : 0n); }
     if (e.kind === "tableget") { const t = tableLayout.get(e.name); materialize(e.idx); return bld.tload(t.base, t.size); }
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
@@ -353,7 +354,7 @@ export function codegen(ast) {
       const right = allocScratch(`__ar${nTmp++}`, e.line);
       bld.movFromCur(right); bld.movToCur(tmp); return bld[ARITH_R[op]](right);
     }
-    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "flowhash", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget", "kvget"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));

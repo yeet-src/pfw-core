@@ -181,5 +181,15 @@ t("tload: with no cells loaded, every cell is 0", { asm: `${li(1)}\ntload $0, $4
 t("tload: touches ZF and CF not at all", { asm: `${li(1)}\ncmp $1, %cur\ntload $4, $4`, ...CELLS, zf: true, cf: false });
 t("tload: the assembler refuses a table outside the cell space", { asm: `tload $131072, $1`, rejects: /cells/ });
 
-t.covers(OP.TLOAD);
+/* ---- 71 KVGET ------------------------------------------------------------- */
+const KV = { opts: { kv: new Map([[5n, 500n], [0xffffffffffffffffn, 7n], [9n, 0n]]) } };
+t("kvget: cur = the value under the key", { asm: `${li(5)}\nkvget`, ...KV, cur: 500, ff: false });
+t("kvget: keys are 64-bit", { asm: `${li(MAX)}\nkvget`, ...KV, cur: 7, ff: false });
+t("kvget: a key that is not there yields 0 and faults", { asm: `${li(6)}\nkvget`, ...KV, cur: 0, ff: true });
+t("kvget: … or the default the op carries", { asm: `${li(6)}\nkvget $77`, ...KV, cur: 77, ff: true });
+t("kvget: a present key with value 0 is 0 without a fault", { asm: `${li(9)}\nkvget $77`, ...KV, cur: 0, ff: false });
+t("kvget: with an empty map every key is absent", { asm: `${li(5)}\nkvget $3`, cur: 3, ff: true });
+t("kvget: touches ZF and CF not at all", { asm: `${li(5)}\ncmp $5, %cur\nkvget`, ...KV, zf: true, cf: false });
+
+t.covers(OP.TLOAD, OP.KVGET);
 t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS, OP.EMIT);
