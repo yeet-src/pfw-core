@@ -49,7 +49,13 @@ export function lex(src) {
     if (c === "'") {
       let j = i + 1;
       let raw = "";
-      if (src[j] === "\\") {
+      if (src[j] === "\\" && src[j + 1] === "x") {
+        /* '\xNN': a byte by its hex value, as a string literal spells it. */
+        const hex = src.slice(j + 2, j + 4);
+        if (!/^[0-9a-fA-F]{2}$/.test(hex)) throw new CError("a '\\x' character literal takes two hex digits, like '\\x1f'", line);
+        raw = "\\x" + hex;
+        j += 4;
+      } else if (src[j] === "\\") {
         raw = src[j] + (src[j + 1] ?? "");
         j += 2;
       } else {
