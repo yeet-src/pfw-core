@@ -40,7 +40,7 @@
 #define RW_MAX       4    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
-#define PFW_NRULES   64   /* rule ids: counters[rule] */
+#define PFW_NRULES   1024   /* rule ids: counters[rule] */
 #define PFW_GENS     2    /* program generations: apply writes the idle one, then flips */
 #define AC_STATES    4096 /* automaton states per generation */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */

@@ -62,7 +62,7 @@
 | scratch registers (locals, by live range) | 16 |
 | subroutine args | 7 (`%a0..%a6`) |
 | data-stack depth | 256 |
-| rules (named verdicts) | 64 |
+| rules (named verdicts) | 1024 |
 | runtime args (`argv`) | 64 |
 | lookup tables / cells in all | 16 / 131072 |
 | `lookup` map entries | 262144 |

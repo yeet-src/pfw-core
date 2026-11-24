@@ -22,9 +22,9 @@
 | `h2conns` | LRU_HASH | `flow_key` → `h2conn` | `decode h2` dynamic tables (`H2_CONNS = 1024`) |
 | `state` | PERCPU_ARRAY (1) | u32 → `pfw_state` | per-CPU execution state |
 | `stack` | PERCPU_ARRAY (1) | u32 → `vmstack` | the data stack |
-| `counters` | PERCPU_ARRAY (64) | u32 → u64 | per-rule counters |
+| `counters` | PERCPU_ARRAY (1024) | u32 → u64 | per-rule counters |
 | `decide_hist` | PERCPU_ARRAY (16) | u32 → u64 | decision-time histogram |
-| `rule_time` | PERCPU_ARRAY (64) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
+| `rule_time` | PERCPU_ARRAY (1024) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
 | `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
 | `samples` | RINGBUF (4 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[2048]) |
