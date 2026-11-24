@@ -172,7 +172,7 @@ if (recent > 3000) { if (flow.state == 1) decide rst("bulk_exfil", 0); flow.stat
 ### Locals and assignment
 
 - `let name = expr;` — a named integer local (held in a scratch register; locals
-  reuse the 16 scratch registers by live range). `expr` is value arithmetic.
+  reuse the 40 scratch registers by live range). `expr` is value arithmetic.
 - `name = expr;` — reassign an existing local, or write a **writable register**
   (`sp`/`bp`/`rv`/`a0`…`a6`).
 - `mask name = scan(...);` — name a scan result (§4).

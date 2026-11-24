@@ -33,7 +33,7 @@ t("mov_rc: the register index is masked to 6 bits", {
 t("mov_rc: an index past the named registers reads zero", { asm: li(7), ops: [[OP.MOV_RC, 63]], cur: 0 });
 
 /* ---- 2 MOV_CR ------------------------------------------------------------- */
-for (const name of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "bp", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "rv"]) {
+for (const name of ["s0", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10", "s11", "s12", "s13", "s14", "s15", "s16", "s27", "s39", "bp", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "rv"]) {
   t(`mov_cr: writes %${name} and nothing else`, {
     asm: li(0x1234), ops: [[OP.MOV_CR, REG[name]]],
     cur: 0x1234, regs: { [name]: 0x1234, [name === "s0" ? "s1" : "s0"]: 0 },
