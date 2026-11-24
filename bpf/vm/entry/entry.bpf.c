@@ -66,12 +66,65 @@ int pfw_match(struct xdp_md *ctx)
     return match_half(ctx, &p, prog, f, st, now, &key, keyed, 1, st->view, 0);
 }
 
-/* The entry, twice over. pfw_xdp is on the interface: it runs the first
- * program if there is one, and otherwise dispatches. pfw_dispatch is where the
- * first program sends a packet it passed: it only ever dispatches. They are
- * two programs because the first one's pass is a tail call, and one program
- * cannot be both on the interface and in the program array. */
-static __always_inline int entry(struct xdp_md *ctx, const __u32 second)
+/* The slot of the program a packet is dispatched to: the most specific route
+ * that claims it (the order is with struct route_key), else the default. Only
+ * the shapes of route the host has installed are looked up. */
+static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, __u32 ifindex)
+{
+    __u32 shapes = route_shapes;
+    __u32 *s;
+    if (shapes & (RS_DST_PORT | RS_DST)) {
+        struct dst_key *dk = &st->x_dk;
+        dk->prefixlen = 32 + 128;
+        dk->data[0] = p->family;
+        __builtin_memcpy(dk->data + 4, p->daddr, 16);
+        if (shapes & RS_DST_PORT) {
+            dk->data[1] = p->proto;
+            dk->data[2] = (__u8) (p->dport >> 8);
+            dk->data[3] = (__u8) p->dport;
+            s = bpf_map_lookup_elem(&dispatch_dst, dk);
+            if (s)
+                return *s;
+        }
+        if (shapes & RS_DST) {
+            dk->data[1] = 0;
+            dk->data[2] = 0;
+            dk->data[3] = 0;
+            s = bpf_map_lookup_elem(&dispatch_dst, dk);
+            if (s)
+                return *s;
+        }
+    }
+    struct route_key *rk = &st->x_rk;
+#define ROUTE_TRY(sh) \
+    if (shapes & (1u << (sh))) { \
+        rk->shape = (sh); \
+        rk->ifindex = ((sh) & 1) ? ifindex : 0; \
+        rk->proto = ((sh) & 2) ? p->proto : 0; \
+        rk->dport = ((sh) & 4) ? p->dport : 0; \
+        s = bpf_map_lookup_elem(&dispatch, rk); \
+        if (s) \
+            return *s; \
+    }
+    ROUTE_TRY(7) ROUTE_TRY(6) ROUTE_TRY(3) ROUTE_TRY(2) ROUTE_TRY(1)
+#undef ROUTE_TRY
+    return default_slot;
+}
+
+/* The entry, three times over, from one body:
+ *
+ *   pfw_xdp       on the interface. Runs the first stage if there is a chain,
+ *                 and otherwise dispatches.
+ *   pfw_stage     where a stage sends a packet it passed when another stage
+ *                 follows: runs that one.
+ *   pfw_dispatch  where the last stage sends a packet it passed: dispatches.
+ *
+ * They are separate programs because a stage's pass is a tail call, and one
+ * program cannot be both on the interface and in the program array. */
+#define ENTRY_IFACE    0
+#define ENTRY_STAGE    1
+#define ENTRY_DISPATCH 2
+static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
 {
     struct pkt p = {};
     if (!parse(ctx, &p)) {
@@ -84,35 +137,35 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 second)
         passed++;
         return XDP_PASS;
     }
-    if (!second)
+    if (mode == ENTRY_IFACE) {
         seen++;
+        /* A standing source ban drops everything from that address, on any port
+         * or protocol, before any program is chosen: it holds with no program
+         * at all (clear()), and under whichever one the packet would have run. */
+        if (src_banned(&p)) {
+            src_enforced++;
+            if (shadow) { shadowed++; passed++; return XDP_PASS; }
+            dropped++;
+            return XDP_DROP;
+        }
+    }
 
-    /* The program for this packet: the first program if there is one and the
-     * packet has not been through it, else the one its protocol and destination
-     * port are routed to, else the default. */
+    /* The program for this packet: a stage, if the packet has not been through
+     * the chain yet; else the one it is dispatched to. */
     __u32 slot = 0, first = 0;
     struct pfw_prog *prog = NULL;
-    if (first_on && !second) {
-        slot = first_slot & (PFW_PROGS - 1);
+    if (mode != ENTRY_DISPATCH && (mode == ENTRY_STAGE || first_on)) {
+        slot = (mode == ENTRY_STAGE ? st->stage_slot : first_slot) & (PFW_PROGS - 1);
         prog = bpf_map_lookup_elem(&programs, &slot);
         first = prog && prog->nops != 0;
     }
     if (!first) {
-        struct route_key rk = { .dport = p.dport, .proto = p.proto };
-        __u32 *routed = bpf_map_lookup_elem(&dispatch, &rk);
-        slot = (routed ? *routed : default_slot) & (PFW_PROGS - 1);
+        slot = dispatch_slot(st, &p, ctx->ingress_ifindex) & (PFW_PROGS - 1);
         prog = bpf_map_lookup_elem(&programs, &slot);
     }
-    if (!prog || prog->nops == 0)
+    if (!prog || prog->nops == 0) {
+        passed++;
         return XDP_PASS;
-
-    /* A standing source ban drops everything from that address, on any port or
-     * protocol, before any per-flow work. */
-    if (src_banned(&p)) {
-        src_enforced++;
-        if (shadow) { shadowed++; passed++; return XDP_PASS; }
-        dropped++;
-        return XDP_DROP;
     }
 
     /* The reply half of a connection `dnat` diverted: put the address the client
@@ -303,11 +356,17 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 second)
 SEC("xdp")
 int pfw_xdp(struct xdp_md *ctx)
 {
-    return entry(ctx, 0);
+    return entry(ctx, ENTRY_IFACE);
+}
+
+SEC("xdp")
+int pfw_stage(struct xdp_md *ctx)
+{
+    return entry(ctx, ENTRY_STAGE);
 }
 
 SEC("xdp")
 int pfw_dispatch(struct xdp_md *ctx)
 {
-    return entry(ctx, 1);
+    return entry(ctx, ENTRY_DISPATCH);
 }

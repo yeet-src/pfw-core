@@ -35,6 +35,7 @@ struct pfw_prog {
     __u32 reasm, reasm_dport, decode, transform_table;
     __u32 argc, re_ngroups;
     __u32 ops_base, ac_base, re_base, tbl_base, rule_base;   // its share of each pool
+    __u32 next_on, next_slot;            // a stage program: the stage after it
     __u64 args[PFW_ARGC];
     __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
     __u32 re_start[RE_GROUPS];           // each regex DFA's start state

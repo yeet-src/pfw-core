@@ -43,7 +43,7 @@
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
 #define PFW_NRULES   1024   /* rule ids: counters[rule] */
-#define PFW_PROGS    16   /* program slots: `dispatch` sends a packet to one, or to `default_slot`; a power of two */
+#define PFW_PROGS    64   /* program slots: `dispatch` sends a packet to one, or to `default_slot`; a power of two */
 #define PFW_GENS     2    /* every pool below is this many times one program's ceiling, so the
                            * largest program and its replacement fit side by side */
 #define OPS_POOL     (PFW_GENS * PFW_MAX_OPS)   /* instructions, all programs */
@@ -257,6 +257,11 @@ struct pfw_prog {
     __u32 re_base;         /* re_goto / re_accept: its state s is re_base + s */
     __u32 tbl_base;        /* `tables`: its cell i is tbl_base + i */
     __u32 rule_base;       /* counters / rule_time: its rule r is rule_base + r */
+    /* A stage program — one a packet runs before the one it is dispatched to —
+     * names the stage after it. The last stage names none, and its pass
+     * dispatches. */
+    __u32 next_on;         /* 1 = another stage follows */
+    __u32 next_slot;       /* its slot */
     __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
     __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
     __u32 re_start[RE_GROUPS];         /* the start state of each regex DFA: where a scan begins it */
