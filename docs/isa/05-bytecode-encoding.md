@@ -35,7 +35,7 @@ struct pfw_prog {
     __u32 reasm, reasm_dport, decode, transform_table;
     __u32 argc;  __u64 args[PFW_ARGC];
     __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
-    struct pfw_op  ops[PFW_MAX_OPS];     // 8192
+    struct pfw_op  ops[PFW_MAX_OPS];     // 65536
     struct pfw_pat pats[PFW_MAX_PATS];   // 64 × {u32 len; u8 bytes[64]}
 };
 ```

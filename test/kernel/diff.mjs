@@ -87,6 +87,10 @@ const CASES = [
     sends: [["lowercase gptbot", enc("x gptbot x")], ["MiXeD GpTbOt", enc("y GpTbOt y")], ["no bot", enc("plain text")]] },
   { name: "dport guard → pass", source: `pattern bot = "GPTBot";\nfilter { if (dport != 1) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["wrong-port rule", enc("GPTBot but rule targets :1")]] },
+  // 16384 additions before the verdict: several times the 8192 instructions a
+  // program could once hold, and every one of them has to run to reach it.
+  { name: "a long program → rst", source: `filter { if (dport != ${PORT}) decide pass; let x = 0; repeat (1024) { repeat (16) { x = x + 1; } } if (x == 16384) { log(16); decide rst("long", 0); } decide pass; }`,
+    sends: [["every instruction runs", enc("anything")]] },
 ];
 
 let fail = 0, n = 0;

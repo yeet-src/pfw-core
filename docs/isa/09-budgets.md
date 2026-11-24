@@ -4,7 +4,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 
 | limit | value | |
 |---|---|---|
-| instructions (`MAX_OPS`) | 8192 | per program; also the step ceiling |
+| instructions (`MAX_OPS`) | 65536 | per program; also the step ceiling |
 | patterns (`MAX_PATS`) | 64 | one bit each in `%m` |
 | pattern length (`PAT_CAP`) | 64 B | |
 | scan window (`SCAN_CAP`) | 2048 B | and the `findb` window |

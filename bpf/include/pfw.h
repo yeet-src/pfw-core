@@ -5,7 +5,7 @@
 #ifndef PFW_H
 #define PFW_H
 
-#define PFW_MAX_OPS  8192 /* instructions per program */
+#define PFW_MAX_OPS  65536 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
 #define LPM_MAX      65536 /* max prefixes in the `src in set` CIDR trie (lpm) */

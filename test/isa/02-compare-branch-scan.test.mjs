@@ -1,5 +1,6 @@
 /* ISA conformance — compare, branch, and the match engine.
  * Spec: docs/isa/instructions/02-compare-branch-and-scan.md, docs/isa/01-machine-model.md. */
+import { LIMITS } from "#/isa.js";
 import { isa, li, OP, V } from "./harness.mjs";
 
 const t = isa("cmp/branch/scan");
@@ -70,7 +71,7 @@ t("forward-only: a taken backward jump aborts with pass", { ops: [[OP.AND_I], [O
 t("forward-only: a taken jump to itself aborts with pass", { ops: [[OP.JMP, 0, (pc) => pc], [OP.DROP, 1]], verdict: V.PASS });
 t("forward-only: a taken conditional backward jump aborts with pass", { ops: [[OP.CMP_I, 0, 0], [OP.JE, 0, 0], [OP.DROP, 1]], payload: 0, verdict: V.PASS });
 t("forward-only: a backward target is harmless when not taken", { ops: [[OP.CMP_I, 0, 1], [OP.JE, 0, 0], [OP.DROP, 1]], payload: 0, verdict: V.DROP, rule: 1 });
-t("forward-only: a target past MAX_OPS aborts with pass", { ops: [[OP.JMP, 0, 8193], [OP.DROP, 1]], verdict: V.PASS });
+t("forward-only: a target past MAX_OPS aborts with pass", { ops: [[OP.JMP, 0, LIMITS.MAX_OPS + 1], [OP.DROP, 1]], verdict: V.PASS });
 t("forward-only: a target past the program's end runs off it — pass", { ops: [[OP.JMP, 0, 100], [OP.DROP, 1]], verdict: V.PASS });
 t("forward-only: the assembler rejects a backward label", { asm: `l: and $0, %cur\njmp l`, rejects: /jumps go forward only/ });
 
