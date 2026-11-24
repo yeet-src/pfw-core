@@ -329,6 +329,26 @@ PFW_LINK struct {
     __type(value, struct knob_str);
 } knob_strs SEC(".maps");
 
+/* A NAT rewrite's request, and the values it works with: all of it in the
+ * per-CPU state, and none on the stack of the functions that do it (see
+ * nat_rewrite). */
+struct nat_rw {
+    __u32 l3, l4, proto;
+    __be32 ip;    /* the new address */
+    __be16 port;  /* the new port */
+    __u16 src;    /* 1 = rewrite the source endpoint, 0 = the destination */
+};
+struct nat_scratch {
+    struct nat_rw a;
+    struct nat_key k;
+    struct nat_val v;
+    __be32 oip, nip;   /* the address as it was, and as it will be */
+    __be32 o32, n32;   /* the ports, widened for bpf_csum_diff */
+    __be16 opt, npt;   /* the port as it was, and as it will be */
+    __u16 ck;
+    __u8 ver;
+};
+
 struct pfw_state {
     __u64 r[NREGS];
     /* The program this packet runs, chosen by the entry and read by every stage
@@ -341,6 +361,7 @@ struct pfw_state {
     __u32 seg_more;
     __u32 seg_off;
     struct flow_key x_fk;   /* the entry's flow key */
+    struct nat_scratch x_nat;
     struct stage_key x_sk;  /* the key of a stage's per-connection state, built here for the same reason */
     /* The dispatch keys, built here and not on the entry's stack, which is full. */
     struct route_key x_rk;
@@ -435,6 +456,8 @@ struct pfw_state {
     __u32 pring_count;
     /* Scratch a step hands to its inner bpf_loop (see struct pfw_ctx). */
     __u32 x_scan_off; /* frame offset of buf[0] during a scan */
+    __u32 x_kn;       /* knobhas: bytes of the window loaded */
+    __u32 x_kfound;   /* knobhas: the needle was found */
     __u32 x_scan_len;
     __u32 x_byte;     /* findb / skipb: the byte wanted */
     __u32 x_pat;      /* cmpstr: the pattern index */

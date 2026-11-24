@@ -48,12 +48,16 @@ static __noinline int do_rate(struct pfw_state *st, __u64 now, __u64 imm, __u32 
  * position for the needle (knob_strs[slot], length L<=KNOBSTR_CAP) with an
  * unrolled, length-masked compare. __noinline so it keeps its own stack frame.
  * Returns 1 if found. Non-reasm (reads the packet). */
-struct khas_ctx { struct pfw_state *st; const struct knob_str *ns; __u32 n; __u32 found; };
+/* The window's length and the result ride in the per-CPU state (x_kn,
+ * x_kfound), not here: this frame is one of a chain the verifier adds up, a
+ * frame at a time and each rounded up to 32 bytes on kernels before 6.8, and
+ * the chain has to come in under 512. */
+struct khas_ctx { struct pfw_state *st; const struct knob_str *ns; };
 static long khas_step(__u32 i, void *ctx_)
 {
     struct khas_ctx *c = ctx_;
     __u32 L = c->ns->len;
-    if (i + L > c->n)
+    if (i + L > c->st->x_kn)
         return 1;                        /* no room for the needle from here on */
     int eq = 1;
 #pragma unroll
@@ -61,7 +65,7 @@ static long khas_step(__u32 i, void *ctx_)
         if ((__u32) j >= L) break;
         if (c->st->kbuf[(i + j) & (KNOB_SCAN - 1)] != c->ns->b[j & (KNOBSTR_CAP - 1)]) { eq = 0; break; }
     }
-    if (eq) { c->found = 1; return 1; }
+    if (eq) { c->st->x_kfound = 1; return 1; }
     return 0;
 }
 static __noinline int do_knobhas(struct pfw_ctx *pc, __u32 slot)
@@ -81,9 +85,11 @@ static __noinline int do_knobhas(struct pfw_ctx *pc, __u32 slot)
     __u32 ln = ((n - 1) & (KNOB_SCAN - 1)) + 1;   /* [1, KNOB_SCAN] for the load */
     if (bpf_xdp_load_bytes(pc->xdp, off, st->kbuf, ln))
         return 0;
-    struct khas_ctx c = { .st = st, .ns = ns, .n = n, .found = 0 };
+    struct khas_ctx c = { .st = st, .ns = ns };
+    st->x_kn = n;
+    st->x_kfound = 0;
     bpf_loop(n, khas_step, &c, 0);
-    return c.found;
+    return st->x_kfound;
 }
 
 /* The flow hash (OP_FHASH): the two addresses, folded to 32 bits each at the
