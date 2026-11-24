@@ -123,10 +123,11 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
 - **Assembler:** `rst $rule, $ttl` — **pfw-C:** `decide rst("rule", ttl);`
 - **Encoding:** code = 30; `reg` = rule id; `imm` = TTL seconds.
 - **Operation:** `st->verdict = V_RST; st->rule = reg; st->ttl = imm; st->set_mark
-  = MARK_RST`. Terminal. `finish()`: `count_rule; bans++`; for an IPv4 TCP packet
+  = MARK_RST`. Terminal. `finish()`: `count_rule`; for an IPv4 TCP packet
   it calls `send_rst()`, which rewrites the frame in place into a TCP RST and
-  returns `XDP_TX` (bounced back to the sender); otherwise it falls back to
-  `XDP_DROP`. The `MARK_RST` flow mark makes the fast path reset later packets too.
+  returns `XDP_TX` (bounced back to the sender, counted in `rsts`); otherwise
+  it falls back to `XDP_DROP` (counted in `dropped`). It does not count in
+  `bans`: nothing is banned. The `MARK_RST` flow mark makes the fast path reset later packets too.
 - **Flags:** none.
 - **Maps:** `flows`, `counters`.
 - **Example:** `decide rst("crawler", 60);`

@@ -57,6 +57,7 @@
     "test:source": "node test/kernel/source.mjs",
     "test:nat": "node test/kernel/nat.mjs",
     "test:reasm": "node test/kernel/reasm.mjs",
+    "test:counters": "node test/kernel/counters.mjs",
     "test:h2": "node test/kernel/h2.mjs",
     "test:examples-kernel": "node test/kernel/examples.mjs",
     "test:loader": "node test/kernel/loader.mjs",
