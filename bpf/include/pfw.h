@@ -5,7 +5,7 @@
 #ifndef PFW_H
 #define PFW_H
 
-#define PFW_MAX_OPS  65536 /* instructions per program */
+#define PFW_MAX_OPS  8192 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  256   /* bytes per pattern */
 #define SKIP_CAP     64   /* bytes a skipb passes over when given no cap, or one above this */

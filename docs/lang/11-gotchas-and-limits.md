@@ -57,7 +57,7 @@
 
 | limit | value |
 |---|---|
-| instructions / program | 65536 |
+| instructions / program | 8192 |
 | patterns (`scan` matches all at once) | 64 |
 | pattern length | 256 B |
 | scan window | 4096 B |

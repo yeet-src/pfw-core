@@ -37,7 +37,7 @@ export const NREGS = 64; // the register file, a power of two: indices are maske
 export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [v, k]));
 
 export const LIMITS = {
-  MAX_OPS: 65536, MAX_PATS: 64, PAT_CAP: 256, NRULES: 1024, GENS: 2,
+  MAX_OPS: 8192, MAX_PATS: 64, PAT_CAP: 256, NRULES: 1024, GENS: 2,
   AC_STATES: 16384, SCAN_CAP: 4096, REASM_CAP: 4096, LOG_CAP: 256, RE_STATES: 32768, ARGC: 64, FARGS: 8, FSTR: 2, STRARG: 256,
   FLOW_REGS: 4, SAMPLE_CAP: 4096, SAMPLE_TAGS: 64,
   TABLE_CELLS: 131072, TABLES: 16, KV_MAX: 262144,

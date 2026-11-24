@@ -333,7 +333,7 @@ depth is `STACK_CAP = 256`.
 - **Operation:** pop the data stack into the program counter (`sp--; pc =
   stack[sp]`). This is the **one place control flows backward at run time** — to
   the return address — and it stays safe only because the interpreter's overall
-  step budget (the `bpf_loop` cap, 65536) bounds total execution; there is no
+  step budget (the `bpf_loop` cap, 8192) bounds total execution; there is no
   backward *label* jump.
 - **Flags/Maps:** none / `stack`.
 - **Calling convention:** arguments are passed in registers `%a0..%a6` (up to 7),
