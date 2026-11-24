@@ -13,7 +13,7 @@
 #define HASH_MAX     262144 /* max keys in the `x in hash` exact set (hashset) */
 #define BLOOM_MAX    1048576 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
-#define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
+#define RE_STATES    8192 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define PFW_ARGC     64   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define FARGS_MAX    8    /* numeric args a console() or emit() can carry (printk takes 3); a power of two */
 #define FSTR_MAX     2    /* %s string args a call can carry */
@@ -42,7 +42,7 @@
                             * two: the index is masked. */
 #define PFW_NRULES   1024   /* rule ids: counters[rule] */
 #define PFW_GENS     2    /* program generations: apply writes the idle one, then flips */
-#define AC_STATES    4096 /* automaton states per generation */
+#define AC_STATES    16384 /* automaton states per generation */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
 #define SCAN_CAP     2048 /* bytes one scan / findb may cover; a power of two */
 #define LOG_CAP      256  /* bytes a log carries into the event */

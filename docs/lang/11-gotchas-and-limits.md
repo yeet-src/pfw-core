@@ -57,8 +57,8 @@
 | patterns (`scan` matches all at once) | 64 |
 | pattern length | 64 B |
 | scan window | 2048 B |
-| AC automaton states | 4096 |
-| regex DFA states | 1024 |
+| AC automaton states | 16384 |
+| regex DFA states | 8192 |
 | scratch registers (locals, by live range) | 16 |
 | subroutine args | 7 (`%a0..%a6`) |
 | data-stack depth | 256 |
