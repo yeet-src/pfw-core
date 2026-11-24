@@ -91,6 +91,9 @@ const CASES = [
   // program could once hold, and every one of them has to run to reach it.
   { name: "a long program → rst", source: `filter { if (dport != ${PORT}) decide pass; let x = 0; repeat (1024) { repeat (16) { x = x + 1; } } if (x == 16384) { log(16); decide rst("long", 0); } decide pass; }`,
     sends: [["every instruction runs", enc("anything")]] },
+  // One segment, the signature 3000 bytes in: past the 2048 a scan once covered.
+  { name: "a signature deep in the packet → rst", source: `pattern sig = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 4096) & sig) { log(16); decide rst("deep", 0); } decide pass; }`,
+    sends: [["3000 bytes in", enc("x".repeat(3000) + "GPTBot")], ["not there", enc("x".repeat(3000) + "GPTBo")]] },
 ];
 
 let fail = 0, n = 0;

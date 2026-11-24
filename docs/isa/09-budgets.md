@@ -7,7 +7,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | instructions (`MAX_OPS`) | 65536 | per program; also the step ceiling |
 | patterns (`MAX_PATS`) | 64 | one bit each in `%m` |
 | pattern length (`PAT_CAP`) | 64 B | |
-| scan window (`SCAN_CAP`) | 2048 B | and the `findb` window |
+| scan window (`SCAN_CAP`) | 4096 B | and the `findb` window |
 | AC states (`AC_STATES`) | 16384 | per generation |
 | regex DFA states (`RE_STATES`) | 8192 | |
 | scratch registers | 16 | `%s0`–`%s15`, reused by live range |

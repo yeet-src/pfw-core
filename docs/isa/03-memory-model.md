@@ -5,7 +5,7 @@
 Reads are unrestricted up to `%end`. `load` reads 1/2/4/8 bytes at `%cur + imm`,
 little- or big-endian; out of bounds sets `FF` and leaves `%cur` unchanged.
 `scan`/`findb`/`cmpstr`/`skipb` read a bounded window starting at `%cur`; the
-window never crosses `%end` and is clamped (`scan`/`findb` to `SCAN_CAP = 2048`,
+window never crosses `%end` and is clamped (`scan`/`findb` to `SCAN_CAP = 4096`,
 `skipb`/`cmpstr` to `PFW_PAT_CAP = 64`). The kernel copies the window into
 `st->buf` via `window()` and matches over that; in reassembly mode the bytes come
 from the flow's `reasm` buffer instead of the wire.
