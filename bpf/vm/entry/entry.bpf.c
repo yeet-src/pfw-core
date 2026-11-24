@@ -210,7 +210,7 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
 
     /* The reply half of a connection `dnat` diverted: put the address the client
      * dialled back as the source and pass it on. The program is not run on it. */
-    if (p.family == AF_INET && nat_reverse(ctx, p.l3, p.l4, p.proto)) {
+    if (p.family == AF_INET && nat_reverse(ctx, st, p.l3, p.l4, p.proto)) {
         passed++;
         return XDP_PASS;
     }
