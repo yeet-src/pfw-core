@@ -5,7 +5,7 @@
 #ifndef PFW_H
 #define PFW_H
 
-#define PFW_MAX_OPS  8192 /* instructions per program */
+#define PFW_MAX_OPS  65536 /* instructions per program: the `ops` map holds this many a generation */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  256   /* bytes per pattern */
 #define SKIP_CAP     64   /* bytes a skipb passes over when given no cap, or one above this */
@@ -247,7 +247,6 @@ struct pfw_prog {
     __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
     __u32 re_start[RE_GROUPS];         /* the start state of each regex DFA: where a scan begins it */
     __u32 re_pat_start[PFW_MAX_PATS];  /* by regex accept bit: the start of the DFA that matches it (regex rewrite) */
-    struct pfw_op ops[PFW_MAX_OPS];
     struct pfw_pat pats[PFW_MAX_PATS];
 };
 

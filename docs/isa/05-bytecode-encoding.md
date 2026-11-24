@@ -37,15 +37,18 @@ struct pfw_prog {
     __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
     __u32 re_start[RE_GROUPS];           // each regex DFA's start state
     __u32 re_pat_start[PFW_MAX_PATS];    // by regex accept bit: its DFA's start
-    struct pfw_op  ops[PFW_MAX_OPS];     // 8192
     struct pfw_pat pats[PFW_MAX_PATS];   // 64 × {u32 len; u8 bytes[256]}
 };
 ```
 
-`serializeProgram(program, gen)` (host) produces this value; `build(patterns,
+The instructions are not in this value. They are the `ops` map, one
+`struct pfw_op` an entry at `gen * PFW_MAX_OPS + pc`, so a program costs the host
+what it uses: a load writes `nops` entries.
+
+`build(patterns,
 nocase)` produces the Aho-Corasick tables (`ac_goto`/`ac_fail`/`ac_accept`), and
 the regex compiler produces the DFA tables (`re_goto`/`re_accept`). The loader
-writes the program into `programs[gen]`, the automaton/DFA/transform tables and
+writes the instructions into `ops`, the header into `programs[gen]`, the automaton/DFA/transform tables and
 the membership sets into their maps, patches the `active_gen`/`shadow` globals, then
 attaches `pfw_xdp`. Two generations (`PFW_GENS = 2`) let an update write the idle
 generation and flip `active_gen` atomically.

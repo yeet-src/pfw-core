@@ -83,6 +83,17 @@ PFW_LINK struct {
     __type(value, struct pfw_prog);
 } programs SEC(".maps");
 
+/* The instructions, one an entry: gen * PFW_MAX_OPS + pc. They are a map of
+ * their own, not an array inside struct pfw_prog, so that a program costs the
+ * host what it uses: a load writes nops entries, where the array made every
+ * load carry PFW_MAX_OPS of them. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __uint(max_entries, PFW_GENS * PFW_MAX_OPS);
+    __type(key, __u32);
+    __type(value, struct pfw_op);
+} ops SEC(".maps");
+
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, PFW_GENS * AC_STATES * 256);

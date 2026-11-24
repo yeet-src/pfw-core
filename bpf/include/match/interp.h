@@ -116,7 +116,10 @@ static long pfw_step(__u32 i, void *pctx)
     __u32 pc = st->pc;
     if (pc >= c->nops || pc >= PFW_MAX_OPS)
         return 1;
-    struct pfw_op *op = &p->ops[PFW_MASK(pc, PFW_MAX_OPS)];
+    __u32 opk = c->gen * PFW_MAX_OPS + PFW_MASK(pc, PFW_MAX_OPS);
+    struct pfw_op *op = bpf_map_lookup_elem(&ops, &opk);
+    if (!op)
+        return 1;
     __u32 code = op->code;
     _Static_assert((NREGS & (NREGS - 1)) == 0, "NREGS must be a power of two: the index is masked");
     __u32 reg = op->reg & (NREGS - 1);
