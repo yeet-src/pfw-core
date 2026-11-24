@@ -151,15 +151,15 @@ export function machine({ asm, tables, regex = null }) {
         case OP.SCAN: {
           if (rawReg & 1) { ac = 0; r[REG.m] = 0n; }      // fresh scan (within): only this window counts
           const w = window(cur, Number(imm > SCAN_N ? SCAN_N : imm));
-          let rs = 0;
+          const rs = regex ? [...regex.starts] : [];    // one state per regex DFA, each from its own start
           if (w) for (let k = 0; k < w.length; k++) {
             const acc = acStep(w[k]);                 // Aho-Corasick over literal patterns
             const fresh = acc & ~r[REG.m];
             r[REG.m] |= acc;
             for (let b = 0; b < MAX_PATS; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
-            if (regex) {                              // regex DFA over regex patterns, same window
-              rs = regex.trans[rs][fold(w[k])];
-              r[REG.m] |= regex.accept[rs];
+            for (let g = 0; g < rs.length; g++) {     // the regex DFAs, over the same window
+              rs[g] = regex.trans[rs[g]][fold(w[k])];
+              r[REG.m] |= regex.accept[rs[g]];
             }
           }
           break;
@@ -224,7 +224,7 @@ export function machine({ asm, tables, regex = null }) {
           if (rawReg & 0x8000) { // regex (fixed-length): DFA walk, overwrite [i+1-len, i] on accept of this bit
             const bit = BigInt(rawReg & 0x3fff), len = Number((imm >> 8n) & 0x1ffn);
             if (regex && len > 0) {
-              let s = 0;
+              let s = regex.startOf[bit] ?? 0;      // the DFA this regex is in
               for (let i = start; i < end && i < start + SCAN_CAP; i++) {
                 s = regex.trans[s][fold(frame[i])];
                 if ((regex.accept[s] >> bit) & 1n) { const base = i + 1 - len; if (base >= start) for (let j = 0; j < len; j++) frame[base + j] = repl ? repl.bytes[j] : fillB; }

@@ -11,6 +11,14 @@ bounded repeat). Escapes `\n \r \t \0`.
 
 **Not supported:** backreferences, lookaround (they need backtracking).
 
+**Several regexes.** Regexes that sit together cheaply share one DFA, and one
+table lookup a byte. Ones that do not would multiply each other's states — an
+AWS key id beside an email address is 7400 states, and neither alone is 2500 —
+so the compiler gives them separate DFAs, up to four, walked side by side: a
+lookup each a byte, and sizes that add. The four share 32768 states. A single
+regex can still be too large on its own (a long counted repeat of a class that
+overlaps what precedes it, `a[a-z]{40}`), and that is a compile error.
+
 **Rewrite requires fixed length.** `redact`/`replace` overwrite a span in place,
 so a regex used with them must match a **constant** number of bytes: literals and
 classes are 1, concatenation sums, alternation arms must agree, `{n}` is `n×`;

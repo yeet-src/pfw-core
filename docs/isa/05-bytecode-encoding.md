@@ -33,10 +33,12 @@ The `programs[gen]` map value:
 struct pfw_prog {
     __u32 nops, npats, nocase, gen;
     __u32 reasm, reasm_dport, decode, transform_table;
-    __u32 argc;  __u64 args[PFW_ARGC];
+    __u32 argc, re_ngroups;  __u64 args[PFW_ARGC];
     __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
+    __u32 re_start[RE_GROUPS];           // each regex DFA's start state
+    __u32 re_pat_start[PFW_MAX_PATS];    // by regex accept bit: its DFA's start
     struct pfw_op  ops[PFW_MAX_OPS];     // 8192
-    struct pfw_pat pats[PFW_MAX_PATS];   // 64 × {u32 len; u8 bytes[64]}
+    struct pfw_pat pats[PFW_MAX_PATS];   // 64 × {u32 len; u8 bytes[256]}
 };
 ```
 

@@ -124,7 +124,7 @@ static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, stru
         .st = st, .p = p, .gen = active_gen & (PFW_GENS - 1), .pat = pat, .len = len,
         .mode = st->rw[k].mode, .repl = st->rw[k].repl & (PFW_MAX_PATS - 1),
         .fill = st->rw[k].fill, .n = wn, .woff = woff, .l4 = (__u32) st->r[R_L4],
-        .acstate = 0, .sumo = 0, .sumn = 0, .changed = 0,
+        .acstate = is_re ? p->re_pat_start[pat] : 0, .sumo = 0, .sumn = 0, .changed = 0,
     };
     if (is_re)
         bpf_loop(wn, rw_re_step, &c, 0);

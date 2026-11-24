@@ -139,7 +139,8 @@ through to `pc + 1`. Forward-only (see above).
     (`ac_goto`/`ac_fail`/`ac_accept`): on an accepting state it ORs the accepting
     patterns' bits into `%m` and, for each *newly* matched pattern *k*, records
     `mpos[k] = (byte offset of the match end)`;
-  - the **regex DFA** (`re_goto`/`re_accept`) over the same byte, ORing matched
+  - each **regex DFA** in use (`re_goto`/`re_accept`, up to `RE_GROUPS`, each from
+    its own start state `prog->re_start[g]`) over the same byte, ORing matched
     regex bits into `%m` too (a no-op when the program has no regexes).
 
   Bytes are folded to lower-case first when `nocase` is set. One pass answers

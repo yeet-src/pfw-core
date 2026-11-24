@@ -92,12 +92,17 @@ function progValue(c, stamp, argv) {
   const args = argv.slice(0, ARGC).map((v) => BigInt(v));
   const argc = args.length;
   while (args.length < ARGC) args.push(0n);
+  /* The regex DFAs: where each starts, and which one matches each regex. */
+  const { RE_GROUPS } = LIMITS;
+  const starts = c.regex?.starts ?? [];
+  const re_start = Array.from({ length: RE_GROUPS }, (_, g) => (starts[g] ?? 0) >>> 0);
+  const re_pat_start = Array.from({ length: MAX_PATS }, (_, bit) => (c.regex?.startOf[bit] ?? 0) >>> 0);
   const fmts = [];
   for (let i = 0; i < FMTS; i++) fmts.push(strBytes((c.printkFormats ?? [])[i] ?? "", FMT_CAP - 1).b.concat([0]));
   return {
     nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: stamp >>> 0,
     reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0,
-    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, args, fmts, ops, pats,
+    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0, args, fmts, re_start, re_pat_start, ops, pats,
   };
 }
 const EMPTY = { program: { ops: [], pats: [], nops: 0, npats: 0, nocase: 0 } };

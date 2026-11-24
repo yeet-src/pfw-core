@@ -63,21 +63,27 @@ resolved:
             }
         }
     }
-    /* Same byte through the regex DFA (complete table, no failure links). Empty
-     * for programs with no regex patterns, so it's a no-op then; otherwise it ORs
-     * the matched regexes' bits into %m. Folded into the scan so there is one
-     * bpf_loop, not two (a second nested loop blows the verifier budget). */
-    {
-        __u32 rs = st->x_re_state & (RE_STATES - 1);
-        __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b;
-        __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk);
-        rs = rn ? (*rn & (RE_STATES - 1)) : 0;
-        st->x_re_state = rs;
-        __u32 rak = c->gen * RE_STATES + rs;
-        __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak);
-        if (racc && *racc)
-            st->r[R_M] |= *racc;
+    /* Same byte through each regex DFA in use (complete tables, no failure
+     * links), ORing the matched regexes' bits into %m. Folded into the scan so
+     * there is one bpf_loop, not two (a second nested loop blows the verifier
+     * budget), and written out per group rather than looped for the same reason.
+     * A program with no regex walks none. */
+    __u32 ng = c->prog ? c->prog->re_ngroups : 0;
+#define RE_WALK(g) \
+    if (ng > (g)) { \
+        __u32 rs = st->x_re[g] & (RE_STATES - 1); \
+        __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b; \
+        __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk); \
+        rs = rn ? (*rn & (RE_STATES - 1)) : 0; \
+        st->x_re[g] = rs; \
+        __u32 rak = c->gen * RE_STATES + rs; \
+        __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak); \
+        if (racc && *racc) \
+            st->r[R_M] |= *racc; \
     }
+    RE_WALK(0) RE_WALK(1) RE_WALK(2) RE_WALK(3)
+#undef RE_WALK
+    _Static_assert(RE_GROUPS == 4, "ac_step walks exactly four regex DFAs");
     return 0;
 }
 

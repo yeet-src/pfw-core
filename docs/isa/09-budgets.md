@@ -10,7 +10,8 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | skip run (`SKIP_CAP`) | 64 B | what one `skipb` passes over |
 | scan window (`SCAN_CAP`) | 4096 B | and the `findb` window |
 | AC states (`AC_STATES`) | 16384 | per generation |
-| regex DFA states (`RE_STATES`) | 32768 | |
+| regex DFA states (`RE_STATES`) | 32768 | across the program's DFAs |
+| regex DFAs (`RE_GROUPS`) | 4 | walked side by side, one lookup each a byte |
 | scratch registers | 40 | `%s0`–`%s39`, reused by live range |
 | subroutine args | 7 | `%a0`–`%a6`; return in `%rv` |
 | data-stack depth (`STACK_CAP`) | 256 | `push`/`pop`, `call`/`ret` |
