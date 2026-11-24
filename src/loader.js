@@ -48,7 +48,7 @@ const MAPS = {
   counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
   hashset: { kind: "hash" }, kv: { kind: "hash" }, bloom: { kind: "bloom_filter" },
-  "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" }, dispatch: { kind: "hash" }, dispatch_dst: { kind: "lpm_trie" },
+  "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" }, dispatch: { kind: "hash" }, dispatch_dst: { kind: "lpm_trie" }, stage_flows: { kind: "lru_hash" },
 };
 
 /* Counters in vm.bss worth reporting (all u64). */
@@ -81,7 +81,7 @@ const cidr6Key = (cidr) => {
  * The order routes are tried in is with struct route_key in core/maps.h. */
 const PROTO = { tcp: 6, udp: 17 };
 const AF_INET = 2, AF_INET6 = 10;
-const RS_DST_PORT = 1 << 8, RS_DST = 1 << 9;
+const DST_EXACT_BITS = 96;
 function routeKey(match) {
   const m = match ?? {};
   const has = (k) => m[k] !== undefined && m[k] !== null;
@@ -96,29 +96,38 @@ function routeKey(match) {
   const protoName = proto === null ? null : Object.keys(PROTO).find((k) => PROTO[k] === proto) ?? String(proto);
   const ports = proto === null ? null : dport === null ? protoName : `${protoName}/${dport}`;
 
+  const shape = (iface !== null ? 1 : 0) | (proto !== null ? 2 : 0) | (dport !== null ? 4 : 0);
+  const others = [iface !== null ? `if${iface}` : null, ports].filter(Boolean);
+
   if (has("dst")) {
-    if (iface !== null) throw new TypeError("route: a dst route does not also name an iface");
-    if ((proto === null) !== (dport === null)) throw new TypeError("route: a dst route names both proto and dport, or neither");
     const v6 = String(m.dst).includes(":"), cidr = v6 ? cidr6Key(m.dst) : cidr4Key(m.dst);
     const bits = v6 ? 128 : 32;
     if (!Number.isInteger(cidr.prefixlen) || cidr.prefixlen < 0 || cidr.prefixlen > bits || cidr.data.length !== bits / 8 || cidr.data.some((x) => !Number.isInteger(x))) throw new TypeError(`route: dst is an address or a CIDR, not ${m.dst}`);
     const addr = [...cidr.data, ...new Array(16 - cidr.data.length).fill(0)];
-    const dst = `${String(m.dst).split("/")[0]}/${cidr.prefixlen}`;
+    const port = dport ?? 0, ifx = iface ?? 0;
+    /* struct dst_key: the fields that must match whole, then the address. */
+    const exact = [shape, v6 ? AF_INET6 : AF_INET, proto ?? 0, (port >> 8) & 0xff, port & 0xff, (ifx >>> 24) & 0xff, (ifx >>> 16) & 0xff, (ifx >>> 8) & 0xff, ifx & 0xff, 0, 0, 0];
     return {
-      name: ports ? `${dst} ${ports}` : dst, map: "dispatch_dst", bit: ports ? RS_DST_PORT : RS_DST,
-      key: { prefixlen: 32 + cidr.prefixlen, data: [v6 ? AF_INET6 : AF_INET, proto ?? 0, ((dport ?? 0) >> 8) & 0xff, (dport ?? 0) & 0xff, ...addr] },
+      name: [`${String(m.dst).split("/")[0]}/${cidr.prefixlen}`, ...others].join(" "), map: "dispatch_dst", bit: 1 << (8 + shape),
+      key: { prefixlen: DST_EXACT_BITS + cidr.prefixlen, data: [...exact, ...addr] },
     };
   }
-  const shape = (iface !== null ? 1 : 0) | (proto !== null ? 2 : 0) | (dport !== null ? 4 : 0);
   return {
-    name: [iface !== null ? `if${iface}` : null, ports].filter(Boolean).join(" "), map: "dispatch", bit: 1 << shape,
+    name: others.join(" "), map: "dispatch", bit: 1 << shape,
     key: { ifindex: iface ?? 0, dport: dport ?? 0, proto: proto ?? 0, shape },
   };
 }
 
-/* The most stage programs a packet can run before its own. Each is a tail
- * call, and the kernel allows 33 in all, which the decode stages share. */
+/* The most stage programs a packet can run before its own (PFW_STAGES). Each
+ * is a tail call, and the kernel allows 33 in all, which the decode stages
+ * share. */
 const MAX_STAGES = 8;
+
+/* The instructions that scan, or read or write what a program keeps for a
+ * connection. A stage with none of them has no per-connection state to look
+ * up, and the kernel is told so. Some of these are also the per-source forms;
+ * a stage using only those pays for a lookup it did not need. */
+const FLOW_OPS = new Set([OP.SCAN, OP.SLOAD, OP.SSTORE, OP.BUMP, OP.RPUSH, OP.RGET, OP.RLEN, OP.RATE, OP.FLOAD, OP.FSTORE]);
 
 /* How long a replaced program is left whole before its tables are zeroed and
  * its ranges reused: a packet that picked it up just before the flip is still
@@ -140,7 +149,7 @@ function compiled(program) {
 
 /* `struct pfw_prog` as the value yeetd lifts into the `programs` map (field
  * order and sizes follow bpf/include/pfw.h). */
-function progValue(c, stamp, argv, at = {}, next = null) {
+function progValue(c, stamp, argv, at = {}, stage = {}) {
   const p = c.program;
   const { MAX_PATS, PAT_CAP, ARGC, FMTS, FMT_CAP } = LIMITS;
   const pats = p.pats.slice(0, MAX_PATS).map((q) => { const b = q.bytes.slice(0, PAT_CAP); while (b.length < PAT_CAP) b.push(0); return { len: q.len >>> 0, bytes: b }; });
@@ -160,7 +169,7 @@ function progValue(c, stamp, argv, at = {}, next = null) {
     reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0,
     transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0,
     ops_base: (at.ops ?? 0) >>> 0, ac_base: (at.ac ?? 0) >>> 0, re_base: (at.re ?? 0) >>> 0, tbl_base: (at.tbl ?? 0) >>> 0, rule_base: (at.rule ?? 0) >>> 0,
-    next_on: next === null ? 0 : 1, next_slot: (next ?? 0) >>> 0, args, fmts, re_start, re_pat_start, pats,
+    next_on: (stage.next ?? null) === null ? 0 : 1, next_slot: (stage.next ?? 0) >>> 0, stage_ix: (stage.ix ?? 0) >>> 0, stage_flow: stage.flow ? 1 : 0, args, fmts, re_start, re_pat_start, pats,
   };
 }
 const EMPTY = { program: { ops: [], pats: [], nops: 0, npats: 0, nocase: 0 } };
@@ -293,11 +302,12 @@ export class PfwVm {
    *   proto   "tcp", "udp" or a protocol number
    *   dport   their destination port (with `proto`)
    *   dst     an address or CIDR their destination is in, v4 or v6
-   *           (alone, or with both `proto` and `dport`)
    *
-   * and where two routes claim a packet the more specific wins: a destination
-   * prefix over none and the longer prefix over the shorter, then a port over
-   * none, then an interface over none. The program has its own patterns, rules,
+   * in any combination, and where two routes claim a packet the more specific
+   * wins: one with a destination prefix over one without; then one that names
+   * a port over one that does not, a protocol likewise, an interface
+   * likewise; and of two prefix routes naming the same things, the longer
+   * prefix. The program has its own patterns, rules,
    * instruction budget, `reassemble` and `decode`; knobs and tables are shared
    * with every other program by name, and so are the sets and the `lookup`
    * map. Routing the same packets again swaps the program as apply() does.
@@ -349,11 +359,13 @@ export class PfwVm {
    * run in order, each passing to the next; `first(null)` takes them away. The
    * whole chain is swapped in at once.
    *
-   * A stage sees the packet and its source, not the connection: a flow holds
-   * one program's scan state and registers, and they are the dispatched
-   * program's. So it may not `reassemble` or `decode`, nor `redact` or
-   * `replace`; per-source state (`src.count`, `src.rate`, `ban`), the sets and
-   * the knobs all work. `opts` is one set of options for a single program, or
+   * A stage keeps its own per-connection state — `flow.state`, `flow.count`,
+   * the ring, the registers, `rate`, and a scan that carries across the
+   * segments of a connection — apart from the dispatched program's and from
+   * every other stage's, by its place in the chain. What it does not have is
+   * the reassembled stream, which is one buffer per connection and the
+   * dispatched program's: a stage may not `reassemble` or `decode`, nor
+   * `redact` or `replace`. `opts` is one set of options for a single program, or
    * an array of them beside an array of programs.
    */
   async first(programs, opts = {}) {
@@ -371,7 +383,8 @@ export class PfwVm {
     try {
       for (let i = list.length - 1; i >= 0; i--) {
         const o = Array.isArray(opts) ? opts[i] ?? {} : opts;
-        recs.unshift(await this._install(list[i], o, i ? `first.${i}` : "first", { replacing: this._first, next: recs[0]?.slot.base ?? null }));
+        const stage = { next: recs[0]?.slot.base ?? null, ix: i, flow: list[i].program.ops.some((op) => FLOW_OPS.has(op.code)) };
+        recs.unshift(await this._install(list[i], o, i ? `first.${i}` : "first", { replacing: this._first, stage }));
       }
     } catch (e) {
       for (const rec of recs) this._retire(rec);
@@ -385,7 +398,7 @@ export class PfwVm {
 
   /* Write a program into a free slot and a free range of each pool. Nothing
    * runs it until the caller points the default, or a route, at its slot. */
-  async _install(program, opts, name, { replacing = [], next = null } = {}) {
+  async _install(program, opts, name, { replacing = [], stage = {} } = {}) {
     const c = compiled(program);
     await this._reap(false);
     const tables = c.tables?.() ?? build(c.patterns ?? [], c.nocase);
@@ -472,7 +485,7 @@ export class PfwVm {
       });
       for (const part of chunks(opPairs, BATCH)) await this._map("ops").updateBatch(part);
       const at = { ops: R.ops.base, ac: R.ac.base, re: R.re.base, tbl: R.tbl.base, rule: R.rule.base };
-      await this._map("programs").update(rec.slot.base, progValue(c, rec.stamp, opts.argv ?? [], at, next));
+      await this._map("programs").update(rec.slot.base, progValue(c, rec.stamp, opts.argv ?? [], at, stage));
 
       /* A rule counter belongs to its slot in the pool, and the slot had an
        * owner before: what each held now is what this program's rules start from. */

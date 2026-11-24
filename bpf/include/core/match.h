@@ -25,10 +25,27 @@ static __noinline int maybe_redirect(struct pfw_state *st)
     return -1;
 }
 
+/* Write what a run changed of the program's per-connection state. */
+static __always_inline void fprog_store(struct flow_prog *fp, struct pfw_state *st, struct pfw_prog *prog,
+                                        struct pkt *pp, __u64 now)
+{
+    if (pp->proto == IPPROTO_TCP) { fp->ac_state = st->ac_state; fp->mask = st->r[R_M]; fp->gen = prog->gen; }
+    if (st->set_state) { fp->user_state = st->new_state; fp->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
+    if (st->set_rl) { fp->rl_tokens = st->rl_tokens; fp->rl_ts = st->rl_ts; }
+    if (st->set_hits) fp->hits = st->hits;
+    if (st->set_ureg) __builtin_memcpy(fp->ureg, st->ureg, sizeof(fp->ureg));
+    /* Pushes made while the program had no state here yet: they are its ring now. */
+    if (st->pring_count) {
+        __builtin_memcpy(fp->ring, st->pring, sizeof(fp->ring));
+        fp->ring_head = st->pring_head & (RING_CAP - 1);
+        fp->ring_count = st->pring_count > RING_CAP ? RING_CAP : st->pring_count;
+    }
+}
+
 /* The entry passes its own values; the matcher tail-call target re-derives them
  * first. It never re-initialises st — the entry did that. */
 static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
-                                       struct pfw_prog *prog, struct flow *f,
+                                       struct pfw_prog *prog, struct flow *f, struct flow_prog *fp,
                                        struct pfw_state *st, __u64 now,
                                        struct flow_key *keyp, int keyed,
                                        __u32 use_reasm, __u8 *rsrc, __u32 chain)
@@ -39,8 +56,8 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
         .xdp = ctx, .st = st, .prog = prog,
         .nops = prog->nops > PFW_MAX_OPS ? PFW_MAX_OPS : prog->nops,
         .mark = f ? f->mark : 0,
-        .user_state = (f && (!f->state_expires || f->state_expires > now)) ? f->user_state : 0,
-        .reasm = use_reasm, .now = now, .flow = f, .rsrc = rsrc,
+        .user_state = (fp && (!fp->state_expires || fp->state_expires > now)) ? fp->user_state : 0,
+        .reasm = use_reasm, .now = now, .fp = fp, .rsrc = rsrc,
     };
     src_load(pp, st, now);
     ran++;
@@ -64,28 +81,43 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     __u32 verdict = st->verdict ? st->verdict : V_PASS;
     if (st->flags & FL_FF) faults++;
 
-    if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || st->set_ureg || st->want_acct)) {
-        if (!f && (st->set_mark || st->set_state || st->set_hits || st->set_rl || st->pring_count || st->set_ureg || st->want_acct || pp->end > pp->payload)) {
+    /* Write-back. What the program keeps for the connection goes to its own
+     * flow_prog: inside the flow for the dispatched program, in `stage_flows`
+     * for a stage. The mark is the connection's whichever program set it, and
+     * the byte and packet counts are the dispatched program's run to add. */
+    __u32 own = st->set_state || st->set_hits || st->set_rl || st->pring_count || st->set_ureg;
+    if (keyed && chain) {
+        if (prog->stage_flow && (pp->proto == IPPROTO_TCP || own)) {
+            if (!fp && (own || pp->end > pp->payload)) {
+                struct stage_key *sk = &st->x_sk;
+                __builtin_memcpy(&sk->flow, keyp, sizeof(sk->flow));
+                sk->stage = prog->stage_ix & (PFW_STAGES - 1);
+                bpf_map_update_elem(&stage_flows, sk, (void *) &zero_fprog, BPF_NOEXIST);
+                fp = bpf_map_lookup_elem(&stage_flows, sk);
+            }
+            if (fp)
+                fprog_store(fp, st, prog, pp, now);
+        }
+        if (st->set_mark) {
+            if (!f) {
+                bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
+                f = bpf_map_lookup_elem(&flows, keyp);
+                if (f) flows_created++;
+            }
+            if (f) { f->mark = st->set_mark; f->rule = st->rule; f->expires = st->ttl ? now + (__u64) st->ttl * 1000000000ULL : 0; }
+        }
+    } else if (keyed && (pp->proto == IPPROTO_TCP || st->set_mark || own || st->want_acct)) {
+        if (!f && (st->set_mark || own || st->want_acct || pp->end > pp->payload)) {
             bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
             f = bpf_map_lookup_elem(&flows, keyp);
             if (f) flows_created++;
         }
         if (f) {
-            if (pp->proto == IPPROTO_TCP) { f->ac_state = st->ac_state; f->mask = st->r[R_M]; f->gen = prog->gen; }
-            if (st->set_state) { f->user_state = st->new_state; f->state_expires = st->state_ttl ? now + (__u64) st->state_ttl * 1000000000ULL : 0; }
-            if (st->set_rl) { f->rl_tokens = st->rl_tokens; f->rl_ts = st->rl_ts; }
-            if (st->set_hits) f->hits = st->hits;
-            if (st->set_ureg) __builtin_memcpy(f->ureg, st->ureg, sizeof(f->ureg));
+            fprog_store(&f->own, st, prog, pp, now);
             /* Every packet of a tracked flow is counted, whether or not this
              * run of the program looked: the entry added this packet in. */
             f->bytes = st->fbytes;
             f->packets = st->fpackets;
-            /* Pushes made while the flow had no entry: they are its ring now. */
-            if (st->pring_count) {
-                __builtin_memcpy(f->ring, st->pring, sizeof(f->ring));
-                f->ring_head = st->pring_head & (RING_CAP - 1);
-                f->ring_count = st->pring_count > RING_CAP ? RING_CAP : st->pring_count;
-            }
             if (st->set_mark) { f->mark = st->set_mark; f->rule = st->rule; f->expires = st->ttl ? now + (__u64) st->ttl * 1000000000ULL : 0; }
             /* On a reassembled stream a `drop` must hold for the connection, not
              * the packet: TCP retransmits the dropped segment, and by then its

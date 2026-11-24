@@ -63,7 +63,7 @@ int pfw_match(struct xdp_md *ctx)
     }
     /* Only ever reached by tail call from a decode stage, which left the decoded
      * view in st->view and pointed the registers at it: that is what is read. */
-    return match_half(ctx, &p, prog, f, st, now, &key, keyed, 1, st->view, 0);
+    return match_half(ctx, &p, prog, f, f ? &f->own : NULL, st, now, &key, keyed, 1, st->view, 0);
 }
 
 /* The slot of the program a packet is dispatched to: the most specific route
@@ -73,27 +73,29 @@ static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, 
 {
     __u32 shapes = route_shapes;
     __u32 *s;
-    if (shapes & (RS_DST_PORT | RS_DST)) {
+    if (shapes & RS_DST_ANY) {
+        /* The key: the shape, then the fields the shape names (zero where it
+         * names none), then the address the trie matches a prefix of. */
         struct dst_key *dk = &st->x_dk;
-        dk->prefixlen = 32 + 128;
-        dk->data[0] = p->family;
-        __builtin_memcpy(dk->data + 4, p->daddr, 16);
-        if (shapes & RS_DST_PORT) {
-            dk->data[1] = p->proto;
-            dk->data[2] = (__u8) (p->dport >> 8);
-            dk->data[3] = (__u8) p->dport;
-            s = bpf_map_lookup_elem(&dispatch_dst, dk);
-            if (s)
-                return *s;
+        dk->prefixlen = DST_EXACT_BITS + 128;
+        dk->data[1] = p->family;
+        __builtin_memcpy(dk->data + DST_EXACT_BITS / 8, p->daddr, 16);
+#define DST_TRY(sh) \
+        if (shapes & RS_DST(sh)) { \
+            dk->data[0] = (sh); \
+            dk->data[2] = ((sh) & 2) ? p->proto : 0; \
+            dk->data[3] = ((sh) & 4) ? (__u8) (p->dport >> 8) : 0; \
+            dk->data[4] = ((sh) & 4) ? (__u8) p->dport : 0; \
+            dk->data[5] = ((sh) & 1) ? (__u8) (ifindex >> 24) : 0; \
+            dk->data[6] = ((sh) & 1) ? (__u8) (ifindex >> 16) : 0; \
+            dk->data[7] = ((sh) & 1) ? (__u8) (ifindex >> 8) : 0; \
+            dk->data[8] = ((sh) & 1) ? (__u8) ifindex : 0; \
+            s = bpf_map_lookup_elem(&dispatch_dst, dk); \
+            if (s) \
+                return *s; \
         }
-        if (shapes & RS_DST) {
-            dk->data[1] = 0;
-            dk->data[2] = 0;
-            dk->data[3] = 0;
-            s = bpf_map_lookup_elem(&dispatch_dst, dk);
-            if (s)
-                return *s;
-        }
+        DST_TRY(7) DST_TRY(6) DST_TRY(3) DST_TRY(2) DST_TRY(1) DST_TRY(0)
+#undef DST_TRY
     }
     struct route_key *rk = &st->x_rk;
 #define ROUTE_TRY(sh) \
@@ -222,12 +224,19 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
         }
     }
 
-    /* The first program sees the packet and its source, not the connection:
-     * the flow's scan state, registers and reassembly are the dispatched
-     * program's, which this packet reaches next. */
+    /* What this program keeps for the connection. The dispatched program's is
+     * in the flow. A stage's is its own, in `stage_flows`, and looked up only
+     * if the stage scans or keeps any; the flow's reassembly is never a
+     * stage's. */
+    struct flow_prog *fp = f ? &f->own : NULL;
     if (first) {
-        f = NULL;
-        keyed = 0;
+        fp = NULL;
+        if (keyed && prog->stage_flow) {
+            struct stage_key *sk = &st->x_sk;
+            __builtin_memcpy(&sk->flow, &key, sizeof(sk->flow));
+            sk->stage = prog->stage_ix & (PFW_STAGES - 1);
+            fp = bpf_map_lookup_elem(&stage_flows, sk);
+        }
     }
     st->slot = slot;
     st->prog_stamp = prog->gen;
@@ -261,18 +270,18 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
     st->set_state = 0;
     st->new_state = 0;
     st->state_ttl = 0;
-    st->hits = f ? f->hits : 0;
-    st->ureg[0] = f ? f->ureg[0] : 0;
-    st->ureg[1] = f ? f->ureg[1] : 0;
-    st->ureg[2] = f ? f->ureg[2] : 0;
-    st->ureg[3] = f ? f->ureg[3] : 0;
+    st->hits = fp ? fp->hits : 0;
+    st->ureg[0] = fp ? fp->ureg[0] : 0;
+    st->ureg[1] = fp ? fp->ureg[1] : 0;
+    st->ureg[2] = fp ? fp->ureg[2] : 0;
+    st->ureg[3] = fp ? fp->ureg[3] : 0;
     st->fbytes = (f ? f->bytes : 0) + (p.end > p.payload ? p.end - p.payload : 0);
     st->fpackets = (f ? f->packets : 0) + 1;
     st->set_ureg = 0;
     st->want_acct = 0;
     st->set_hits = 0;
-    st->rl_tokens = f ? f->rl_tokens : 0;
-    st->rl_ts = f ? f->rl_ts : 0;
+    st->rl_tokens = fp ? fp->rl_tokens : 0;
+    st->rl_ts = fp ? fp->rl_ts : 0;
     st->set_rl = 0;
     st->fargn = 0;
     st->fsn = 0;
@@ -286,9 +295,9 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
     __builtin_memset(st->mpos, 0, sizeof(st->mpos));
     /* A TCP flow carries its automaton across segments, as long as the
      * program that built it is the one running. */
-    if (f && p.proto == IPPROTO_TCP && f->gen == prog->gen) {
-        st->ac_state = f->ac_state;
-        st->r[R_M] = f->mask;
+    if (fp && p.proto == IPPROTO_TCP && fp->gen == prog->gen) {
+        st->ac_state = fp->ac_state;
+        st->r[R_M] = fp->mask;
     } else {
         st->ac_state = 0;
     }
@@ -350,7 +359,10 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
         bpf_tail_call(ctx, &decode_jmp, SLOT_TRANSFORM);
     }
     (void) use_reasm;
-    return match_half(ctx, &p, prog, f, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL, first);
+    /* Reassembly may have made the flow just now. */
+    if (!first)
+        fp = f ? &f->own : NULL;
+    return match_half(ctx, &p, prog, f, fp, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL, first);
 }
 
 SEC("xdp")

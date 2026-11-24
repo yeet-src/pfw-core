@@ -397,12 +397,12 @@ static long pfw_step(__u32 i, void *pctx)
          * the flow value, like the ring is read. A flow with no entry yet (its
          * first packet) pushes to st->pring, which the write-back turns into the
          * new entry's ring. */
-        if (c->flow) {
-            __u32 h = c->flow->ring_head & (RING_CAP - 1);
-            c->flow->ring[h] = (__u32) cur;
-            c->flow->ring_head = (h + 1) & (RING_CAP - 1);
-            if (c->flow->ring_count < RING_CAP)
-                c->flow->ring_count++;
+        if (c->fp) {
+            __u32 h = c->fp->ring_head & (RING_CAP - 1);
+            c->fp->ring[h] = (__u32) cur;
+            c->fp->ring_head = (h + 1) & (RING_CAP - 1);
+            if (c->fp->ring_count < RING_CAP)
+                c->fp->ring_count++;
         } else {
             __u32 h = st->pring_head & (RING_CAP - 1);
             st->pring[h] = (__u32) cur;
@@ -415,10 +415,10 @@ static long pfw_step(__u32 i, void *pctx)
         /* cur = the (cur)-th most recent entry, 0 = newest. Out of range yields
          * 0 and faults, so `jf` can tell absent from a stored 0. */
         __u32 idx = (__u32) cur;
-        if (c->flow && idx < c->flow->ring_count) {
-            __u32 slot = (c->flow->ring_head - 1 - idx) & (RING_CAP - 1);
-            cur = c->flow->ring[slot];
-        } else if (!c->flow && idx < st->pring_count) {
+        if (c->fp && idx < c->fp->ring_count) {
+            __u32 slot = (c->fp->ring_head - 1 - idx) & (RING_CAP - 1);
+            cur = c->fp->ring[slot];
+        } else if (!c->fp && idx < st->pring_count) {
             __u32 slot = (st->pring_head - 1 - idx) & (RING_CAP - 1);
             cur = st->pring[slot];
         } else {
@@ -428,7 +428,7 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     }
     case OP_RLEN:
-        cur = c->flow ? c->flow->ring_count : st->pring_count;
+        cur = c->fp ? c->fp->ring_count : st->pring_count;
         break;
     case OP_REDACT:
     case OP_REPLACE:

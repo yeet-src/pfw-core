@@ -24,7 +24,7 @@ struct pfw_ctx {
     __u32 user_state; /* the flow's user state at entry */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */
     __u64 now;      /* packet-time ktime ns, for OP_RATE */
-    struct flow *flow; /* the flow: per-connection state (ring, ...) */
+    struct flow_prog *fp; /* this program's per-connection state (ring, ...), if the connection has any yet */
     __u8 *rsrc;        /* reasm mode: the REASM_CAP-byte buffer reads come from — the flow's
                         * reassembled stream (entry), or the decoded view st->view (after a
                         * decode stage). One source per program, so the interpreter loop is
