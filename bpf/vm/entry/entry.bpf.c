@@ -121,19 +121,46 @@ static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, 
     return default_slot;
 }
 
-/* The entry, three times over, from one body:
+/* A segment larger than the window takes is fed a piece at a time. This
+ * narrows the packet to the piece a run is to read — from where the last run
+ * left off, as the segment it would have been had the sender cut it there —
+ * and notes whether more follows, for match_half to go on to if this piece is
+ * passed. In a frame of its own: the entry's has no room for the arithmetic. */
+static __noinline void seg_piece(struct pkt *p, struct pfw_state *st, __u32 cont)
+{
+    __u32 total = p->end > p->payload ? p->end - p->payload : 0;
+    __u32 done = cont ? st->seg_off : 0;
+    if (done > total)
+        done = total;
+    if (done) {
+        p->payload += done;
+        p->seq += done;
+        p->tcp_flags &= ~0x02;
+    }
+    if (total - done > REASM_CHUNK) {
+        p->end = p->payload + REASM_CHUNK;
+        st->seg_more = 1;
+        st->seg_off = done + REASM_CHUNK;
+    }
+}
+
+/* The entry, four times over, from one body:
  *
  *   pfw_xdp       on the interface. Runs the first stage if there is a chain,
  *                 and otherwise dispatches.
  *   pfw_stage     where a stage sends a packet it passed when another stage
  *                 follows: runs that one.
  *   pfw_dispatch  where the last stage sends a packet it passed: dispatches.
+ *   pfw_continue  where a program sends a packet it passed when the packet is
+ *                 a segment larger than the window and only part has been
+ *                 read: runs the same program over the next part.
  *
  * They are separate programs because a stage's pass is a tail call, and one
  * program cannot be both on the interface and in the program array. */
 #define ENTRY_IFACE    0
 #define ENTRY_STAGE    1
 #define ENTRY_DISPATCH 2
+#define ENTRY_CONTINUE 3
 static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
 {
     struct pkt p = {};
@@ -164,12 +191,15 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
      * the chain yet; else the one it is dispatched to. */
     __u32 slot = 0, first = 0;
     struct pfw_prog *prog = NULL;
-    if (mode != ENTRY_DISPATCH && (mode == ENTRY_STAGE || first_on)) {
+    if (mode == ENTRY_CONTINUE) {
+        slot = st->slot & (PFW_PROGS - 1);
+        prog = bpf_map_lookup_elem(&programs, &slot);
+    } else if (mode == ENTRY_STAGE || (mode == ENTRY_IFACE && first_on)) {
         slot = (mode == ENTRY_STAGE ? st->stage_slot : first_slot) & (PFW_PROGS - 1);
         prog = bpf_map_lookup_elem(&programs, &slot);
         first = prog && prog->nops != 0;
     }
-    if (!first) {
+    if (!first && mode != ENTRY_CONTINUE) {
         slot = dispatch_slot(st, &p, ctx->ingress_ifindex) & (PFW_PROGS - 1);
         prog = bpf_map_lookup_elem(&programs, &slot);
     }
@@ -188,21 +218,24 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
     /* The flow, for TCP and UDP. A 16-bit port widened in a register
      * leaves clang an undefined upper half it spills whole; the barrier
      * makes each a value it has to materialise. */
-    struct flow_key key = {};
+    /* The flow's key lives in the per-CPU state: this frame is at the limit,
+     * and the key is forty bytes of it. */
+    struct flow_key *keyp = &st->x_fk;
+    __builtin_memset(keyp, 0, sizeof(*keyp));
     struct flow *f = NULL;
     int keyed = p.proto == IPPROTO_TCP || p.proto == IPPROTO_UDP;
     __u64 now = bpf_ktime_get_ns();
     if (keyed) {
-        __builtin_memcpy(key.saddr, p.saddr, 16);
-        __builtin_memcpy(key.daddr, p.daddr, 16);
+        __builtin_memcpy(keyp->saddr, p.saddr, 16);
+        __builtin_memcpy(keyp->daddr, p.daddr, 16);
         __u32 sp = p.sport, dp = p.dport;
         barrier_var(sp);
         barrier_var(dp);
-        key.sport = sp;
-        key.dport = dp;
-        key.proto = p.proto;
-        key.family = p.family;
-        f = bpf_map_lookup_elem(&flows, &key);
+        keyp->sport = sp;
+        keyp->dport = dp;
+        keyp->proto = p.proto;
+        keyp->family = p.family;
+        f = bpf_map_lookup_elem(&flows, keyp);
         if (f && f->mark && f->expires && f->expires <= now) {
             f->mark = 0;
             f->rule = 0;
@@ -241,7 +274,7 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
         fp = NULL;
         if (keyed && prog->stage_flow) {
             struct stage_key *sk = &st->x_sk;
-            __builtin_memcpy(&sk->flow, &key, sizeof(sk->flow));
+            __builtin_memcpy(&sk->flow, keyp, sizeof(sk->flow));
             sk->stage = prog->stage_ix & (PFW_STAGES - 1);
             fp = bpf_map_lookup_elem(&stage_flows, sk);
         }
@@ -283,8 +316,10 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
     st->ureg[1] = fp ? fp->ureg[1] : 0;
     st->ureg[2] = fp ? fp->ureg[2] : 0;
     st->ureg[3] = fp ? fp->ureg[3] : 0;
-    st->fbytes = (f ? f->bytes : 0) + (p.end > p.payload ? p.end - p.payload : 0);
-    st->fpackets = (f ? f->packets : 0) + 1;
+    /* A later piece of a segment: the packet was counted with its first. */
+    st->fbytes = (f ? f->bytes : 0) + (mode != ENTRY_CONTINUE && p.end > p.payload ? p.end - p.payload : 0);
+    st->fpackets = (f ? f->packets : 0) + (mode != ENTRY_CONTINUE);
+    st->seg_more = 0;
     st->set_ureg = 0;
     st->want_acct = 0;
     st->set_hits = 0;
@@ -317,12 +352,13 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
                    && (prog->reasm_dport == 0 || p.dport == prog->reasm_dport);
     if (use_reasm) {
         if (!f) {
-            bpf_map_update_elem(&flows, &key, (void *) &zero_flow, BPF_NOEXIST);
-            f = bpf_map_lookup_elem(&flows, &key);
+            bpf_map_update_elem(&flows, keyp, (void *) &zero_flow, BPF_NOEXIST);
+            f = bpf_map_lookup_elem(&flows, keyp);
             if (f)
                 flows_created++;
         }
         if (!f) { passed++; return XDP_PASS; }
+        seg_piece(&p, st, mode == ENTRY_CONTINUE);
         int rf = reasm_feed(ctx, &p, f, st, (prog->decode == DECODE_H2 ? REASM_H2 : 0)
                                             | (prog->decode != DECODE_NONE ? REASM_FROM_START : 0));
         if (rf == REASM_HOLD) {
@@ -370,7 +406,7 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
     /* Reassembly may have made the flow just now. */
     if (!first)
         fp = f ? &f->own : NULL;
-    return match_half(ctx, &p, prog, f, fp, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL, first);
+    return match_half(ctx, &p, prog, f, fp, st, now, keyp, keyed, use_reasm, f ? f->reasm : NULL, first);
 }
 
 SEC("xdp")
@@ -389,4 +425,10 @@ SEC("xdp")
 int pfw_dispatch(struct xdp_md *ctx)
 {
     return entry(ctx, ENTRY_DISPATCH);
+}
+
+SEC("xdp")
+int pfw_continue(struct xdp_md *ctx)
+{
+    return entry(ctx, ENTRY_CONTINUE);
 }
