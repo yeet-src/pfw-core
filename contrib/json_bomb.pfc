@@ -13,8 +13,8 @@ filter {
   ptr p = payload; let opens = 0;
   repeat (120) {
     let b = p;
-    let o = find(p, '{', 2048); if (o == p) { if (!starts(p, ob)) o = 2000000; }
-    let a = find(p, '[', 2048); if (a == p) { if (!starts(p, ar)) a = 2000000; }
+    let o = find(p, '{', 4096); if (o == p) { if (!starts(p, ob)) o = 2000000; }
+    let a = find(p, '[', 4096); if (a == p) { if (!starts(p, ar)) a = 2000000; }
     if (o <= a) { if (o < 2000000) { push(1); opens = opens + 1; p = o + 1; } }
     else { if (a < 2000000) { push(1); opens = opens + 1; p = a + 1; } }
   }

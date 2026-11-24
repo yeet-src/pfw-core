@@ -40,7 +40,7 @@
   far (and, per-packet, earlier segments of the connection). To ask what lies in
   one window — a header value, a frame — use `within(ptr, N)`.
 - `reassemble` follows a connection for its whole life through a sliding
-  2048-byte window. A pattern is seen whole if it is at most 64 bytes long.
+  4096-byte window. A pattern is seen whole if it is at most 64 bytes long.
 - `decode h2` shows one packet's completed header blocks, not the whole
   connection, and `len == 0` when a packet completed none. It needs cleartext
   HTTP/2 and segments no larger than the window (see isa §8).

@@ -11,7 +11,7 @@ filter {
   if (len == 0) decide pass;
   let big = 1000000;
   ptr p = payload; let keys = 0;
-  repeat (160) { let o = find(p, '=', 2048); if (o == p) { if (!starts(p, eqp)) o = big; } if (o < big) { keys = keys + 1; p = o + 1; } }
+  repeat (160) { let o = find(p, '=', 4096); if (o == p) { if (!starts(p, eqp)) o = big; } if (o < big) { keys = keys + 1; p = o + 1; } }
   if (keys > 120) { log(1); decide ban("hashdos", 600); }
   if (keys > 40) decide drop("too_many_keys");
   decide pass;

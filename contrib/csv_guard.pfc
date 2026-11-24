@@ -14,7 +14,7 @@ filter {
   let big = 1000000;
   ptr p = payload; let fields = 1; let bad = 0;
   repeat (80) {
-    let o = find(p, ',', 2048);
+    let o = find(p, ',', 4096);
     if (o == p) { if (!starts(p, comma)) o = big; }
     if (o < big) {
       fields = fields + 1; p = o + 1;

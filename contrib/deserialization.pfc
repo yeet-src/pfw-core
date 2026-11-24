@@ -18,7 +18,7 @@ pattern py_c = "c__builtin__", py_posix = "cposix", py_os = "nt\nsystem";
 pattern gadget_cc = "commonscollections", gadget_tmpl = "templatesimpl";
 
 fn deser_score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, java_magic, py_pickle)) s = s + 3;              // raw native magic: near-certain
   if (any(m, java_b64, net_bf)) s = s + 2;                    // base64-wrapped native object

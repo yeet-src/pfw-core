@@ -15,7 +15,7 @@ pattern post = "post ", smuggle = "content-length: 0";
 
 // 2 = both framing headers (CL.TE/TE.CL), 1 = obfuscated Transfer-Encoding
 fn classify() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   if (all(m, te, cl) && any(m, chunked)) return 2;
   if (seq(m, post, smuggle) && any(m, chunked)) return 2;
   if (any(m, te_sp, te_us, te_tab)) return 1;

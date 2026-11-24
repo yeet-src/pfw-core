@@ -16,13 +16,13 @@ regex on_handler = "on[a-z]{3,12}=";          // onmouseover= onfocus= onclick= 
 
 // Weigh the XSS signals present; higher = more certainly an attack.
 fn xss_score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, s_open, s_close, iframe)) s = s + 2;                 // raw tag injection
   if (seq(m, svg, onload) || seq(m, img, onerror)) s = s + 2;     // tag then handler, in order
   if (any(m, js, data_js)) s = s + 1;                             // scheme payloads
   if (any(m, onerror, onload, evl)) s = s + 1;
-  if (any(scan(payload, 2048), on_handler)) s = s + 1;            // generic event handler
+  if (any(scan(payload, 4096), on_handler)) s = s + 1;            // generic event handler
   return s;
 }
 

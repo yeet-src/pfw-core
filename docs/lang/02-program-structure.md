@@ -23,7 +23,7 @@ name of a loadable byte-transform table; it implies `reassemble`. The optional
 (`0`/omitted = every TCP flow). Guard the filter on the **same** port: traffic
 to any other port is not reassembled, and is matched per packet.
 
-`reassemble` follows a connection through a sliding 2048-byte window. `decode h2`
+`reassemble` follows a connection through a sliding 4096-byte window. `decode h2`
 parses cleartext HTTP/2 and shows the program each packet's completed header
 blocks as `name: value` lines (isa §8); a connection that is not HTTP/2 is
 matched as a plain stream.

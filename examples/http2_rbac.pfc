@@ -19,7 +19,7 @@ pattern x_admin = ":path: /admin", x_internal = ":path: /internal", x_api = ":pa
 pattern x_bearer = "authorization: bearer ";
 filter {
   if (len == 0) decide pass;                  // nothing decoded in this packet
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
 
   if (any(m, x_admin)) {
     if (any(m, x_post, x_put, x_del)) { log(1); decide rst("h2_admin_write", 0); }

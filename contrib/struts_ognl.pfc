@@ -13,7 +13,7 @@ pattern ognl = "%{", ctx = "#context", mem = "#_memberaccess", rt = "@java.lang.
 pattern sym = "com.opensymphony", util = "ognlutil", multi = "multipart/form-data";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, mem, rt)) s = s + 3;     // sandbox escape + Runtime
   if (any(m, sym, util)) s = s + 2;   // Struts/OGNL internals being driven

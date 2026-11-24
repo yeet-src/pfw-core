@@ -42,7 +42,7 @@ Keyed on the 5-tuple `struct flow_key` (`saddr[16]`, `daddr[16]`, `sport`,
 | `rl_tokens`, `rl_ts` | `rate` | token-bucket state |
 | `ring[16]`, `ring_head`, `ring_count` | `ring.push/get/len` (`rpush`/`rget`/`rlen`) | newest-wins ring (`RING_CAP = 16`) |
 | `ac_state`, `mask`, `gen` | `scan` / `%m` | automaton state carried across TCP segments |
-| `reasm*`, `filled`, `synned` | reassembly mode | a sliding `REASM_CAP = 2048`-byte window over the TCP stream (below) |
+| `reasm*`, `filled`, `synned` | reassembly mode | a sliding `REASM_CAP = 4096`-byte window over the TCP stream (below) |
 | `h2_mode`, `h2_skip`, `h2_ins`, `h2_new` | `decode h2` | frame-parsing state (§8) |
 
 State **writes are deferred**: a `flow.state = N` (etc.) is written back after the

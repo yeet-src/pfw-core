@@ -30,11 +30,11 @@ filter {
   if (!starts(p, slash)) decide pass;               // not an origin-form request line
 
   // the path ends at the first '?', or at the space before "HTTP/1.1"
-  let stop = find(p, ' ', 2048);
-  let q = find(p, '?', 2048);
+  let stop = find(p, ' ', 4096);
+  let q = find(p, '?', 4096);
   if (q != p) { if (q < stop) stop = q; }           // find leaves the cursor on a miss
 
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let at = 0;
   if (any(m, e_dd))    { at = after(e_dd);    in_path; }
   if (any(m, e_d1))    { at = after(e_d1);    in_path; }

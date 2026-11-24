@@ -17,7 +17,7 @@ pattern net_tcd = "typeconfusedelegate", net_odp = "objectdataprovider";
 pattern py_posix = "cposix", py_bi = "c__builtin__", py_cmd = "system", py_eval = "eval", py_sub = "subprocess";
 
 fn family() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   if (any(m, java_raw, java_b64) && any(m, cc, invoker, templ)) return 1;  // Java CC chain
   if (any(m, net_tcd, net_odp)) return 2;                                  // .NET
   if (any(m, py_posix, py_bi) && any(m, py_cmd, py_eval, py_sub)) return 3; // Python pickle RCE

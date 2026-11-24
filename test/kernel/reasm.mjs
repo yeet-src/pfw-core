@@ -5,7 +5,7 @@
  * connection or an upload was cut off at 2 kB. The window now slides, keeping
  * the last 64 bytes across each move. This proves, against the real kernel:
  *   - a long clean stream is carried whole (no reset),
- *   - a signature far past 2 kB is still caught,
+ *   - a signature far past the 4 kB window is still caught,
  *   - a signature split across two segments is caught,
  *   - a signature that straddles the exact point where the window slides is caught,
  *   - a single segment larger than the window does not kill the connection, and
@@ -69,7 +69,7 @@ const PROG = `reassemble ${PORT};
 pattern sig = "${SIG}";
 filter {
   if (dport != ${PORT}) decide pass;
-  if (scan(payload, 2048) & sig) decide rst("sig", 0);
+  if (scan(payload, 4096) & sig) decide rst("sig", 0);
   decide pass;
 }`;
 
@@ -85,10 +85,10 @@ try {
     r = await stream("T3__", [...Array.from({ length: 10 }, () => fill(500)), "x" + SIG.slice(0, 5), SIG.slice(5) + "y", "tail"]);
     check("a signature split across two segments, 5 kB in, is caught", r.reset && !r.received.includes("tail"), `reset=${r.reset} received=${r.received.length}`);
 
-    // Fill the window to exactly 2048 bytes, ending on the first half of the
+    // Fill the window to exactly 4096 bytes, ending on the first half of the
     // signature; the next segment cannot fit, so the window slides right there.
-    const head = 4 + 2000, pad = 2048 - head - 5;
-    r = await stream("T4__", [fill(500), fill(500), fill(500), fill(500), fill(pad, "b") + SIG.slice(0, 5), SIG.slice(5) + "y", "tail"]);
+    const head = 4 + 4000, pad = 4096 - head - 5;
+    r = await stream("T4__", [...Array.from({ length: 8 }, () => fill(500)), fill(pad, "b") + SIG.slice(0, 5), SIG.slice(5) + "y", "tail"]);
     check("a signature straddling the point where the window slides is caught", r.reset && !r.received.includes("tail"), `reset=${r.reset} received=${r.received.length}`);
 
     r = await stream("T5__", [fill(5000), fill(300), "tail"]);

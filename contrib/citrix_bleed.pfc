@@ -10,7 +10,7 @@
 // header is MEASURED with the cursor, not guessed from the packet size: from the
 // end of "Host:" to the CR that ends the line. A hostname cannot exceed 255
 // bytes; anything longer on this endpoint is the exploit. The reassembly window
-// is 2048 bytes, so a 24 KB header is never seen whole — it shows up as a Host
+// is 4096 bytes, so a 24 KB header is never seen whole — it shows up as a Host
 // line with no CR inside the window, which counts as oversized too.
 // One hit resets; a source that repeats it (a harvest loop) is banned.
 nocase;
@@ -21,11 +21,11 @@ pattern host = "\r\nhost:", cr = "\r";
 filter {
   if (proto != 6) decide pass;
   if (dport != 8080) decide pass;
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   if (!all(m, endpoint, host)) decide pass;
 
   ptr h = after(host);                    // first byte of the Host value
-  let e = find(h, '\r', 2048);            // the CR ending the line (cursor stays put on a miss)
+  let e = find(h, '\r', 4096);            // the CR ending the line (cursor stays put on a miss)
   let n = e - h;
   let oversized = 0;
   if (n > 255) oversized = 1;

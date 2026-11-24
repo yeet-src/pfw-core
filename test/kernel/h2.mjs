@@ -8,7 +8,7 @@
  *   - the decoded view of a stock curl request, read back verbatim,
  *   - a Huffman-coded header value is matched,
  *   - a header sent as a DYNAMIC-TABLE reference is matched,
- *   - a connection stays decodable across many requests (far past 2 kB),
+ *   - a connection stays decodable across many requests (far past the window),
  *   - a large request body (DATA frames larger than the window) is skipped
  *     without losing sync,
  *   - PADDED / PRIORITY / CONTINUATION header sequences are decoded,
@@ -82,7 +82,7 @@ decode h2 ${PORT};
 pattern ua_bot = "user-agent: gptbot", admin = ":path: /admin", guest = "x-role: guest";
 pattern rst = ":frame: rst_stream", any_hdr = ":method: ";
 filter {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   if (any(m, ua_bot)) { log(250); decide rst("h2_bot", 0); }
   if (all(m, admin, guest)) { log(250); decide rst("h2_guest_admin", 0); }
   if (any(m, rst)) { if (rate(5, 10)) decide rst("rapid_reset", 0); }
@@ -117,7 +117,7 @@ try {
     check("control: /admin with another role is served", r.status === 200, JSON.stringify(r));
     s.destroy();
 
-    /* D. a long-lived connection stays in sync, far past the 2 kB window. */
+    /* D. a long-lived connection stays in sync, far past the 4 kB window. */
     s = connect();
     let okCount = 0;
     const cookie = "session=" + "c".repeat(500);
@@ -190,7 +190,7 @@ try {
   const got = [];
   const h1 = net.createServer((c) => { c.on("data", (d) => { got.push(d.toString()); c.write("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok"); }); c.on("error", () => {}); });
   await new Promise((r) => h1.listen(PORT1, "127.0.0.1", r));
-  await withProgram(`nocase; decode h2 ${PORT1}; pattern ua_bot = "user-agent: gptbot"; filter { if (scan(payload, 2048) & ua_bot) decide rst("h1_bot", 0); decide pass; }`, async () => {
+  await withProgram(`nocase; decode h2 ${PORT1}; pattern ua_bot = "user-agent: gptbot"; filter { if (scan(payload, 4096) & ua_bot) decide rst("h1_bot", 0); decide pass; }`, async () => {
     const h1req = (ua) => new Promise((resolve) => {
       const c = net.connect(PORT1, "127.0.0.1"); let reply = "";
       c.on("connect", () => c.write(`GET / HTTP/1.1\r\nHost: x\r\nUser-Agent: ${ua}\r\n\r\n`));

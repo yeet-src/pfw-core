@@ -15,7 +15,7 @@ pattern t_http = "http://", t_https = "https://", t_gopher = "gopher://";
 pattern param_ent = "<!entity %";                   // parameter-entity (blind/OOB XXE)
 
 fn xxe_score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (all(m, doctype, entity) && any(m, system, public)) s = s + 2;   // the XXE shape
   if (any(m, param_ent)) s = s + 1;                                    // parameter entities (OOB)

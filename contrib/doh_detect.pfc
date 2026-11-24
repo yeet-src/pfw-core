@@ -42,7 +42,7 @@ filter {
     let kind = 0;
     frame (type = be16 @ 0, len = u8 @ 5, head = 6) up to 1 { kind = frame.type; if (frame.len != 1) kind = 0; }
     if (kind != 0x1603) decide pass;
-    if (!any(scan(payload, 2048), r_google, r_cf, r_quad9, r_nextdns, r_adguard, r_opendns)) decide pass;
+    if (!any(scan(payload, 4096), r_google, r_cf, r_quad9, r_nextdns, r_adguard, r_opendns)) decide pass;
     console("DoH resolver in SNI sport=%d", sport);
     log(1);
     if (shadow == 1) decide pass;      // observe-only while rolling out

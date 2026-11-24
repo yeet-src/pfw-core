@@ -11,9 +11,9 @@ filter {
   if (len == 0) decide pass;
   let big = 1000000;
   ptr p = payload; let nz = 0;
-  repeat (48) { let o = find(p, 0x00, 2048); if (o == p) { if (!starts(p, nul)) o = big; } if (o < big) { nz = nz + 1; p = o + 1; } }
+  repeat (48) { let o = find(p, 0x00, 4096); if (o == p) { if (!starts(p, nul)) o = big; } if (o < big) { nz = nz + 1; p = o + 1; } }
   ptr q = payload; let ez = 0;
-  repeat (48) { let o = find(q, 0x1b, 2048); if (o == q) { if (!starts(q, esc)) o = big; } if (o < big) { ez = ez + 1; q = o + 1; } }
+  repeat (48) { let o = find(q, 0x1b, 4096); if (o == q) { if (!starts(q, esc)) o = big; } if (o < big) { ez = ez + 1; q = o + 1; } }
   if (nz > 0) { log(1); decide drop("nul_in_http"); }
   if (ez > 2) decide rst("control_byte_flood", 0);
   decide pass;

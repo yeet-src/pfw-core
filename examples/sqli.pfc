@@ -14,7 +14,7 @@
 // SOURCE a strike; three strikes, or a score of 3+ in one request (two strong
 // signals, or one plus a terminator in the URL), -> ban the source address.
 //
-// Scope: signatures over the reassembled client stream (a sliding 2048-byte
+// Scope: signatures over the reassembled client stream (a sliding 4096-byte
 // window) on a plaintext hop (behind the TLS terminator). It does not URL-decode — the regexes spell out
 // the common encodings — so a doubly-encoded or otherwise obfuscated payload gets
 // past it. A net in front of parameterised queries, not a substitute for them.
@@ -36,7 +36,7 @@ filter {
   if (dport != 8080) decide pass;
   if (len == 0) decide pass;
 
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let score = 0;
   if (any(m, union_select)) score = score + 2;
   if (any(m, tautology, quote_or)) score = score + 2;
@@ -44,7 +44,7 @@ filter {
   if (score == 0) decide pass;
 
   // corroboration: a comment terminator inside the first (request) line
-  ptr eol = find(payload, '\r', 2048);
+  ptr eol = find(payload, '\r', 4096);
   let term = 0;
   if (any(m, c_dash)) { let at = after(c_dash); if (at <= eol) term = 1; }
   if (any(m, c_block)) { let at = after(c_block); if (at <= eol) term = 1; }

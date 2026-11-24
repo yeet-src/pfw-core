@@ -57,7 +57,7 @@ fn score_scanner() {
 
 // Code-execution class (RCE / Log4Shell) — any hit is critical on its own.
 fn score_rce() {
-  if (any(scan(payload, 2048), r_rce, r_id, r_jndi)) return 9;
+  if (any(scan(payload, 4096), r_rce, r_id, r_jndi)) return 9;
   return 0;
 }
 

@@ -22,7 +22,7 @@ filter {
   if (proto != 6) decide pass;
   if (len == 0) decide pass;                 // no header block or RST_STREAM completed in this packet
 
-  if (scan(payload, 2048) & cancel) {
+  if (scan(payload, 4096) & cancel) {
     if (rate(20, 40)) {                      // more than 20 cancelling packets/s, after a burst of 40
       log(64);
       if (src.count >= 3) decide ban("rapid_reset", 300);   // third connection cut: ban the address
