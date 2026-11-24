@@ -98,6 +98,9 @@ const CASES = [
   // registers there once were, so some sit on %s16 and up.
   { name: "thirty live locals → rst", source: `filter { if (dport != ${PORT}) decide pass; ${Array.from({ length: 30 }, (_, i) => `let v${i} = ${i + 1};`).join(" ")} let sum = ${Array.from({ length: 30 }, (_, i) => `v${i}`).join(" + ")}; if (sum == 465) { log(16); decide rst("locals", 0); } decide pass; }`,
     sends: [["every local keeps its value", enc("anything")]] },
+  // A 200-byte signature: over the 64 bytes a pattern once held.
+  { name: "a 200-byte pattern → rst", source: `pattern long = "${"ab".repeat(99)}yz";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 1024) & long) { log(16); decide rst("long_pat", 0); } decide pass; }`,
+    sends: [["the whole signature", enc("--" + "ab".repeat(99) + "yz--")], ["its last byte wrong", enc("--" + "ab".repeat(99) + "yy--")]] },
 ];
 
 let fail = 0, n = 0;

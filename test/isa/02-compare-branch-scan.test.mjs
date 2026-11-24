@@ -3,6 +3,7 @@
 import { LIMITS } from "#/isa.js";
 import { isa, li, OP, V } from "./harness.mjs";
 
+const { SKIP_CAP } = LIMITS;
 const t = isa("cmp/branch/scan");
 const MAX = "0xffffffffffffffff";
 /* Raise FF without disturbing much: a one-byte load at %end. Leaves %cur = %end. */
@@ -153,9 +154,9 @@ t("skipb: from a moved cursor", { asm: `${li(2)}\nskipb $'-'`, frame: "ab---c", 
 t("skipb: stops at $MAX", { asm: `skipb $' ', $2`, frame: "     X", cur: 2 });
 t("skipb: stops at %end", { asm: `skipb $' '`, frame: "    ", cur: 4, ff: false });
 t("skipb: with the cursor at %end does nothing", { asm: `mov %end, %cur\nskipb $' '`, frame: "    ", cur: 4, ff: false });
-t("skipb: the default cap is 64", { asm: `skipb $' '`, frame: " ".repeat(70) + "X", cur: 64 });
-t("skipb: a cap above 64 is 64", { asm: `skipb $' ', $200`, frame: " ".repeat(70) + "X", cur: 64 });
-t("skipb: a cap of exactly 64", { asm: `skipb $' ', $64`, frame: " ".repeat(64) + "X", cur: 64 });
+t("skipb: the default cap is SKIP_CAP", { asm: `skipb $' '`, frame: " ".repeat(SKIP_CAP + 6) + "X", cur: SKIP_CAP });
+t("skipb: a cap above SKIP_CAP is SKIP_CAP", { asm: `skipb $' ', $${SKIP_CAP + 136}`, frame: " ".repeat(SKIP_CAP + 6) + "X", cur: SKIP_CAP });
+t("skipb: a cap of exactly SKIP_CAP", { asm: `skipb $' ', $${SKIP_CAP}`, frame: " ".repeat(SKIP_CAP) + "X", cur: SKIP_CAP });
 t("skipb: leaves the flags alone", { asm: `${li(0)}\ncmp $1, %cur\nskipb $' '`, frame: "   X", zf: false, cf: true, ff: false });
 
 t.covers(OP.CMP_I, OP.CMP_R, OP.TEST, OP.JMP, OP.JE, OP.JNE, OP.JB, OP.JAE, OP.JA, OP.JBE, OP.JF, OP.SCAN, OP.MPOS, OP.CMPSTR, OP.FINDB, OP.SKIPB);
