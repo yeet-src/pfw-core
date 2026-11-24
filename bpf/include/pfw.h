@@ -14,7 +14,7 @@
 #define HASH_MAX     262144 /* max keys in the `x in hash` exact set (hashset) */
 #define BLOOM_MAX    1048576 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
-#define RE_STATES    8192 /* max states in the regex DFA (re_goto/re_accept); a power of two */
+#define RE_STATES    32768 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define PFW_ARGC     64   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define FARGS_MAX    8    /* numeric args a console() or emit() can carry (printk takes 3); a power of two */
 #define FSTR_MAX     2    /* %s string args a call can carry */
@@ -31,7 +31,7 @@
 #define FLOW_REGS    4     /* per-flow registers a program reads and writes (flow.r0 .. flow.r3); a power of two */
 #define FF_BYTES     4     /* OP_FLOAD reg: payload bytes this flow has carried, this packet included */
 #define FF_PACKETS   5     /* OP_FLOAD reg: packets of this flow, this one included */
-#define SAMPLE_CAP   2048  /* bytes of a frame one sample() carries to the host; a power of two */
+#define SAMPLE_CAP   4096  /* bytes of a frame one sample() carries to the host; a power of two */
 #define KV_MAX       262144 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
 #define NAT_MAX      65536 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
 #define SRC_MAX      262144 /* sources tracked for per-source state (the `sources` map, LRU) */
@@ -79,7 +79,7 @@
 #define H2_PREFACE   "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 #define H2_PREFACE_LEN 24
 #define H2_MAX_FRAMES 256  /* frames walked per decode pass (a full window of 9-byte frames is 227) */
-#define H2_CAP        4096 /* h2 work buffers: the header block, its intermediate, the decoded view */
+#define H2_CAP        8192 /* h2 work buffers: the header block, its intermediate, the decoded view */
 #define H2_DYN_SLOTS  64   /* HPACK dynamic-table entries kept per connection (the newest) */
 #define H2_ENT_CAP    256  /* bytes kept per dynamic-table entry (name + value, truncated past it) */
 #define H2_CONNS      1024 /* h2 connections with a live dynamic table (the `h2conns` map, LRU) */

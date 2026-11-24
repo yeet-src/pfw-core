@@ -40,10 +40,15 @@ regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
 regex card = "\\d{13,16}";
 filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
-// An AWS access key id: a DFA of some 2500 states, more than the table held
-// when it was 1024.
-const bigSource = `regex aws = "AKIA[A-Z0-9]{16}";
-filter { if (dport != ${PORT}) decide pass; if (scan(payload, 512) & aws) { log(16); decide rst("key", 0); } decide pass; }`;
+// The same three and an AWS access key id, in one program. The key alone is a
+// DFA of some 2500 states, and regexes share one DFA, so their sizes multiply:
+// all four come to about 11000, where the table once held 1024.
+const bigSource = `nocase;
+regex ssn = "\\d{3}-\\d{2}-\\d{4}";
+regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
+regex card = "\\d{13,16}";
+regex aws = "AKIA[A-Z0-9]{16}";
+filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card, aws)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
 const CASES = [
   ["SSN -> rst", "my ssn is 123-45-6789 ok", V.RST],
@@ -55,6 +60,8 @@ const CASES = [
 const BIG_CASES = [
   ["aws key -> rst", "key AKIAIOSFODNN7EXAMPLE end", V.RST],
   ["aws key one byte short -> pass", "key AKIAIOSFODNN7EXAMPL end", V.PASS],
+  ["...and an SSN beside it -> rst", "my ssn is 123-45-6789 ok", V.RST],
+  ["...and clean text -> pass", "just a normal request body", V.PASS],
 ];
 
 const vname = (v) => ({ [V.PASS]: "pass", [V.RST]: "rst", [V.DROP]: "drop" }[v] ?? v);

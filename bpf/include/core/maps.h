@@ -167,7 +167,7 @@ __attribute__((used)) static const struct pfw_emit __pfw_emit_anchor;
  * this is how traffic is mirrored — to userspace, which can send it on. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);
-    __uint(max_entries, 1 << 22);
+    __uint(max_entries, 1 << 23);
 } samples SEC(".maps");
 __attribute__((used)) static const struct pfw_sample __pfw_sample_anchor;
 PFW_LINK volatile __u64 sampled; /* frames copied to the samples ring */
