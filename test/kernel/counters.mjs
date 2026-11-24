@@ -5,7 +5,7 @@
  * showed bans where no address had been banned. This proves, against the real
  * kernel:
  *   - a `rst` verdict counts in `rsts` (or `dropped`) and never in `bans`,
- *   - a connection reset because it was first seen mid-stream does not either,
+ *   - a connection the VM resets itself, because it cannot follow it, does not either,
  *   - a `ban` verdict still counts in `bans`,
  *   - `dropped + rsts` is the number of packets blocked.
  * Needs yeetd + loopback; `npm run test:counters` (node). */
@@ -79,17 +79,20 @@ try {
     check(`${mode}: the rule was hit`, num(c.rules?.sig) >= 3, `sig=${c.rules?.sig}`);
   }
 
-  /* A connection opened before a reassembling program arrives is first seen
-   * mid-stream and reset, fail closed. Nothing is banned there either. */
+  /* A connection opened before a decoding program arrives is first seen
+   * mid-stream. A decode keeps state from a connection's first byte and cannot
+   * begin part-way, so the VM resets it, fail closed. Nothing is banned there
+   * either. (A program that only reassembles follows such a connection from
+   * where it picks it up: test/kernel/midjoin.mjs.) */
   {
     const early = net.connect({ port: PORT, host: "127.0.0.1" });
     early.on("error", () => {});
     await new Promise((r) => early.once("connect", r));
     early.write("hello");
     await sleep(100);
-    const c = await countersAfter(policy('rst("sig", 0)', true), async () => { early.write("more"); await sleep(600); });
+    const c = await countersAfter(`decode h2 ${PORT};\nfilter { decide pass; }`, async () => { early.write("more"); await sleep(600); });
     early.destroy();
-    check("a connection first seen mid-stream is reset", num(c.rsts) + num(c.dropped) >= 1, `rsts=${c.rsts} dropped=${c.dropped}`);
+    check("a connection a decode first sees mid-stream is reset", num(c.rsts) + num(c.dropped) >= 1, `rsts=${c.rsts} dropped=${c.dropped}`);
     check("...and that is not counted as a ban", num(c.bans) === 0, `bans=${c.bans}`);
   }
 

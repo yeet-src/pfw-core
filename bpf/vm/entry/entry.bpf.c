@@ -323,7 +323,8 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
                 flows_created++;
         }
         if (!f) { passed++; return XDP_PASS; }
-        int rf = reasm_feed(ctx, &p, f, st, prog->decode == DECODE_H2);
+        int rf = reasm_feed(ctx, &p, f, st, (prog->decode == DECODE_H2 ? REASM_H2 : 0)
+                                            | (prog->decode != DECODE_NONE ? REASM_FROM_START : 0));
         if (rf == REASM_HOLD) {
             /* Out of order and beyond the window: drop it, TCP will resend it. */
             dropped++;
