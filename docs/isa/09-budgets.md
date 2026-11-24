@@ -13,7 +13,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | scratch registers | 16 | `%s0`–`%s15`, reused by live range |
 | subroutine args | 7 | `%a0`–`%a6`; return in `%rv` |
 | data-stack depth (`STACK_CAP`) | 256 | `push`/`pop`, `call`/`ret` |
-| rules (`NRULES`) | 64 | named verdicts / counters |
+| rules (`NRULES`) | 1024 | named verdicts / counters |
 | runtime args (`ARGC`) | 64 | `argv[i]` |
 | numeric knobs (`KNOBS`) | 256 | `knob("name")` live control slots |
 | string knobs (`KNOBSTRS`) | 64 | `kstr("name")`, ≤ `KNOBSTR_CAP = 64` B each |

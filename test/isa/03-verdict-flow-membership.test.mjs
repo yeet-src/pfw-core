@@ -1,5 +1,6 @@
 /* ISA conformance — verdicts, per-flow / per-source state, the ring, membership.
  * Spec: docs/isa/instructions/03-verdict-flow-and-membership.md, docs/isa/03-memory-model.md. */
+import { LIMITS } from "#/isa.js";
 import { isa, li, OP, V } from "./harness.mjs";
 
 const t = isa("verdict/flow/member");
@@ -12,9 +13,9 @@ t("drop: terminal, records the rule", { asm: `drop $3\nrst $4, $0`, verdict: V.D
 t("ban: terminal, records the rule", { asm: `ban $5, $60\ndrop $1`, verdict: V.BAN, rule: 5 });
 t("rst: terminal, records the rule", { asm: `rst $6, $60\ndrop $1`, verdict: V.RST, rule: 6 });
 t("ban / rst: the ttl is optional", { asm: `ban $7`, verdict: V.BAN, rule: 7 });
-t("drop: the highest rule id", { asm: `drop $63`, verdict: V.DROP, rule: 63 });
-t("drop: the rule id is masked to 6 bits", { ops: [[OP.DROP, 64 + 5]], verdict: V.DROP, rule: 5 });
-t("rst: the rule id is masked to 6 bits", { ops: [[OP.RST, 128 + 9]], verdict: V.RST, rule: 9 });
+t("drop: the highest rule id", { asm: `drop $${LIMITS.NRULES - 1}`, verdict: V.DROP, rule: LIMITS.NRULES - 1 });
+t("drop: the rule id is masked to the rule count", { ops: [[OP.DROP, LIMITS.NRULES + 5]], verdict: V.DROP, rule: 5 });
+t("rst: the rule id is masked to the rule count", { ops: [[OP.RST, 2 * LIMITS.NRULES + 9]], verdict: V.RST, rule: 9 });
 t("count: not terminal — execution continues", { asm: `count $2\ndrop $1`, verdict: V.DROP, rule: 1 });
 t("count: leaves %cur and the flags alone", { asm: `${li(4)}\ncmp $5, %cur\ncount $2`, cur: 4, zf: false, cf: true, ff: false });
 t("log: not terminal — execution continues", { asm: `log $16\ndrop $1`, verdict: V.DROP });

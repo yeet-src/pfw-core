@@ -117,7 +117,7 @@ Consequences to design around:
   | scratch registers | 16 | locals reuse them by live range |
   | subroutine args | 7 | `%a0..%a6`, result in `%rv` |
   | data stack depth | 256 | `push`/`pop`, `call`/`ret` |
-  | rules | 64 | named verdicts, per program |
+  | rules | 1024 | named verdicts, per program |
   | runtime args | 64 | `argv[i]` |
   | knobs | 256 | `knob("name")` live control slots |
   | string knobs | 64 | `kstr("name")`, 64 B each |
