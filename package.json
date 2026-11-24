@@ -62,6 +62,7 @@
     "test:examples-kernel": "node test/kernel/examples.mjs",
     "test:loader": "node test/kernel/loader.mjs",
     "test:route": "node test/kernel/route.mjs",
+    "test:counts": "node test/kernel/counts.mjs",
         "test:knob": "node test/kernel/knob.mjs",
     "test:kstr": "node test/kernel/kstr.mjs",
     "test:mpos": "node test/kernel/mpos.mjs",

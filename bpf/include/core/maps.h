@@ -33,7 +33,12 @@ PFW_LINK volatile __u32 route_shapes;
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
 PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
 PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */
-PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full, shadowed;
+/* bans: `ban` verdicts, and nothing else — a reset is in rsts. enforced: packets
+ * stopped by a mark an earlier verdict left on their connection. shadowed:
+ * verdicts shadow mode let through; shadow_enforced: the packets a standing
+ * mark or ban would then have stopped. Decisions and packets are kept apart
+ * throughout, so "how many requests" is not multiplied by retransmissions. */
+PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full, shadowed, shadow_enforced;
 /* Reassembly accounting (reasm-mode programs): segments skipped as
  * retransmits, forward-gap resyncs, flows joined mid-stream (fail closed),
  * and segments that overran the reassembly buffer (fail closed). */
@@ -239,6 +244,15 @@ PFW_LINK struct {
     __type(key, __u32);
     __type(value, __u64);
 } counters SEC(".maps");
+
+/* Packets stopped by a mark or ban a rule left standing, by that rule: beside
+ * `counters`, which is the times the rule itself decided. */
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
+    __uint(max_entries, RULE_POOL);
+    __type(key, __u32);
+    __type(value, __u64);
+} rule_enforced SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_RINGBUF);

@@ -7,10 +7,27 @@
 #include "core/maps.h"
 #include "parse/parse.h"
 
+/* A rule decided: once for the packet it decided on. What that decision goes
+ * on to stop — the retransmissions and later packets of a marked connection,
+ * everything from a banned source — is count_enforced's, so a rule's count is
+ * the times it fired and not the packets that followed. */
 static __always_inline void count_rule(__u32 rule)
 {
-    __u32 key = rule & (RULE_POOL - 1);
+    __u32 key = rule;
+    if (key >= RULE_POOL)
+        return;
     __u64 *n = bpf_map_lookup_elem(&counters, &key);
+    if (n)
+        (*n)++;
+}
+
+/* A packet stopped by a standing mark or ban that `rule` set earlier. */
+static __always_inline void count_enforced(__u32 rule)
+{
+    __u32 key = rule;
+    if (key >= RULE_POOL)
+        return;
+    __u64 *n = bpf_map_lookup_elem(&rule_enforced, &key);
     if (n)
         (*n)++;
 }

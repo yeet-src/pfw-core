@@ -19,7 +19,7 @@ const PORT = 59694;
 const SIG = "EVILPAYLOAD";
 
 /* Apply `source`, run `fn`, and resolve with the counters the VM reported on
- * its way out (apply-and-hold --stats 1 prints them before it detaches). */
+ * its way out (apply-and-hold --stats 1 prints them each second; the last is as it detaches). */
 async function countersAfter(source, fn) {
   const child = spawn("yeet", ["run", "scripts/apply-and-hold.mjs", "--src", hex(source), "--iface", "1", "--hold", "6", "--stats", "1"], { cwd: ROOT });
   let out = "";
@@ -29,7 +29,7 @@ async function countersAfter(source, fn) {
   if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out.slice(-2000)); }
   await fn();
   for (let i = 0; i < 150 && !/detached/.test(out); i++) await sleep(100);
-  const line = out.split("\n").find((l) => l.startsWith("STATS "));
+  const line = out.split("\n").findLast((l) => l.startsWith("STATS "));
   if (!line) throw new Error("no STATS line:\n" + out.slice(-2000));
   return JSON.parse(line.slice(6));
 }

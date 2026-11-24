@@ -92,7 +92,7 @@ static __noinline int src_banned(struct pkt *p)
         s->rule = 0;
         return 0;
     }
-    count_rule(s->rule);
+    count_enforced(s->rule);
     return 1;
 }
 

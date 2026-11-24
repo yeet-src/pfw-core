@@ -26,9 +26,10 @@
 | `h2conns` | LRU_HASH | `flow_key` → `h2conn` | `decode h2` dynamic tables (`H2_CONNS = 1024`) |
 | `state` | PERCPU_ARRAY (1) | u32 → `pfw_state` | per-CPU execution state |
 | `stack` | PERCPU_ARRAY (1) | u32 → `vmstack` | the data stack |
-| `counters` | PERCPU_ARRAY (1024) | u32 → u64 | per-rule counters |
+| `counters` | PERCPU_ARRAY (2048) | u32 → u64 | the times each rule decided, by its slot in the rule pool |
+| `rule_enforced` | PERCPU_ARRAY (2048) | u32 → u64 | packets stopped by a mark or ban a rule left standing, by that rule; `counters` is the times the rule decided |
 | `decide_hist` | PERCPU_ARRAY (16) | u32 → u64 | decision-time histogram |
-| `rule_time` | PERCPU_ARRAY (1024) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
+| `rule_time` | PERCPU_ARRAY (2048) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
 | `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
 | `samples` | RINGBUF (8 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[4096]) |
@@ -41,7 +42,7 @@
 - `first_on`, `first_slot` — whether there is a chain of stage programs every packet runs before the one it is dispatched to, and the slot of its first. A stage keeps its per-connection state in `stage_flows`, by its place in the chain (`pfw_prog.stage_ix`), and has no reassembly. Its pass tail-calls `pfw_stage` for the stage `pfw_prog.next_slot` names, or `pfw_dispatch` from the last.
 - `route_shapes` — a bit for each shape of route installed; the entry looks up only those. Every shape of prefix route in use is looked up and the longest prefix kept; on a tie, and among routes with no prefix, the order is by what else the route names: interface + protocol + port, protocol + port, interface + protocol, protocol, interface, nothing. Then `default_slot`.
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
-- Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
+- Counters (`bans` is `ban` verdicts only; a rule's decision is counted once, and the packets its mark goes on to stop are `enforced`, or `shadow_enforced` in shadow mode): `seen, ran, passed, dropped, rsts, bans, enforced, shadow_enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,
   reasm_midjoin, reasm_over, reasm_slid, reasm_held, reasm_trunc`), the h2 counters
   (`h2_blocks, h2_raw, h2_unresolved, h2_trunc, h2_failed`), `src_enforced`,
