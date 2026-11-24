@@ -63,9 +63,9 @@ empty (`len == 0`) when the packet completed none.
 | a reference to an entry older than the 64 kept | shown as `?`, counted in `h2_unresolved` |
 | the decoded lines exceed the view | truncated at `REASM_CAP`, counted in `h2_trunc` |
 | a malformed frame or header block | reset (`h2_failed`) |
-| a header sequence that cannot fit the window (> ~2 kB compressed) | reset (`reasm_over`) |
+| a header sequence that cannot fit the window (> ~4 kB compressed) | reset (`reasm_over`) |
 | the dynamic table was evicted under a live connection (`H2_CONNS = 1024`, LRU) | reset (`h2_failed`) |
-| one TCP segment larger than the window | reset — fine at a 1500-byte MTU; jumbo frames and loopback writes over 2 kB hit it |
+| one TCP segment larger than the window | reset — fine at a 1500-byte MTU; jumbo frames and loopback writes over 4 kB hit it |
 
 Only the client-to-server direction is decoded, and only cleartext HTTP/2 (h2c
 with prior knowledge). An `Upgrade: h2c` handshake starts as HTTP/1.1 and stays

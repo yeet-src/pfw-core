@@ -13,7 +13,7 @@
 //
 // Limits, stated plainly: it counts brackets, it does not tokenize — a bracket
 // inside a JSON string counts too (so it can over-count, never under-count); it
-// reads the stream through the 2048-byte reassembly window, from the first blank
+// reads the stream through the 4096-byte reassembly window, from the first blank
 // line in it, and follows only the first 64 brackets — so a bomb hidden behind
 // 64 flat brackets is not caught here.
 //
@@ -27,20 +27,20 @@ filter {
   if (dport != 8080) decide pass;
   if (len == 0) decide pass;
 
-  if (!(scan(payload, 2048) & body)) decide pass;   // headers not complete yet
+  if (!(scan(payload, 4096) & body)) decide pass;   // headers not complete yet
   ptr p = after(body);                               // first byte after the headers
   let maxd = 0;
   let big = 1000000;
 
   repeat (64) {
-    let o = find(p, '{', 2048);
+    let o = find(p, '{', 4096);
     if (o == p) { if (!starts(p, oc)) o = big; }     // miss -> sentinel
-    let t = find(p, '[', 2048);
+    let t = find(p, '[', 4096);
     if (t == p) { if (!starts(p, os)) t = big; }
     if (t < o) o = t;                                // nearest opener of either kind
-    let c = find(p, '}', 2048);
+    let c = find(p, '}', 4096);
     if (c == p) { if (!starts(p, cc)) c = big; }
-    t = find(p, ']', 2048);
+    t = find(p, ']', 4096);
     if (t == p) { if (!starts(p, cs)) t = big; }
     if (t < c) c = t;                                // nearest closer of either kind
 

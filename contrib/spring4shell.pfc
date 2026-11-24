@@ -15,7 +15,7 @@ pattern pipe = "pipeline.first", res = ".resources.", ctx = ".context.parent";
 pattern suf = ".suffix", pat = ".pattern", dir = ".directory", pre = ".prefix";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, cl1, cl2)) s = s + 3;            // the forbidden classLoader path
   if (any(m, pipe, res, ctx)) s = s + 2;      // AccessLogValve rewiring

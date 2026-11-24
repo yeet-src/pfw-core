@@ -11,8 +11,8 @@ filter {
   if (len == 0) decide pass;
   ptr p = payload; let big = 1000000; let bad = 0;
   repeat (80) {
-    let o = find(p, '(', 2048); if (o == p) { if (!starts(p, op)) o = big; }
-    let c = find(p, ')', 2048); if (c == p) { if (!starts(p, cp)) c = big; }
+    let o = find(p, '(', 4096); if (o == p) { if (!starts(p, op)) o = big; }
+    let c = find(p, ')', 4096); if (c == p) { if (!starts(p, cp)) c = big; }
     if (o < big) {
       if (o <= c) { push(1); p = o + 1; }
       else { if (sp > 0) { let d = pop(); } else { bad = 1; } p = c + 1; }

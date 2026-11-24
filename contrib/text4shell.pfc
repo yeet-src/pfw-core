@@ -12,7 +12,7 @@ pattern script = "${script:", dns = "${dns:", url = "${url:";
 pattern purl = "${prefixedurl:", b64 = "${base64decoder:";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, script)) s = s + 3;          // arbitrary script evaluation
   if (any(m, dns, url, purl)) s = s + 2;  // SSRF / exfil lookups

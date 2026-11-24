@@ -15,7 +15,7 @@ pattern sysp = "${sys:", colon = "${::-", date = "${date:";
 pattern ldap = "ldap:", rmi = "rmi:", dnsp = "dns:", iiop = "iiop:";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, jndi)) s = s + 2;                                 // jndi trace
   if (any(m, lower, upper, env, sysp, colon, date)) s = s + 2; // obfuscation gadgets

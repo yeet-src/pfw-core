@@ -11,7 +11,7 @@ pattern jndi = "${jndi:", ldap = "${jndi:ldap", rmi = "${jndi:rmi", dns = "${jnd
 pattern lower = "${lower:", upper = "${upper:", env = "${env:";   // obfuscation nests
 filter {
   if (proto != 6) decide pass;
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   if (any(m, jndi, ldap, rmi, dns)) { log(1); decide drop("log4shell"); }
   if (any(m, lower, upper, env)) { log(1); decide drop("log4shell_obf"); } // nested ${lower:j}ndi
   decide pass;

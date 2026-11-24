@@ -16,7 +16,7 @@ filter {
   if (len == 0) decide pass;
 
   // a completed request is normal traffic: clear any suspicion and pass
-  if (scan(payload, 2048) & end_hdr) {
+  if (scan(payload, 4096) & end_hdr) {
     flow.state = 0 for 1;
     decide pass;
   }

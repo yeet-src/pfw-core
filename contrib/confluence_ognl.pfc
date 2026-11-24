@@ -14,7 +14,7 @@ pattern forname = "class.forname", member = "#_memberaccess";
 regex reflect = "@[a-z.]+@[a-z]+";   // @java.lang.Runtime@getRuntime shape
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, runtime, exec)) s = s + 3;   // Runtime / exec reflection
   if (any(m, reflect)) s = s + 2;         // generic @class@member OGNL

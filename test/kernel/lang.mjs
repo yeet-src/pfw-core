@@ -238,7 +238,7 @@ async function tcpCase(title, source, sends) {
   } finally { srv.close(); }
 }
 
-const DECODED = (decl) => `decode ${decl} ${PORT}; pattern bot = "GPTBot"; filter { if (dport != ${PORT}) decide pass; if (scan(payload, 2048) & bot) decide drop("bot"); decide pass; }`;
+const DECODED = (decl) => `decode ${decl} ${PORT}; pattern bot = "GPTBot"; filter { if (dport != ${PORT}) decide pass; if (scan(payload, 4096) & bot) decide drop("bot"); decide pass; }`;
 
 await tcpCase("decode <table> (rot13)", DECODED("rot13"), [
   ["the pattern, rot13-encoded on the wire -> dropped", Buffer.from(rot13("hello GPTBot here")), true],

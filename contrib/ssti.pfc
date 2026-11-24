@@ -15,11 +15,11 @@ pattern g_runtime = "getruntime", g_exec = "freemarker.template.utility.execute"
 regex math_probe = "\{\{\s*[0-9]+\s*[-+*]\s*[0-9]+\s*\}\}";   // {{7*7}} , ${ 9 + 9 }
 
 fn ssti_score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (seq(m, d_jinja, d_jinja_end)) s = s + 1;                 // balanced {{ ... }}
   if (any(m, d_dollar, d_erb, d_hash, d_velocity)) s = s + 1;  // other engines
-  if (any(scan(payload, 2048), math_probe)) s = s + 2;         // the {{7*7}} probe
+  if (any(scan(payload, 4096), math_probe)) s = s + 2;         // the {{7*7}} probe
   if (any(m, g_class, g_subclasses, g_globals, g_mro)) s = s + 2; // python sandbox escape
   if (any(m, g_runtime, g_exec, g_popen)) s = s + 2;          // java/exec gadgets
   return s;

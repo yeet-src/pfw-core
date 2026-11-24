@@ -14,7 +14,7 @@ pattern t_over = "%c0%af", t_utf = "%c1%9c", t_dbl = "%252e", t_semi = "..;/";
 pattern tgt_passwd = "/etc/passwd", tgt_env = "/proc/self/environ", tgt_win = "win.ini", tgt_shadow = "/etc/shadow";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, t_multi, t_enc, t_back, t_over, t_utf, t_dbl, t_semi)) s = s + 2; // encoded traversal
   if (any(m, tgt_passwd, tgt_env, tgt_win, tgt_shadow)) s = s + 2;             // the payoff target

@@ -15,7 +15,7 @@ filter {
   push(payload);                         // token 0: method start
   ptr a = find(payload, ' ', 8); skip(a, ' ');
   push(a);                               // token 1: path start
-  ptr b = find(a, ' ', 2048); skip(b, ' ');
+  ptr b = find(a, ' ', 4096); skip(b, ' ');
   push(b);                               // token 2: version start
 
   let vstart = pop();                    // LIFO: version, then path, then method

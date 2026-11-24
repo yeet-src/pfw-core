@@ -16,7 +16,7 @@ pattern deep = "{{{{{{{{";                 // absurd nesting — a cheap DoS sme
 fn to_graphql() { if (starts(payload, g_path)) return 1; return 0; }
 
 fn is_introspection() {
-  if (any(scan(payload, 2048), i_schema, i_type, i_query)) return 1;
+  if (any(scan(payload, 4096), i_schema, i_type, i_query)) return 1;
   return 0;
 }
 
@@ -29,7 +29,7 @@ filter {
   if (!to_graphql()) decide pass;
 
   // Deeply nested documents: likely a resource-exhaustion query.
-  if (scan(payload, 2048) & deep) { console("graphql deep-nest sport=%d", sport); decide rst("graphql_depth", 0); }
+  if (scan(payload, 4096) & deep) { console("graphql deep-nest sport=%d", sport); decide rst("graphql_depth", 0); }
 
   if (is_introspection()) {
     if (internal()) { count("introspect_internal"); decide pass; }   // tooling may introspect

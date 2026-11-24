@@ -16,7 +16,7 @@ pattern wrap_b64 = "base64_decode(", wrap_gz = "gzinflate(", wrap_rot = "str_rot
 pattern jsp_rt = "runtime.getruntime", jsp_pb = "processbuilder";
 
 fn shell_score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, p_eval, p_assert, p_system, p_passthru, p_shellexec, p_popen, p_exec, p_proc)) s = s + 2; // a sink
   if (any(m, src_get, src_post, src_req, src_cookie)) s = s + 1;          // attacker-controlled source

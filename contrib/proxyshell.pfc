@@ -16,7 +16,7 @@ pattern ad = "/autodiscover/autodiscover.json", rps = "x-rps-cat";
 pattern ps = "/powershell", mapi = "/mapi/nspi";
 
 fn score() {
-  mask m = scan(payload, 2048);
+  mask m = scan(payload, 4096);
   let s = 0;
   if (any(m, at)) s = s + 3;          // the SSRF path-confusion marker
   if (any(m, ad)) s = s + 1;

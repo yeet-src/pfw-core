@@ -11,7 +11,7 @@ decode h2 50051;
 pattern admin = "/admin.adminservice/", reflect = "/grpc.reflection.", debugv = "/debug.", bearer = "authorization: bearer ";
 
 fn restricted(p) {
-  mask m = scan(p, 2048);
+  mask m = scan(p, 4096);
   if (any(m, admin, debugv)) return 1;    // admin / debug RPCs
   if (any(m, reflect)) return 1;          // server reflection = schema disclosure
   return 0;
@@ -21,7 +21,7 @@ filter {
   if (rate(100, 200)) { log(3); decide drop("grpc_flood"); }
 
   if (restricted(payload)) {
-    if (scan(payload, 2048) & bearer) decide pass;   // authenticated call: allow
+    if (scan(payload, 4096) & bearer) decide pass;   // authenticated call: allow
     let strike = src.count;
     console("grpc restricted unauth strike=%d", strike);
     if (strike >= 5) decide ban("grpc_abuse", 1800);

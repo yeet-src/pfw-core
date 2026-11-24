@@ -24,7 +24,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | per-flow ring (`RING_CAP`) | 16 | newest-wins |
 | rewrites per packet (`RW_MAX`) | 4 | recorded, applied by the rewrite stage |
 | log snapshot (`LOG_CAP`) | 256 B | into the event |
-| reassembly window (`REASM_CAP`) | 2048 B | per flow; slides, keeping `REASM_KEEP = 64` B |
+| reassembly window (`REASM_CAP`) | 4096 B | per flow; slides, keeping `REASM_KEEP = 64` B |
 | sources (`SRC_MAX`) | 262144 | LRU; per-source state and bans |
 | NAT connections (`NAT_MAX`) | 65536 | LRU; `dnat` reply path |
 | h2 dynamic table (`H2_DYN_SLOTS` × `H2_ENT_CAP`) | 64 × 256 B | per h2 connection, newest entries |

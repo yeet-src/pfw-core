@@ -23,7 +23,7 @@ pattern ua = "user-agent: ";
 pattern gptbot = "GPTBot", claudebot = "ClaudeBot", bytespider = "Bytespider";
 filter {
   if (len == 0) decide pass;                  // nothing decoded in this packet
-  if (!(scan(payload, 2048) & ua)) decide pass;
+  if (!(scan(payload, 4096) & ua)) decide pass;
   ptr agent = after(ua);                      // the User-Agent value
   if (any(within(agent, 256), gptbot, claudebot, bytespider)) decide ban("h2_crawler", 300);
   decide pass;
