@@ -74,7 +74,7 @@ tally and fall through.
   600, so a program can afford one per connection. One name, one shape: every
   `emit` of a name carries the same number of values.
 - `sample(len);` / `sample(len, "tag");` — send the host a copy of the frame's
-  first `len` bytes (a constant, up to 2048), from the Ethernet header on, with
+  first `len` bytes (a constant, up to 4096), from the Ethernet header on, with
   the frame's real length. The packet itself goes wherever the verdict sends
   it. This is how traffic is mirrored: XDP cannot clone a packet to another
   interface, so the copy goes to userspace, which can store it, feed it to an

@@ -62,7 +62,7 @@
 | pattern length | 256 B |
 | scan window | 4096 B |
 | AC automaton states | 16384 |
-| regex DFA states | 8192 |
+| regex DFA states | 32768 |
 | scratch registers (locals, by live range) | 40 |
 | subroutine args | 7 (`%a0..%a6`) |
 | data-stack depth | 256 |
@@ -73,7 +73,7 @@
 | numeric knobs (`knob`) | 256 |
 | string knobs (`kstr`) | 64 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |
-| `sample` length / tags | 2048 B / 63 |
+| `sample` length / tags | 4096 B / 63 |
 | per-flow registers (`flow.r0`…) | 4 |
 | `console` %s capture | 256 B |
 | `printk` formats / length | 16 / 64 B |

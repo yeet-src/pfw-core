@@ -247,7 +247,7 @@ by `console`/`printk`.
 ### 74 — `OP_SAMPLE` (`sample $LEN[, $TAG]`)
 
 - **Assembler:** `sample $256`, `sample $256, $1`. **Encoding:** `code = 74`,
-  `reg` = tag id (0 = untagged), `imm` = bytes wanted (1–`SAMPLE_CAP` = 2048).
+  `reg` = tag id (0 = untagged), `imm` = bytes wanted (1–`SAMPLE_CAP` = 4096).
 - **Operation (kernel):** `do_sample` (a `__noinline` helper) reserves a
   `struct pfw_sample` on the `samples` ring and copies `min(imm, frame length,
   SAMPLE_CAP)` bytes **from offset 0 of the frame** with `bpf_xdp_load_bytes`,
@@ -260,7 +260,7 @@ by `console`/`printk`.
 - **Notes:** the copy is of the packet as it is *now*: after a `dnat` earlier in
   the program it is the rewritten packet. It is the packet, not the program's
   view of it — `%cur`, a narrowed `%end`, reassembly and decoding do not apply.
-  A record is 2 kB whatever was asked for, so the 4 MiB ring holds about 2000:
+  A record is 4 kB whatever was asked for, so the 8 MiB ring holds about 2000:
   sample what matters, not everything.
 
 ### 70 — `OP_TLOAD` (`tload $BASE, $SIZE`)

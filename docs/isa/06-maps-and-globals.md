@@ -27,7 +27,7 @@
 | `rule_time` | PERCPU_ARRAY (1024) | u32 → `rule_time` | decision time by rule: `{ ns, runs }` for the packets whose last-touched rule (a `count`, or the verdict's rule) this was; rule 0 for packets that touched none |
 | `events` | RINGBUF (1 MiB) | — | verdict/log events (`pfw_event`) |
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
-| `samples` | RINGBUF (4 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[2048]) |
+| `samples` | RINGBUF (8 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[4096]) |
 | `emits` | RINGBUF (256 KiB) | — | `emit()` events (`pfw_emit`: ts, ifindex, id, n, vals[8]) |
 | `decode_jmp` | PROG_ARRAY (7) | u32 → prog | tail-call targets (§8) |
 
