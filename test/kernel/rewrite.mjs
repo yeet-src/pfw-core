@@ -54,6 +54,11 @@ const CASES = [
   { name: "nocase redact matches any case", kind: "redact",
     source: `nocase;\npattern tok = "secret";\nfilter { if (dport != ${PORT}) decide pass; redact(tok); decide pass; }`,
     send: "X SeCrEt Y", want: "X ****** Y" },
+  // Ten redactions on one packet: past the four a packet could once carry,
+  // where the fifth and later were silently left on the wire.
+  { name: "ten redactions on one packet", kind: "redact",
+    source: `${Array.from({ length: 10 }, (_, i) => `pattern t${i} = "key${i}=";`).join(" ")}\nfilter { if (dport != ${PORT}) decide pass; ${Array.from({ length: 10 }, (_, i) => `redact(t${i});`).join(" ")} decide pass; }`,
+    send: Array.from({ length: 10 }, (_, i) => `key${i}=v`).join(" "), want: Array.from({ length: 10 }, () => "*****v").join(" ") },
 ];
 
 let fail = 0, n = 0;

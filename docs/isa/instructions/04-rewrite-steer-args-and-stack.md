@@ -34,7 +34,7 @@ are written back to the flow in `finish()`.
     → `imm = (repl & 0x3f) | ((rlen & 0x7f) << 8)`.
 - **Operation (kernel):** these do **not** rewrite in `pfw_step`; they *record a
   request* into `st->rw[st->rw_n++]` (`pat`, `is_re`, `rlen`, `mode = (code ==
-  OP_REPLACE)`, `repl`, `fill`, `woff = st->r[R_PAYLOAD]`), capped at `RW_MAX = 4`
+  OP_REPLACE)`, `repl`, `fill`, `woff = st->r[R_PAYLOAD]`), capped at `RW_MAX = 16`
   and **only when not in reassembly mode** (`!c->reasm`). After matching, if any
   request was recorded, `finish()` tail-calls the `pfw_rewrite` stage
   (`SLOT_REWRITE`), which runs `do_rewrite` in its own verifier budget:
@@ -64,7 +64,7 @@ are written back to the flow in `finish()`.
   and then `decide` instead). `replace`'s replacement must equal the match length.
 - **Example:** `redact(ssn);` · `redact(card, 'X');` · `replace(bot, "NOTBOT");`
 - **Notes:** per-packet only (recorded only when `!reasm`, since reassembly mode
-  matches over a reconstructed buffer, not the wire). Up to `RW_MAX = 4` requests
+  matches over a reconstructed buffer, not the wire). Up to `RW_MAX = 16` requests
   per packet. Applied on the forward (PASS) path.
 
 ---

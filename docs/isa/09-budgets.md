@@ -23,7 +23,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | console `%s` args (`FSTR`) | 2 | ≤ `STRARG = 256` B each |
 | printk formats (`FMTS`) | 16 | ≤ `FMT_CAP = 64` B each, in-kernel |
 | per-flow ring (`RING_CAP`) | 16 | newest-wins |
-| rewrites per packet (`RW_MAX`) | 4 | recorded, applied by the rewrite stage |
+| rewrites per packet (`RW_MAX`) | 16 | recorded, applied by the rewrite stage |
 | log snapshot (`LOG_CAP`) | 256 B | into the event |
 | reassembly window (`REASM_CAP`) | 4096 B | per flow; slides, keeping `REASM_KEEP = 256` B |
 | sources (`SRC_MAX`) | 262144 | LRU; per-source state and bans |
