@@ -8,8 +8,8 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | patterns (`MAX_PATS`) | 64 | one bit each in `%m` |
 | pattern length (`PAT_CAP`) | 64 B | |
 | scan window (`SCAN_CAP`) | 2048 B | and the `findb` window |
-| AC states (`AC_STATES`) | 4096 | per generation |
-| regex DFA states (`RE_STATES`) | 1024 | |
+| AC states (`AC_STATES`) | 16384 | per generation |
+| regex DFA states (`RE_STATES`) | 8192 | |
 | scratch registers | 16 | `%s0`–`%s15`, reused by live range |
 | subroutine args | 7 | `%a0`–`%a6`; return in `%rv` |
 | data-stack depth (`STACK_CAP`) | 256 | `push`/`pop`, `call`/`ret` |

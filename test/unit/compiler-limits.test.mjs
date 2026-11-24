@@ -37,11 +37,13 @@ yeet.test("a local that is NOT live across a call may still share a register", (
 });
 
 yeet.test("a regex DFA over the kernel's table size is a compile error", () => {
-  const c = compile(`regex key = "AKIA[A-Z0-9]{16}"; filter { if (scan(payload, 256) & key) decide drop("k"); decide pass; }`);
+  const c = compile(`regex key = "a[a-z]{40}"; filter { if (scan(payload, 256) & key) decide drop("k"); decide pass; }`);
   eq(c.ok, false, "must not compile");
   if (!/DFA too large/.test(c.errors[0].text) || !c.errors[0].text.includes(String(LIMITS.RE_STATES))) throw new Error("unhelpful error: " + c.errors[0].text);
   const small = compile(`regex ssn = "\\\\d{3}-\\\\d{2}-\\\\d{4}"; filter { if (scan(payload, 256) & ssn) decide drop("k"); decide pass; }`);
   eq(small.ok, true, "an ordinary regex still compiles");
+  const aws = compile(`regex key = "AKIA[A-Z0-9]{16}"; filter { if (scan(payload, 256) & key) decide drop("k"); decide pass; }`);
+  eq(aws.ok, true, "a whole AWS access key id fits the table");
   if (small.regex.nstates > LIMITS.RE_STATES) throw new Error("accepted DFA exceeds the table");
 });
 

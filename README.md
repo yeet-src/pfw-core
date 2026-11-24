@@ -112,8 +112,8 @@ Consequences to design around:
   | patterns | 64 | `scan` matches all at once |
   | pattern length | 64 B | |
   | scan window | 2048 B | the matcher never reads past it |
-  | automaton states | 4096 | across all literal patterns |
-  | regex DFA states | 1024 | across all regex patterns |
+  | automaton states | 16384 | across all literal patterns |
+  | regex DFA states | 8192 | across all regex patterns |
   | scratch registers | 16 | locals reuse them by live range |
   | subroutine args | 7 | `%a0..%a6`, result in `%rv` |
   | data stack depth | 256 | `push`/`pop`, `call`/`ret` |

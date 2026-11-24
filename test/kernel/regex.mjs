@@ -40,12 +40,21 @@ regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
 regex card = "\\d{13,16}";
 filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
+// An AWS access key id: a DFA of some 2500 states, more than the table held
+// when it was 1024.
+const bigSource = `regex aws = "AKIA[A-Z0-9]{16}";
+filter { if (dport != ${PORT}) decide pass; if (scan(payload, 512) & aws) { log(16); decide rst("key", 0); } decide pass; }`;
+
 const CASES = [
   ["SSN -> rst", "my ssn is 123-45-6789 ok", V.RST],
   ["email -> rst", "reach me at bob@example.com", V.RST],
   ["card -> rst", "pan 4111111111111111 exp", V.RST],
   ["clean -> pass", "just a normal request body", V.PASS],
   ["near-miss SSN -> pass", "code 12-345-6789 here", V.PASS],
+];
+const BIG_CASES = [
+  ["aws key -> rst", "key AKIAIOSFODNN7EXAMPLE end", V.RST],
+  ["aws key one byte short -> pass", "key AKIAIOSFODNN7EXAMPL end", V.PASS],
 ];
 
 const vname = (v) => ({ [V.PASS]: "pass", [V.RST]: "rst", [V.DROP]: "drop" }[v] ?? v);
@@ -54,8 +63,8 @@ const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on
 await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
 console.log(`kernel regex — fuzzy matching (DFA) on :${PORT}\n`);
 try {
-  await withProgram(source, async (events) => {
-    for (const [name, payload, want] of CASES) {
+  for (const [src, cases] of [[source, CASES], [bigSource, BIG_CASES]]) await withProgram(src, async (events) => {
+    for (const [name, payload, want] of cases) {
       await sleep(700);
       const before = events.length;
       await send(payload);
