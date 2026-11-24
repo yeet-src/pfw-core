@@ -33,7 +33,9 @@ The `programs[gen]` map value:
 struct pfw_prog {
     __u32 nops, npats, nocase, gen;
     __u32 reasm, reasm_dport, decode, transform_table;
-    __u32 argc, re_ngroups;  __u64 args[PFW_ARGC];
+    __u32 argc, re_ngroups;
+    __u32 ops_base, ac_base, re_base, tbl_base, rule_base;   // its share of each pool
+    __u64 args[PFW_ARGC];
     __u8  fmts[PFW_FMTS][PFW_FMT_CAP];
     __u32 re_start[RE_GROUPS];           // each regex DFA's start state
     __u32 re_pat_start[PFW_MAX_PATS];    // by regex accept bit: its DFA's start
@@ -42,15 +44,19 @@ struct pfw_prog {
 ```
 
 The instructions are not in this value. They are the `ops` map, one
-`struct pfw_op` an entry at `gen * PFW_MAX_OPS + pc`, so a program costs the host
+`struct pfw_op` an entry at `ops_base + pc`, so a program costs the host
 what it uses: a load writes `nops` entries.
 
 `build(patterns,
 nocase)` produces the Aho-Corasick tables (`ac_goto`/`ac_fail`/`ac_accept`), and
 the regex compiler produces the DFA tables (`re_goto`/`re_accept`). The loader
-writes the instructions into `ops`, the header into `programs[gen]`, the automaton/DFA/transform tables and
-the membership sets into their maps, patches the `active_gen`/`shadow` globals, then
-attaches `pfw_xdp`. Two generations (`PFW_GENS = 2`) let an update write the idle
-generation and flip `active_gen` atomically.
+installs a program in a free slot of `programs` and a free range of each pool —
+instructions (`ops`), automaton states, regex states, table cells, rule counters
+— and writes where each range begins into the header. Only then does it point
+the kernel at the slot: `default_slot` for the default program, or an entry of
+`dispatch` for a route. A program is never run half-written, and the one it
+replaces is left whole for a moment before its ranges are zeroed and reused. Each
+pool is twice one program's ceiling (`PFW_GENS = 2`), so the largest program and
+its replacement fit side by side.
 
 ---

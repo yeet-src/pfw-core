@@ -313,6 +313,7 @@ vm.onConsole((line) => console.log(line));
 await vm.setKnob("enforce", 0);               // steer the running program, no reload
 await vm.addCidrs(["203.0.113.0/24"]);        // `src in set`
 await vm.apply(load(nextRuleSource));         // atomic swap; flows and bans are kept
+await vm.route({ proto: "tcp", dport: 8443 }, load(apiRuleSource));   // that port gets its own program
 console.log(await vm.stats());                // { seen, dropped, ..., rules: { name: hits } }
 
 await vm.stop();                              // detached; the hook is free again
@@ -324,7 +325,8 @@ await vm.stop();                              // detached; the hook is free agai
 | `start()` | load the object, attach every stage and the XDP entry. Passes all traffic until `apply`. Throws if already running or the hook is taken |
 | `stop()` | detach and release everything in the kernel — maps, flow and source state, bans. Harmless to call twice; `start()` works again after |
 | `running`, `program` | whether it is started; the compile result now enforcing |
-| `apply(program, opts)` | put a `Program`, a `compile()` result or pfw-C source into effect. Written to the idle generation, then one flip. `opts`: `argv`, `knobs`, `knobStrs`, `shadow` |
+| `apply(program, opts)` | put a `Program`, a `compile()` result or pfw-C source into effect as the default program: the one every packet runs that no route claims. Installed beside the one it replaces, then one flip. `opts`: `argv`, `knobs`, `knobStrs`, `tables`, `shadow` |
+| `route(match, program, opts)`, `unroute(match)` | give one protocol and destination port a program of its own (`{ proto: "tcp", dport: 8443 }`), in place of the default; routing the same packets again swaps it. Up to 16 programs are installed at once, one of them a spare for the swap. `routes` lists them by name (`"tcp/8443"`) |
 | `clear()` | stop enforcing but stay attached (standing bans still apply) |
 | `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
 | `setTable(name, values, offset)` | fill a declared `table` live (or pass `tables` to `apply`); contents follow the name across programs |
@@ -348,6 +350,12 @@ Things to know when embedding:
   `apply`, for a consumer that keeps its own running totals.
 - **`stop()` forgets.** Bans, flow state and counters live in the object's maps
   and go with it. `apply` and `clear` keep them.
+- **A route's program is a whole program.** It has its own patterns, rules,
+  instruction budget, `reassemble` and `decode`; nothing of the default runs on
+  its packets. Knobs and tables are shared by name with every other installed
+  program, and so are the sets and the `lookup` map. `stats().routes[name]`
+  holds its `rules` and `timing`; an event's `route` says which program raised
+  it (`"default"`, or the route's name).
 - **Knob values follow the name.** A value set with `setKnob` or `apply({ knobs })`
   is remembered and re-applied to any later program that declares that knob.
 - **No version check yet** between this JS and the `vm.bpf.o` it loads: ship them

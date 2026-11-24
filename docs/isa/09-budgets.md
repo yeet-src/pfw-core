@@ -9,7 +9,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | pattern length (`PAT_CAP`) | 256 B | |
 | skip run (`SKIP_CAP`) | 64 B | what one `skipb` passes over |
 | scan window (`SCAN_CAP`) | 4096 B | and the `findb` window |
-| AC states (`AC_STATES`) | 16384 | per generation |
+| AC states (`AC_STATES`) | 16384 | per program |
 | regex DFA states (`RE_STATES`) | 32768 | across the program's DFAs |
 | regex DFAs (`RE_GROUPS`) | 4 | walked side by side, one lookup each a byte |
 | scratch registers | 40 | `%s0`–`%s39`, reused by live range |
@@ -32,7 +32,8 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | h2 dynamic table (`H2_DYN_SLOTS` × `H2_ENT_CAP`) | 64 × 256 B | per h2 connection, newest entries |
 | h2 connections (`H2_CONNS`) | 1024 | LRU |
 | flows (`MAX_FLOWS`) | 16384 | LRU |
-| generations (`GENS`) | 2 | atomic program swap |
+| program slots (`PROGS`) | 16 | programs installed at once: the default, the routes, and the one being swapped in |
+| pool factor (`GENS`) | 2 | each pool (instructions, automaton and regex states, table cells, rules) is this many times one program's ceiling |
 
 ---
 
