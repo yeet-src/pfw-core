@@ -311,7 +311,7 @@ count("r") | ban("r", ttl) | rst("r", ttl)`; `log(n)`, `flow.state`,
   `cur ← imm` and `FF` is set.
 - **Flags:** `FF` on an absent key; `ZF`/`CF` untouched. A key stored with the
   value 0 reads 0 *without* a fault, which is how `jf` tells the two apart.
-- **Maps:** `kv` (`BPF_MAP_TYPE_HASH`, u64 → u64, 16384 entries).
+- **Maps:** `kv` (`BPF_MAP_TYPE_HASH`, u64 → u64, 262144 entries).
 - **Example:** `let tenant = lookup(key_hash); if (tenant == 0) decide rst("unknown_key", 0);`
 - **Notes:** host-loaded and shared by both generations, like `hashset`: it is
   the host's data, not the program's. The reference models it via `opts.kv`.

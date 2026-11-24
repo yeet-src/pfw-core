@@ -8,10 +8,10 @@
 #define PFW_MAX_OPS  8192 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  64   /* bytes per pattern */
-#define LPM_MAX      4096 /* max prefixes in the `src in set` CIDR trie (lpm) */
-#define LPM6_MAX     4096 /* max prefixes in the `src6 in set6` IPv6 CIDR trie (lpm6) */
-#define HASH_MAX     16384 /* max keys in the `x in hash` exact set (hashset) */
-#define BLOOM_MAX    65536 /* capacity of the `x in bloom` probabilistic set (bloom) */
+#define LPM_MAX      65536 /* max prefixes in the `src in set` CIDR trie (lpm) */
+#define LPM6_MAX     65536 /* max prefixes in the `src6 in set6` IPv6 CIDR trie (lpm6) */
+#define HASH_MAX     262144 /* max keys in the `x in hash` exact set (hashset) */
+#define BLOOM_MAX    1048576 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
 #define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
@@ -31,9 +31,9 @@
 #define FF_BYTES     4     /* OP_FLOAD reg: payload bytes this flow has carried, this packet included */
 #define FF_PACKETS   5     /* OP_FLOAD reg: packets of this flow, this one included */
 #define SAMPLE_CAP   2048  /* bytes of a frame one sample() carries to the host; a power of two */
-#define KV_MAX       16384 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
-#define NAT_MAX      16384 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
-#define SRC_MAX      65536 /* sources tracked for per-source state (the `sources` map, LRU) */
+#define KV_MAX       262144 /* entries in the host-loaded key -> value map (`lookup(key)`, the `kv` map) */
+#define NAT_MAX      65536 /* connections `dnat` can track for the reply path (the `nat` map, LRU) */
+#define SRC_MAX      262144 /* sources tracked for per-source state (the `sources` map, LRU) */
 #define SCOPE_FLOW   0    /* state ops act on this connection (flow.state / flow.count / rate) */
 #define SCOPE_SRC    1    /* ...or on the source address (src.state / src.count / src.rate) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */

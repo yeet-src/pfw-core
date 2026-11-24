@@ -184,7 +184,7 @@ if (rate(lookup(tenant) ?? 5, 20)) decide drop("over_quota");
 - There is one map, shared by every program and kept across `apply`, like the
   sets. Programs that want separate namespaces put one in the key's high bits
   (`lookup(tenant + 0x100000000)`).
-- Up to 16384 entries; keys and values are 64-bit.
+- Up to 262144 entries; keys and values are 64-bit.
 
 ### Source / set membership
 

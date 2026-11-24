@@ -52,7 +52,7 @@ The reference interpreter models this exactly.
 ### Per-source state
 
 Keyed on the source address alone (`struct src_key`: `addr[16]`, `family`) in the
-`sources` LRU hash (`SRC_MAX = 65536`). A flow entry dies with its 4-tuple; a
+`sources` LRU hash (`SRC_MAX = 262144`). A flow entry dies with its 4-tuple; a
 source entry survives a reconnect from a new port. Each `struct source` carries:
 
 | field | op surface | meaning |
