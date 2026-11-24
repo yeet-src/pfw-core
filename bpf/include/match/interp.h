@@ -116,7 +116,7 @@ static long pfw_step(__u32 i, void *pctx)
     __u32 pc = st->pc;
     if (pc >= c->nops || pc >= PFW_MAX_OPS)
         return 1;
-    __u32 opk = c->gen * PFW_MAX_OPS + PFW_MASK(pc, PFW_MAX_OPS);
+    __u32 opk = PFW_MASK(p->ops_base + pc, OPS_POOL);
     struct pfw_op *op = bpf_map_lookup_elem(&ops, &opk);
     if (!op)
         return 1;
@@ -318,11 +318,11 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     case OP_DROP:
         st->verdict = V_DROP;
-        st->rule = op->reg & (PFW_NRULES - 1);
+        st->rule = (p->rule_base + op->reg) & (PFW_NRULES - 1);
         st->time_rule = st->rule;
         break;
     case OP_COUNT: {
-        __u32 key = op->reg & (PFW_NRULES - 1);
+        __u32 key = (p->rule_base + op->reg) & (PFW_NRULES - 1);
         __u64 *n = bpf_map_lookup_elem(&counters, &key);
         if (n)
             (*n)++;
@@ -335,14 +335,14 @@ static long pfw_step(__u32 i, void *pctx)
         break;
     case OP_BAN:
         st->verdict = V_BAN;
-        st->rule = op->reg & (PFW_NRULES - 1);
+        st->rule = (p->rule_base + op->reg) & (PFW_NRULES - 1);
         st->time_rule = st->rule;
         st->ttl = (__u32) imm;
         st->set_mark = MARK_DROP;
         break;
     case OP_RST:
         st->verdict = V_RST;
-        st->rule = op->reg & (PFW_NRULES - 1);
+        st->rule = (p->rule_base + op->reg) & (PFW_NRULES - 1);
         st->time_rule = st->rule;
         st->ttl = (__u32) imm;
         st->set_mark = MARK_RST;
@@ -533,7 +533,7 @@ static long pfw_step(__u32 i, void *pctx)
     case OP_TLOAD: { /* cur = the declared table's cell at index cur */
         __u32 size = (__u32) (imm >> 32);
         if (cur < size) {
-            __u32 k = (c->gen & (PFW_GENS - 1)) * TABLE_CELLS + (((__u32) imm + (__u32) cur) & (TABLE_CELLS - 1));
+            __u32 k = PFW_MASK(p->tbl_base + (((__u32) imm + (__u32) cur) & (TABLE_CELLS - 1)), TABLE_POOL);
             __u64 *v = bpf_map_lookup_elem(&tables, &k);
             cur = v ? *v : 0;
         } else {
@@ -574,7 +574,7 @@ static long pfw_step(__u32 i, void *pctx)
         st->fargn = 0;
         break;
     case OP_SAMPLE: /* a copy of the frame for the host */
-        do_sample(c->xdp, (__u32) imm, op->reg & 0xff);
+        do_sample(c->xdp, (__u32) imm, op->reg & 0xff, st->prog_stamp);
         break;
     case OP_EMIT: /* flush the gathered numbers to the host as a typed event */
         emit_values(c->xdp, st, (__u32) imm);

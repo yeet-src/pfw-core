@@ -44,7 +44,7 @@ const MAPS = {
   counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
   hashset: { kind: "hash" }, kv: { kind: "hash" }, bloom: { kind: "bloom_filter" },
-  "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" },
+  "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" }, dispatch: { kind: "hash" },
 };
 
 /* Counters in vm.bss worth reporting (all u64). */
@@ -82,7 +82,7 @@ function compiled(program) {
 
 /* `struct pfw_prog` as the value yeetd lifts into the `programs` map (field
  * order and sizes follow bpf/include/pfw.h). */
-function progValue(c, stamp, argv) {
+function progValue(c, stamp, argv, at = {}) {
   const p = c.program;
   const { MAX_PATS, PAT_CAP, ARGC, FMTS, FMT_CAP } = LIMITS;
   const pats = p.pats.slice(0, MAX_PATS).map((q) => { const b = q.bytes.slice(0, PAT_CAP); while (b.length < PAT_CAP) b.push(0); return { len: q.len >>> 0, bytes: b }; });
@@ -100,7 +100,8 @@ function progValue(c, stamp, argv) {
   return {
     nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: stamp >>> 0,
     reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0,
-    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0, args, fmts, re_start, re_pat_start, pats,
+    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0,
+    ops_base: (at.ops ?? 0) >>> 0, ac_base: (at.ac ?? 0) >>> 0, re_base: (at.re ?? 0) >>> 0, tbl_base: (at.tbl ?? 0) >>> 0, rule_base: (at.rule ?? 0) >>> 0, args, fmts, re_start, re_pat_start, pats,
   };
 }
 const EMPTY = { program: { ops: [], pats: [], nops: 0, npats: 0, nocase: 0 } };
@@ -158,7 +159,7 @@ export class PfwVm {
       /* An empty program in both generations: the entry passes when nops == 0. */
       await this._map("programs").update(0, progValue(EMPTY, 0, []));
       await this._map("programs").update(1, progValue(EMPTY, 0, []));
-      await new DataSec(control, "vm.bss").patch({ active_gen: 0, shadow: 0 });
+      await new DataSec(control, "vm.bss").patch({ default_slot: 0, shadow: 0 });
       for (const part of chunks([...transformCells()], BATCH)) await this._map("tt_cells").updateBatch(part);
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
       this._subs.push(await new RingBuf(control, "console_ring").subscribe((w) => this._onConsole(w?.pfw_console ?? w)));
@@ -246,7 +247,7 @@ export class PfwVm {
     const opBase = g * LIMITS.MAX_OPS;
     const opPairs = c.program.ops.slice(0, LIMITS.MAX_OPS).map((o, pc) => [opBase + pc, { code: o.code >>> 0, reg: o.reg >>> 0, imm: BigInt(o.imm) }]);
     for (const part of chunks(opPairs, BATCH)) await this._map("ops").updateBatch(part);
-    await this._map("programs").update(g, progValue(c, ++this._stamp, opts.argv ?? []));
+    await this._map("programs").update(g, progValue(c, ++this._stamp, opts.argv ?? [], { ops: opBase, ac: acBase, re: reBase, tbl: g * LIMITS.TABLE_CELLS }));
 
     /* Knobs are one map shared by both generations and slots are assigned per
      * program, so they are written last, immediately before the flip. Values the
@@ -257,7 +258,7 @@ export class PfwVm {
     if (knobPairs.length) await this._map("knobs").updateBatch(knobPairs);
     for (const [slot, name] of (c.knobStrs ?? []).entries()) await this._map("knob_strs").update(slot, strBytes(this._knobStrValues[name] ?? "", LIMITS.KNOBSTR_CAP));
 
-    const patch = { active_gen: g };
+    const patch = { default_slot: g };
     if (opts.shadow !== undefined) patch.shadow = opts.shadow ? 1 : 0;
     await new DataSec(control, "vm.bss").patch(patch);
     this._active = g;

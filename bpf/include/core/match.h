@@ -29,7 +29,7 @@ static __noinline int maybe_redirect(struct pfw_state *st)
  * first. It never re-initialises st — the entry did that. */
 static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
                                        struct pfw_prog *prog, struct flow *f,
-                                       struct pfw_state *st, __u32 gen, __u64 now,
+                                       struct pfw_state *st, __u64 now,
                                        struct flow_key *keyp, int keyed,
                                        __u32 use_reasm, __u8 *rsrc)
 {
@@ -38,7 +38,7 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     struct pfw_ctx c = {
         .xdp = ctx, .st = st, .prog = prog,
         .nops = prog->nops > PFW_MAX_OPS ? PFW_MAX_OPS : prog->nops,
-        .gen = gen, .mark = f ? f->mark : 0,
+        .mark = f ? f->mark : 0,
         .user_state = (f && (!f->state_expires || f->state_expires > now)) ? f->user_state : 0,
         .reasm = use_reasm, .now = now, .flow = f, .rsrc = rsrc,
     };

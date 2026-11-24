@@ -24,6 +24,8 @@ static __always_inline void console_emit(struct xdp_md *ctx, struct pfw_state *s
     e->ts = bpf_ktime_get_ns();
     e->ifindex = ctx->ingress_ifindex;
     e->fmtid = fmtid;
+    e->prog = st->prog_stamp;
+    e->_pad0 = 0;
     e->nnum = st->fargn > FARGS_MAX ? FARGS_MAX : st->fargn;
     e->nstr = st->fsn > FSTR_MAX ? FSTR_MAX : st->fsn;
 #pragma unroll
@@ -46,7 +48,7 @@ static __always_inline void emit_values(struct xdp_md *ctx, struct pfw_state *st
     e->ifindex = ctx->ingress_ifindex;
     e->id = id;
     e->n = st->fargn > FARGS_MAX ? FARGS_MAX : st->fargn;
-    e->_pad = 0;
+    e->prog = st->prog_stamp;
 #pragma unroll
     for (int i = 0; i < FARGS_MAX; i++)
         e->vals[i] = st->fargs[i];
@@ -57,7 +59,7 @@ static __always_inline void emit_values(struct xdp_md *ctx, struct pfw_state *st
  * calls and the length juggling stay out of pfw_step's. The bytes come from the
  * packet as it is now — after a `dnat` earlier in the program, the rewritten
  * one — whatever view the program itself was reading. */
-static __noinline void do_sample(struct xdp_md *ctx, __u32 want, __u32 tag)
+static __noinline void do_sample(struct xdp_md *ctx, __u32 want, __u32 tag, __u32 prog)
 {
     struct pfw_sample *e = bpf_ringbuf_reserve(&samples, sizeof(*e), 0);
     if (!e) { ring_full++; return; }
@@ -68,6 +70,7 @@ static __noinline void do_sample(struct xdp_md *ctx, __u32 want, __u32 tag)
     e->ts = bpf_ktime_get_ns();
     e->ifindex = ctx->ingress_ifindex;
     e->tag = tag;
+    e->prog = prog;
     e->wire_len = wire;
     e->cap_len = 0;
     if (n) {
@@ -93,6 +96,8 @@ static __always_inline void emit(struct xdp_md *ctx, struct pkt *p, struct pfw_s
     e->ts = bpf_ktime_get_ns();
     e->ifindex = ctx->ingress_ifindex;
     e->rule = st->rule;
+    e->prog = st->prog_stamp;
+    e->_pad0 = 0;
     e->verdict = verdict;
     e->mask = st->r[R_M];
     e->family = p->family;

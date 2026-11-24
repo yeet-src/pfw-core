@@ -43,7 +43,13 @@
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
 #define PFW_NRULES   1024   /* rule ids: counters[rule] */
-#define PFW_GENS     2    /* program generations: apply writes the idle one, then flips */
+#define PFW_PROGS    16   /* program slots: `dispatch` sends a packet to one, or to `default_slot`; a power of two */
+#define PFW_GENS     2    /* every pool below is this many times one program's ceiling, so the
+                           * largest program and its replacement fit side by side */
+#define OPS_POOL     (PFW_GENS * PFW_MAX_OPS)   /* instructions, all programs */
+#define AC_POOL      (PFW_GENS * AC_STATES)     /* literal automaton states, all programs */
+#define RE_POOL      (PFW_GENS * RE_STATES)     /* regex DFA states, all programs */
+#define TABLE_POOL   (PFW_GENS * TABLE_CELLS)   /* lookup table cells, all programs */
 #define AC_STATES    16384 /* automaton states per generation */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
 #define SCAN_CAP     4096 /* bytes one scan / findb may cover; a power of two */
@@ -243,6 +249,13 @@ struct pfw_prog {
     __u32 transform_table; /* DECODE_TRANSFORM: which loaded tt_cells table (0..TT_NTABLES-1) */
     __u32 argc;            /* number of runtime args the host set in args[] (OP_ARG / OP_ARGC) */
     __u32 re_ngroups;      /* regex DFAs in use (0 = the program has no regex); <= RE_GROUPS */
+    /* Where this program's share of each pool begins. The host lays programs
+     * out; the kernel adds the base and masks to the pool. */
+    __u32 ops_base;        /* `ops`: its instruction pc is at ops_base + pc */
+    __u32 ac_base;         /* ac_goto / ac_fail / ac_accept: its state s is ac_base + s */
+    __u32 re_base;         /* re_goto / re_accept: its state s is re_base + s */
+    __u32 tbl_base;        /* `tables`: its cell i is tbl_base + i */
+    __u32 rule_base;       /* counters / rule_time: its rule r is rule_base + r */
     __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
     __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
     __u32 re_start[RE_GROUPS];         /* the start state of each regex DFA: where a scan begins it */
@@ -363,6 +376,8 @@ struct pfw_event {
     __u32 rule;
     __u32 verdict;
     __u32 len;
+    __u32 prog;              /* pfw_prog.gen of the program that decided: rule ids are its own */
+    __u32 _pad0;
     __u64 mask;
     __u8 family;
     __u8 proto;
@@ -393,7 +408,7 @@ struct pfw_emit {
     __u32 ifindex;
     __u32 id;                /* the event, by the id the compiler gave its name */
     __u32 n;                 /* values carried */
-    __u32 _pad;
+    __u32 prog;              /* pfw_prog.gen of the program that emitted it: ids are per program */
     __u64 vals[FARGS_MAX];
 };
 
@@ -406,6 +421,7 @@ struct pfw_sample {
     __u32 tag;               /* the sample's tag, by the id the compiler gave its name (0 = none) */
     __u32 wire_len;
     __u32 cap_len;
+    __u32 prog;              /* pfw_prog.gen of the program that sampled: tag ids are its own */
     __u8 data[SAMPLE_CAP];
 };
 
@@ -417,6 +433,8 @@ struct pfw_console {
     __u32 fmtid;
     __u32 nnum;              /* numeric arg count */
     __u32 nstr;             /* %s string count */
+    __u32 prog;              /* pfw_prog.gen of the program that printed: format ids are its own */
+    __u32 _pad0;
     __u64 nums[FARGS_MAX];
     __u16 slen[FSTR_MAX];
     __u8 strs[FSTR_MAX][STRARG_CAP];

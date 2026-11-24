@@ -20,7 +20,6 @@ struct pfw_ctx {
     struct pfw_state *st;
     struct pfw_prog *prog;
     __u32 nops;
-    __u32 gen;
     __u32 mark;
     __u32 user_state; /* the flow's user state at entry */
     __u32 reasm;    /* 1 = reads come from the flow's reassembled stream */

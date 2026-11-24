@@ -13,13 +13,13 @@
 SEC("xdp")
 int pfw_rewrite(struct xdp_md *ctx)
 {
-    __u32 gen = active_gen & (PFW_GENS - 1);
-    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &gen);
-    if (!prog || prog->nops == 0)
-        return XDP_PASS;
     __u32 zero = 0;
     struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
     if (!st)
+        return XDP_PASS;
+    __u32 slot = st->slot & (PFW_PROGS - 1);
+    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &slot);
+    if (!prog || prog->nops == 0)
         return XDP_PASS;
     __u32 n = st->rw_n;
     if (n > RW_MAX)
