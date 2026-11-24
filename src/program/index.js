@@ -58,6 +58,7 @@ export class Program {
     this.listing = compiled.listing;
     this.nocase = compiled.nocase;
     this.regex = compiled.regex ?? null;
+    this.warnings = compiled.warnings ?? []; // { line, text }: it compiled, and may not do what was meant
     this.consoleFormats = compiled.consoleFormats ?? [];
     this.lookupTables = compiled.lookupTables ?? []; // declared `table`s: { name, base, size }
     this.sampleTags = compiled.sampleTags ?? [""]; // sample() tag names, by id (0 = untagged)

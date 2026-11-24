@@ -28,6 +28,7 @@ export function codegen(ast) {
   const declared = new Set(ast.patterns.map((p) => p.name));
   const regexDefs = new Map(ast.patterns.filter((p) => p.def.kind === "regex").map((p) => [p.name, p.def.src]));
   const scratch = new Map(); // local name → virtual-register token from bld.vreg()
+  const warnings = []; // { line, text }: the program compiles, and probably does not do what was meant
   const masks = new Set();
   const breakStack = []; // enclosing match/switch end labels, for `break`
   const funcs = new Set((ast.functions ?? []).map((f) => f.name)); // subroutine names (call/ret)
@@ -159,7 +160,18 @@ export function codegen(ast) {
    * within(ptr, len) is the fresh form: the mask and the automaton start empty,
    * so the result is exactly the patterns inside [ptr, ptr+len). */
   const isScan = (e) => e.kind === "call" && (e.name === "scan" || e.name === "within");
-  const doScan = (e) => { if (e.args.length !== 2) die(`${e.name}(ptr, len)`, e.line); loadPtr(e.args[0]); bld.scan(immVal(e.args[1]), e.name === "within"); };
+  /* Over a reassembled stream `payload` is the start of the window, and the
+   * window fills to REASM_CAP before it slides. A scan of fewer bytes than that
+   * never reaches what lands behind them: the slide keeps only the window's
+   * tail. `within` and a scan from another pointer are bounded looks, and meant
+   * to be. */
+  const shortScan = (e) => {
+    const [p, n] = e.args;
+    if (!ast.reasm || e.name !== "scan" || p.kind !== "ref" || p.name !== "payload") return;
+    const len = Number(immVal(n));
+    if (len < LIMITS.REASM_CAP) warnings.push({ line: e.line, text: `scan(payload, ${len}) reads the first ${len} bytes of the ${LIMITS.REASM_CAP}-byte reassembly window: a signature behind them is never scanned — scan(payload, ${LIMITS.REASM_CAP}) covers the window` });
+  };
+  const doScan = (e) => { if (e.args.length !== 2) die(`${e.name}(ptr, len)`, e.line); shortScan(e); loadPtr(e.args[0]); bld.scan(immVal(e.args[1]), e.name === "within"); };
 
   /* Frame header field → the Builder ops that leave its value in %cur. */
   const FIELD_LOAD = {
@@ -724,6 +736,7 @@ export function codegen(ast) {
     bld.fnRegion(fnStart, bld.ops.length); // tells the register allocator where a callee's locals live
   }
   bld._consoleFormats = consoleFormats;
+  bld._warnings = warnings;
   bld._printkFormats = printkFormats;
   bld._tables = [...tableLayout.values()];
   bld._sampleTags = sampleTags;

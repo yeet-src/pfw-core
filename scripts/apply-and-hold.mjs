@@ -24,6 +24,7 @@ const src = argv.src ? String.fromCharCode(...argv.src.match(/../g).map((h) => p
 
 const c = compile(src);
 if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(1); }
+for (const w of c.warnings) console.log(`WARN line ${w.line}: ${w.text}`);
 
 const VCODE = { pass: 1, drop: 2, ban: 3, rst: 4 };
 const vm = new PfwVm({ iface: Number(argv.iface ?? 1) });

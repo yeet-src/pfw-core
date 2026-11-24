@@ -150,8 +150,10 @@ import { PfwVm } from "pfw-core/loader";               // run it in the kernel (
 | `assemble(text)` | `(string) -> result` | the AT&T-style assembler (same `result` shape, minus source-only fields) |
 
 On failure `compile` returns `{ ok: false, errors: [{ line, text }] }`. On
-success, `program` is the op/pattern record the kernel runs, `regex` is the
-compiled DFA (or `null`), and `consoleFormats`/`printkFormats` map a format id
+success, `warnings` (`[{ line, text }]`) lists what compiled but probably is not
+what was meant (a scan shorter than the reassembly window, for one), `program`
+is the op/pattern record the kernel runs, `regex` is the compiled DFA
+(or `null`), and `consoleFormats`/`printkFormats` map a format id
 back to its string. The knob bindings tell a loader what live control values the
 program expects: `knobs[slot]` is the knob name at that `knobs`-map slot,
 `knobDefaults[slot]` its seeded initial value, `knobStrs[slot]` the string-knob
