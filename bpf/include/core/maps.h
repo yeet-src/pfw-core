@@ -85,9 +85,10 @@ PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection
 
 /* Which program a packet runs. A route names some of: the interface it arrived
  * on, its protocol, its destination port (with the protocol), a prefix its
- * destination address is in. The most specific route that matches wins. One
- * with a prefix comes before one without; then, in each of those two groups,
- * by what else it names:
+ * destination address is in. The most specific route that matches wins, and the
+ * address decides first: the longest prefix the destination is in, a route
+ * with no prefix counting as the shortest of all. Only between routes with the
+ * same prefix does what else they name decide, in this order:
  *
  *   interface + protocol + port
  *   protocol + port
@@ -96,8 +97,8 @@ PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection
  *   interface
  *   nothing else (a prefix alone)
  *
- * and between two prefix routes that name the same things, the longer prefix.
- * A packet no route claims runs `default_slot`. The host installs a program
+ * So a host's own /32 route is not taken from it by a /8 route that happens to
+ * name a port. A packet no route claims runs `default_slot`. The host installs a program
  * in a free slot and then points the route at it, so a route never names a
  * half-written program.
  *
@@ -127,7 +128,13 @@ PFW_LINK struct {
  *   data[1]      family         data[5..8]   interface index, high byte first
  *   data[2]      protocol       data[9..11]  zero
  *   data[12..27] the address
+ *
+ * The value is the slot in its low byte and the address prefix's length above
+ * it: a lookup says which route matched but not how long its prefix was, and
+ * the entry compares that across the shapes.
  */
+#define DST_SLOT(v)  ((v) & 0xff)
+#define DST_PLEN(v)  ((v) >> 8)
 #define DST_EXACT_BITS 96
 struct dst_key {
     __u32 prefixlen;        /* DST_EXACT_BITS + the address prefix's length */

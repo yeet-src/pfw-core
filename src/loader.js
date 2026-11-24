@@ -78,7 +78,7 @@ const cidr6Key = (cidr) => {
  * destination address is in; this is that as the kernel keys it — an entry of
  * `dispatch` (struct route_key) or, with a prefix, of `dispatch_dst`
  * (struct dst_key) — with the bit of `route_shapes` that makes the entry look.
- * The order routes are tried in is with struct route_key in core/maps.h. */
+ * Which route wins where two match is with struct route_key in core/maps.h. */
 const PROTO = { tcp: 6, udp: 17 };
 const AF_INET = 2, AF_INET6 = 10;
 const DST_EXACT_BITS = 96;
@@ -108,7 +108,7 @@ function routeKey(match) {
     /* struct dst_key: the fields that must match whole, then the address. */
     const exact = [shape, v6 ? AF_INET6 : AF_INET, proto ?? 0, (port >> 8) & 0xff, port & 0xff, (ifx >>> 24) & 0xff, (ifx >>> 16) & 0xff, (ifx >>> 8) & 0xff, ifx & 0xff, 0, 0, 0];
     return {
-      name: [`${String(m.dst).split("/")[0]}/${cidr.prefixlen}`, ...others].join(" "), map: "dispatch_dst", bit: 1 << (8 + shape),
+      name: [`${String(m.dst).split("/")[0]}/${cidr.prefixlen}`, ...others].join(" "), map: "dispatch_dst", bit: 1 << (8 + shape), plen: cidr.prefixlen,
       key: { prefixlen: DST_EXACT_BITS + cidr.prefixlen, data: [...exact, ...addr] },
     };
   }
@@ -303,11 +303,13 @@ export class PfwVm {
    *   dport   their destination port (with `proto`)
    *   dst     an address or CIDR their destination is in, v4 or v6
    *
-   * in any combination, and where two routes claim a packet the more specific
-   * wins: one with a destination prefix over one without; then one that names
-   * a port over one that does not, a protocol likewise, an interface
-   * likewise; and of two prefix routes naming the same things, the longer
-   * prefix. The program has its own patterns, rules,
+   * in any combination. Where two routes claim a packet the more specific
+   * wins, and the address decides first: the longest prefix the destination
+   * is in, a route with no `dst` counting as the shortest of all. Only between
+   * routes with the same prefix does the rest decide: one that names a port
+   * over one that does not, then a protocol likewise, then an interface. So a
+   * host's own `/32` route is not taken from it by a `/8` route that names a
+   * port. The program has its own patterns, rules,
    * instruction budget, `reassemble` and `decode`; knobs and tables are shared
    * with every other program by name, and so are the sets and the `lookup`
    * map. Routing the same packets again swaps the program as apply() does.
@@ -315,10 +317,12 @@ export class PfwVm {
    */
   async route(match, program, opts = {}) {
     const control = this._need("route");
-    const { name, map, key, bit } = routeKey(match);
+    const { name, map, key, bit, plen } = routeKey(match);
     const old = this._routes.get(name);
     const rec = await this._install(program, opts, name, { replacing: [old?.rec] });
-    await this._routeMap(map).update(key, rec.slot.base);
+    /* A prefix route's value carries its prefix length above the slot: the
+     * kernel compares that across the shapes it looks up (DST_PLEN). */
+    await this._routeMap(map).update(key, map === "dispatch_dst" ? (rec.slot.base | (plen << 8)) >>> 0 : rec.slot.base);
     this._routes.set(name, { map, key, bit, rec });
     if (!old) await this._shape(control, bit, +1);
     this._retire(old?.rec);

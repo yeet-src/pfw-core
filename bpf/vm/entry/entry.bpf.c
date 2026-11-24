@@ -67,7 +67,7 @@ int pfw_match(struct xdp_md *ctx)
 }
 
 /* The slot of the program a packet is dispatched to: the most specific route
- * that claims it (the order is with struct route_key), else the default. Only
+ * that claims it (the rule is with struct route_key), else the default. Only
  * the shapes of route the host has installed are looked up. */
 static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, __u32 ifindex)
 {
@@ -80,6 +80,10 @@ static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, 
         dk->prefixlen = DST_EXACT_BITS + 128;
         dk->data[1] = p->family;
         __builtin_memcpy(dk->data + DST_EXACT_BITS / 8, p->daddr, 16);
+        /* Every shape in use is looked up, and the longest prefix kept: the
+         * first hit is not the answer, since a shape tried later may hold a
+         * longer one. On a tie the earlier shape, which names more, stands. */
+        __u32 best = 0, found = 0;
 #define DST_TRY(sh) \
         if (shapes & RS_DST(sh)) { \
             dk->data[0] = (sh); \
@@ -91,11 +95,15 @@ static __always_inline __u32 dispatch_slot(struct pfw_state *st, struct pkt *p, 
             dk->data[7] = ((sh) & 1) ? (__u8) (ifindex >> 8) : 0; \
             dk->data[8] = ((sh) & 1) ? (__u8) ifindex : 0; \
             s = bpf_map_lookup_elem(&dispatch_dst, dk); \
-            if (s) \
-                return *s; \
+            if (s && (!found || DST_PLEN(*s) > DST_PLEN(best))) { \
+                best = *s; \
+                found = 1; \
+            } \
         }
         DST_TRY(7) DST_TRY(6) DST_TRY(3) DST_TRY(2) DST_TRY(1) DST_TRY(0)
 #undef DST_TRY
+        if (found)
+            return DST_SLOT(best);
     }
     struct route_key *rk = &st->x_rk;
 #define ROUTE_TRY(sh) \
