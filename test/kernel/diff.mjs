@@ -94,6 +94,10 @@ const CASES = [
   // One segment, the signature 3000 bytes in: past the 2048 a scan once covered.
   { name: "a signature deep in the packet → rst", source: `pattern sig = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 4096) & sig) { log(16); decide rst("deep", 0); } decide pass; }`,
     sends: [["3000 bytes in", enc("x".repeat(3000) + "GPTBot")], ["not there", enc("x".repeat(3000) + "GPTBo")]] },
+  // Thirty locals, all live until the sum: more than the sixteen scratch
+  // registers there once were, so some sit on %s16 and up.
+  { name: "thirty live locals → rst", source: `filter { if (dport != ${PORT}) decide pass; ${Array.from({ length: 30 }, (_, i) => `let v${i} = ${i + 1};`).join(" ")} let sum = ${Array.from({ length: 30 }, (_, i) => `v${i}`).join(" + ")}; if (sum == 465) { log(16); decide rst("locals", 0); } decide pass; }`,
+    sends: [["every local keeps its value", enc("anything")]] },
 ];
 
 let fail = 0, n = 0;

@@ -7,7 +7,7 @@
  *      returning { ok: false }. */
 import { compile } from "#/clang";
 import { load } from "#/index.js";
-import { LIMITS } from "#/isa.js";
+import { LIMITS, SCRATCH } from "#/isa.js";
 
 const enc = (s) => new TextEncoder().encode(s);
 const eq = (g, w, m) => { if (g !== w) throw new Error(`${m}: got ${g}, want ${w}`); };
@@ -56,10 +56,10 @@ yeet.test("a program over the instruction budget is a compile error, not a throw
 });
 
 yeet.test("running out of registers names what holds them, by line", () => {
-  /* Fourteen locals and a frame walk that needs three: seventeen for sixteen
-   * registers. The old message listed only the locals ("all 8 are held by q"),
-   * which was no help when a walk held most of them. */
-  const names = Array.from({ length: 14 }, (_, i) => `v${i}`);
+  /* Two locals short of every register, and a frame walk that needs three: one
+   * more than there are. The old message listed only the locals
+   * ("all 8 are held by q"), which was no help when a walk held most of them. */
+  const names = Array.from({ length: SCRATCH.length - 2 }, (_, i) => `v${i}`);
   const r = compile(`filter {
     ${names.map((n, i) => `let ${n} = ${i};`).join(" ")}
     frame (len = u8 @ 1, head = 2) up to 1 {
@@ -72,7 +72,7 @@ yeet.test("running out of registers names what holds them, by line", () => {
   const e = r.errors[0];
   if (!/too many locals live at once/.test(e.text)) throw new Error("wrong error: " + e.text);
   if (/^internal/.test(e.text)) throw new Error("it is the program's error, not the compiler's: " + e.text);
-  if (!/14 by your locals \(`v0`, `v1`,/.test(e.text)) throw new Error("does not count the locals: " + e.text);
+  if (!e.text.includes(`${names.length} by your locals (\`v0\`, \`v1\`,`)) throw new Error("does not count the locals: " + e.text);
   if (!/2 by the `frame` walk at line 3/.test(e.text) || !/the `frame` walk at line 3 needs a register/.test(e.text)) throw new Error("does not name the frame: " + e.text);
   eq(e.line, 3, "the error is at the construct that could not be placed");
 });

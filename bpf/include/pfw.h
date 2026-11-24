@@ -123,10 +123,13 @@ enum pfw_reg {
     R_A0, R_A1, R_A2, R_A3, R_A4, R_A5, R_A6, /* subroutine argument registers (%a0..%a6) */
     R_RV,        /* subroutine return-value register (%rv) */
     R_S8, R_S9, R_S10, R_S11, R_S12, R_S13, R_S14, R_S15, /* the second eight scratch registers */
-    /* The file is padded to a power of two: pfw_step bounds the index
-     * with `& (NREGS - 1)`, which is only a modulo when NREGS is one.
-     * (At 20 the mask was 0b10011 and %dport read as %payload.) 40 are
-     * named; 40..63 read as zero and are not for programs to use. */
+    R_S16, R_S17, R_S18, R_S19, R_S20, R_S21, R_S22, R_S23, /* scratch through the end of the file */
+    R_S24, R_S25, R_S26, R_S27, R_S28, R_S29, R_S30, R_S31,
+    R_S32, R_S33, R_S34, R_S35, R_S36, R_S37, R_S38, R_S39,
+    /* The file is a power of two: pfw_step bounds the index with
+     * `& (NREGS - 1)`, which is only a modulo when NREGS is one.
+     * (At 20 the mask was 0b10011 and %dport read as %payload.) All 64
+     * are named: a new register means doubling the file. */
     NREGS = 64,
 };
 

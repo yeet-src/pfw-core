@@ -15,8 +15,8 @@ Packet **writes** are only the deliberate rewrite ops — `redact`/`replace`
 
 ### Scratch
 
-`%s0`–`%s15` are sixteen general registers; the compilers allocate `let` locals
-and their own temporaries onto them by live range (so more than sixteen live at
+`%s0`–`%s39` are forty general registers; the compilers allocate `let` locals
+and their own temporaries onto them by live range (so more than forty live at
 once is a compile error, and the error says what holds each).
 
 ### The data stack

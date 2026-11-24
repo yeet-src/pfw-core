@@ -72,7 +72,7 @@ export const isCur = (o) => o?.kind === "reg" && o.name === "cur";
  * return registers — the same set pfw-C can assign. %end is writable so `frame`
  * can shrink the readable window to one record; it only ever narrows reads
  * (window/load clamp to it), so it stays safe. The packet fields are read-only. */
-export const isWritable = (o) => o?.kind === "reg" && /^(s[0-9]|s1[0-5]|m|end|sp|bp|a[0-6]|rv)$/.test(o.name);
+export const isWritable = (o) => o?.kind === "reg" && /^(s[0-9]|s[1-3][0-9]|m|end|sp|bp|a[0-6]|rv)$/.test(o.name);
 
 /* ---- the assembler ------------------------------------------------------- */
 

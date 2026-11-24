@@ -11,12 +11,12 @@
  *   const { program, patterns, rules, listing, errors } = b.finalize();
  *
  * Register operands may be a physical register index or a virtual register from
- * b.vreg() (for compiler locals); finalize() maps the virtuals onto the sixteen
+ * b.vreg() (for compiler locals); finalize() maps the virtuals onto the forty
  * scratch registers by live range. Jumps take a label name, resolved (forward
  * only) at finalize. Methods throw BuildError on misuse; callers that parse
  * untrusted text (the assembler) catch per line.
  */
-import { LIMITS, LOAD_BE, OP, REG } from "#/isa.js";
+import { LIMITS, LOAD_BE, OP, REG, SCRATCH } from "#/isa.js";
 import { opText } from "#/builder/optext.js";
 
 export { opText };
@@ -34,7 +34,6 @@ const TEMP_KINDS = [
   [/^__cmp\d/, "comparison"], [/^__pk\d/, "`dnat`/`rate` argument"], [/^__ar\d/, "arithmetic expression"], [/^__rd\d/, "`be24(...)` read"], [/^__ca\d/, "subroutine call"], [/^__a\d/, "arithmetic expression"],
 ];
 const tempKind = (name) => TEMP_KINDS.find(([re]) => re.test(name))?.[1] ?? "temporary";
-const SCRATCH = [REG.s0, REG.s1, REG.s2, REG.s3, REG.s4, REG.s5, REG.s6, REG.s7, REG.s8, REG.s9, REG.s10, REG.s11, REG.s12, REG.s13, REG.s14, REG.s15];
 
 export class Builder {
   constructor() {

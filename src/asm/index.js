@@ -170,7 +170,7 @@ export function assemble(source) {
         want(2);
         if (a.kind === "reg" && isCur(b)) emit(OP.MOV_RC, a.idx);
         else if (isCur(a) && isWritable(b)) emit(OP.MOV_CR, b.idx);
-        else fail("mov is `mov %REG, %cur` or `mov %cur, %REG` with a writable register (%s0–%s15, %m, %end, %sp, %bp, %a0–%a6, %rv)");
+        else fail("mov is `mov %REG, %cur` or `mov %cur, %REG` with a writable register (%s0–%s39, %m, %end, %sp, %bp, %a0–%a6, %rv)");
       } else if (m === "lea") {
         want(2);
         if (a.kind !== "mem" || !isCur(b)) fail("lea is `lea D(%REG), %cur`");

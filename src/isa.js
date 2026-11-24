@@ -27,8 +27,13 @@ export const REG = {
   a0: 24, a1: 25, a2: 26, a3: 27, a4: 28, a5: 29, a6: 30, // subroutine argument registers
   rv: 31, // subroutine return-value register
   s8: 32, s9: 33, s10: 34, s11: 35, s12: 36, s13: 37, s14: 38, s15: 39, // the second eight scratch registers
+  s16: 40, s17: 41, s18: 42, s19: 43, s20: 44, s21: 45, s22: 46, s23: 47, // scratch through the end of the file
+  s24: 48, s25: 49, s26: 50, s27: 51, s28: 52, s29: 53, s30: 54, s31: 55,
+  s32: 56, s33: 57, s34: 58, s35: 59, s36: 60, s37: 61, s38: 62, s39: 63,
 };
-export const NREGS = 64; // the register file, padded to a power of two: indices are masked & (NREGS - 1)
+/* %s0..%s39, in order: the registers the compilers place locals on. */
+export const SCRATCH = Object.keys(REG).filter((k) => /^s\d+$/.test(k)).sort((a, b) => a.slice(1) - b.slice(1)).map((k) => REG[k]);
+export const NREGS = 64; // the register file, a power of two: indices are masked & (NREGS - 1)
 export const REG_NAME = Object.fromEntries(Object.entries(REG).map(([k, v]) => [v, k]));
 
 export const LIMITS = {

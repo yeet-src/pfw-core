@@ -10,7 +10,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | scan window (`SCAN_CAP`) | 4096 B | and the `findb` window |
 | AC states (`AC_STATES`) | 16384 | per generation |
 | regex DFA states (`RE_STATES`) | 8192 | |
-| scratch registers | 16 | `%s0`–`%s15`, reused by live range |
+| scratch registers | 40 | `%s0`–`%s39`, reused by live range |
 | subroutine args | 7 | `%a0`–`%a6`; return in `%rv` |
 | data-stack depth (`STACK_CAP`) | 256 | `push`/`pop`, `call`/`ret` |
 | rules (`NRULES`) | 1024 | named verdicts / counters |
