@@ -14,9 +14,19 @@ name: test
 # needed to run tests) and waits for its daemon, which `yeet test` runs modules
 # through.
 #
-# Not run here: the live kernel tests (npm run test:kernel, test:mpos, …), which
-# load the VM and send real traffic over loopback. Whether each kernel's
-# verifier accepts the VM is the kernel-matrix workflow.
+# And one that does need a kernel:
+#
+#   kernel             every test under test/kernel/: the VM loaded into the
+#                      runner's own kernel, a program applied, and real traffic
+#                      sent over loopback — what the kernel does with a packet,
+#                      where the suites above are what the reference interpreter
+#                      says it should. One test for each thing that can only go
+#                      wrong there: reassembly (segments larger than the window,
+#                      a connection older than the program), what the counters
+#                      count, routing and stage programs, regex DFAs, rewrite…
+#
+# Whether each supported kernel's verifier accepts the VM is the kernel-matrix
+# workflow; this job runs the behaviour on the one kernel the runner has.
 
 # Run as a job of the ci workflow (pull requests and pushes to master), which
 # only packages and releases if this passes. workflow_dispatch runs it alone.
@@ -69,3 +79,37 @@ jobs:
 
       - name: Unit suites
         run: yeet test test/unit
+
+  kernel:
+    runs-on: ubuntu-latest
+    name: kernel tests
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install yeet
+        run: |
+          set -euo pipefail
+          # --no-phone-home: the installer otherwise reports the runner's OS
+          # version on exit.
+          curl -fsSL https://yeet.cx | sh -s -- --no-phone-home
+          yeet version
+          # The tests load the VM through the daemon.
+          for i in $(seq 1 30); do systemctl is-active --quiet yeetd && break; sleep 1; done
+          systemctl is-active yeetd
+
+      - name: Build the BPF object
+        run: make bpf
+
+      - name: The verifier accepts it on this kernel
+        run: yeet run scripts/verify-load.mjs
+
+      # Serially: the tests share loopback's XDP hook. Each prints one line; a
+      # failure prints the test's whole output under it.
+      - name: Kernel tests
+        run: |
+          uname -r
+          npm run test:kernel:all

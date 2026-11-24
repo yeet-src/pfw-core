@@ -488,6 +488,12 @@ Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 `test:h2`, `test:mpos`, `test:lang` (the language features that otherwise only run on the host: ring, `flow.count`/`flow.state`, `seq`, `within`, `skip`, the frame walker, `switch`, macros, knob structs, `decode <table>` and `decode huffman`), `test:loader` (the `PfwVm` lifecycle), and `test:examples-kernel`, which drives the shipped example files with
 curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
+`npm run test:kernel:all` runs every one of them in turn (`scripts/kernel-tests.mjs`;
+name some to run only those), and is what CI runs. Among them: `test:route`
+(programs routed by port, interface and prefix; stage programs), `test:counts`
+(a rule is counted when it decides, not once a packet), `test:midjoin` (a
+connection older than the program is followed, not reset), and in `test:reasm`,
+a segment many windows long read whole.
 
 - **`test/isa/*.test.mjs`** (under `yeet test`, `npm run test:isa`): the ISA
   conformance vectors — a small program per case, asserting the registers,
