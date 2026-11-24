@@ -37,4 +37,7 @@ PFW_ASSERT_POW2(H2_CAP);
 PFW_ASSERT_POW2(H2_DYN_SLOTS);
 PFW_ASSERT_POW2(H2_ENT_CAP);
 
+// A regex rewrite carries its match length in nine bits of the instruction.
+_Static_assert(PFW_PAT_CAP <= 0x1ff, "PFW_PAT_CAP must fit the rlen field of OP_REDACT / OP_REPLACE");
+
 #endif /* PFW_COMMON_H */

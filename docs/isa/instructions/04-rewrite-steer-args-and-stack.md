@@ -27,11 +27,11 @@ are written back to the flow in `finish()`.
     literal pattern id *or*, when the regex flag is set, the regex accept-bit
     (its pattern id in the shared `%m` bit space).
   - `imm` — low 8 bits = the fill byte (`redact`); low 6 bits = the replacement
-    pattern id (`replace`); bits 8–14 = the **fixed match length** `rlen`, used
+    pattern id (`replace`); bits 8–16 = the **fixed match length** `rlen`, used
     only for the regex form.
   - Builder: `redact(pat, fill, isRe, rlen)` → `reg = (pat & 0x3fff) | (isRe?0x8000:0)`,
-    `imm = (fill & 0xff) | ((rlen & 0x7f) << 8)`. `replace(pat, repl, isRe, rlen)`
-    → `imm = (repl & 0x3f) | ((rlen & 0x7f) << 8)`.
+    `imm = (fill & 0xff) | ((rlen & 0x1ff) << 8)`. `replace(pat, repl, isRe, rlen)`
+    → `imm = (repl & 0x3f) | ((rlen & 0x1ff) << 8)`.
 - **Operation (kernel):** these do **not** rewrite in `pfw_step`; they *record a
   request* into `st->rw[st->rw_n++]` (`pat`, `is_re`, `rlen`, `mode = (code ==
   OP_REPLACE)`, `repl`, `fill`, `woff = st->r[R_PAYLOAD]`), capped at `RW_MAX = 16`

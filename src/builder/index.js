@@ -124,8 +124,8 @@ export class Builder {
   rlen() { return this.op(OP.RLEN); }
   // ---- packet rewrite (reg = match pattern id; imm = fill byte / replacement pattern id) ----
   // isRe marks `pat` a regex accept-bit (fixed-length match, len=rlen) rather than a literal pattern id.
-  redact(pat, fill, isRe = false, rlen = 0) { return this.op(OP.REDACT, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(fill) & 0xffn) | (BigInt(rlen & 0x7f) << 8n)); }
-  replace(pat, repl, isRe = false, rlen = 0) { return this.op(OP.REPLACE, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(repl) & 0x3fn) | (BigInt(rlen & 0x7f) << 8n)); }
+  redact(pat, fill, isRe = false, rlen = 0) { return this.op(OP.REDACT, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(fill) & 0xffn) | (BigInt(rlen & 0x1ff) << 8n)); }
+  replace(pat, repl, isRe = false, rlen = 0) { return this.op(OP.REPLACE, (pat & 0x3fff) | (isRe ? 0x8000 : 0), (BigInt(repl) & 0x3fn) | (BigInt(rlen & 0x1ff) << 8n)); }
   // DNAT: rewrite dst IPv4 (host-order u32) + port into imm (ip low 32, port bits 32..47).
   dnat(ip, port) { return this.op(OP.DNAT, 0, (BigInt(ip >>> 0) & 0xffffffffn) | (BigInt(port & 0xffff) << 32n)); }
   dnatCur() { return this.op(OP.DNAT, 1); } // the target is %cur: ip low 32, port bits 32..47; ip 0 steers nothing

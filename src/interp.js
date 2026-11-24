@@ -222,7 +222,7 @@ export function machine({ asm, tables, regex = null }) {
           const end = Math.min(Number(r[REG.end]), frame.length);
           const start = Number(r[REG.payload]); /* whole payload, not cursor */
           if (rawReg & 0x8000) { // regex (fixed-length): DFA walk, overwrite [i+1-len, i] on accept of this bit
-            const bit = BigInt(rawReg & 0x3fff), len = Number((imm >> 8n) & 0x7fn);
+            const bit = BigInt(rawReg & 0x3fff), len = Number((imm >> 8n) & 0x1ffn);
             if (regex && len > 0) {
               let s = 0;
               for (let i = start; i < end && i < start + SCAN_CAP; i++) {
