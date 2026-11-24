@@ -40,7 +40,8 @@ PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ba
  * throughout, so "how many requests" is not multiplied by retransmissions. */
 PFW_LINK volatile __u64 seen, ran, passed, dropped, rsts, bans, enforced, faults, logged, ring_full, shadowed, shadow_enforced;
 /* Reassembly accounting (reasm-mode programs): segments skipped as
- * retransmits, forward-gap resyncs, flows joined mid-stream (fail closed),
+ * retransmits, forward-gap resyncs, flows joined mid-stream (followed from
+ * there; reset if the program decodes),
  * and segments that overran the reassembly buffer (fail closed). */
 PFW_LINK volatile __u64 reasm_retrans, reasm_gaps, reasm_midjoin, reasm_over;
 /* reasm_slid: times a window slid forward to keep following a long stream;

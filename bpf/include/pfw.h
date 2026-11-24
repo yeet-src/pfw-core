@@ -320,7 +320,7 @@ struct flow {
     __u32 reasm_base;    /* TCP seq of reasm[0] (client ISN + 1) */
     __u32 reasm_len;     /* contiguous bytes from base (the inspectable prefix) */
     __u64 reasm_total;   /* lifetime bytes placed (0 = nothing seen yet) */
-    __u8  synned;        /* saw this flow's SYN: it is tracked from the start */
+    __u8  synned;        /* the stream is being followed: from its SYN, or from the segment it was picked up at */
     __u8  h2_mode;       /* decode h2: H2_MODE_* */
     __u8  h2_new;        /* decode h2: a new connection — its dynamic table must start empty */
     __u8  reasm_resync;  /* the last segment was larger than the window: restart at reasm_resync_seq */

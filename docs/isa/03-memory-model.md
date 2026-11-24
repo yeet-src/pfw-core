@@ -80,7 +80,7 @@ whole. A connection is therefore followed for its whole life.
 |---|---|
 | out-of-order segment inside the window | placed; inspected once the gap fills |
 | out-of-order segment beyond the window | **dropped**, not reset — the sender retransmits it after the window has moved (`reasm_held`) |
-| a flow first seen mid-stream (no SYN) | reset (`reasm_midjoin`) |
+| a flow first seen mid-stream (no SYN: open before the program was, or dropped from the table) | followed from that segment on, and counted (`reasm_midjoin`); reset if the program decodes, since a decode cannot begin part-way |
 | one segment larger than the window | its first `REASM_CAP` bytes are inspected, the rest is not (`reasm_trunc`) — the same reach a per-packet `scan` has. Does not occur at a 1500-byte MTU |
 | a FIN segment carrying data | inspected like any other |
 

@@ -114,8 +114,15 @@ static __noinline void reasm_shift(struct flow *f, __u32 by)
 /* Feed one TCP segment. `h2` is 1 for a `decode h2` program. Returns REASM_*.
  * __noinline so every path through it rejoins the caller in one state: the
  * interpreter loop that follows is verified once per distinct caller state. */
-static __noinline int reasm_feed(struct xdp_md *ctx, struct pkt *p, struct flow *f, struct pfw_state *st, __u32 h2)
+/* `follow` says how the stream is to be followed: REASM_H2 for an h2 decode,
+ * which needs every header block whole, and REASM_FROM_START for any decode,
+ * which keeps state from the connection's first byte and so cannot pick a
+ * stream up part-way. */
+#define REASM_H2         1u
+#define REASM_FROM_START 2u
+static __noinline int reasm_feed(struct xdp_md *ctx, struct pkt *p, struct flow *f, struct pfw_state *st, __u32 follow)
 {
+    __u32 h2 = follow & REASM_H2;
     __u8 syn = p->tcp_flags & 0x02;
     if (p->tcp_flags & 0x04) { f->reasm_len = 0; return REASM_OK; } /* RST: nothing more to see */
     if (syn) {
@@ -136,7 +143,22 @@ static __noinline int reasm_feed(struct xdp_md *ctx, struct pkt *p, struct flow 
     __u32 seglen = p->end > p->payload ? p->end - p->payload : 0;
     if (seglen == 0)
         return REASM_OK;               /* pure ACK: nothing to add */
-    if (!f->synned && f->reasm_total == 0) { reasm_midjoin++; return REASM_RESET; } /* joined mid-stream */
+    if (!f->synned && f->reasm_total == 0) {
+        /* A connection whose start was not seen: it was open before the program
+         * was, or its flow fell out of the table. A program that only matches
+         * the stream follows it from this segment on — resetting it would cut
+         * off every connection open when a first policy loads, and the sender
+         * cannot have hidden the start to gain anything: the VM sees every
+         * packet that arrives. A decode cannot begin part-way, and resets. */
+        reasm_midjoin++;
+        if (follow & REASM_FROM_START)
+            return REASM_RESET;
+        f->reasm_len = 0;
+        f->reasm_base = p->seq;
+        f->synned = 1;
+        f->reasm_resync = 0;
+        __builtin_memset(f->filled, 0, sizeof(f->filled));
+    }
 
     /* The previous segment overran the window: the stream resumes past it. */
     if (f->reasm_resync) {
