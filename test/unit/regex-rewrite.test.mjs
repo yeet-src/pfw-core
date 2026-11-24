@@ -47,3 +47,11 @@ yeet.test("replace rejects a regex whose fixed length != replacement length", ()
   if (r.ok) throw new Error("expected a same-length error");
   if (!JSON.stringify(r.errors).includes("same length")) throw new Error("wrong error: " + JSON.stringify(r.errors));
 });
+
+yeet.test("a regex match longer than 127 bytes is redacted whole", () => {
+  /* The match length rides in the instruction; at seven bits a 200-byte match
+   * was recorded as 72, and only its tail was overwritten. */
+  const p = prog(String.raw`regex blob = "#[a-f0-9]{199}"; filter { redact(blob); decide pass; }`);
+  const buf = enc("k=#" + "a1".repeat(99) + "f;"); p.exec(buf, {});
+  eq(dec(buf), "k=" + "*".repeat(200) + ";", "all 200 bytes");
+});
