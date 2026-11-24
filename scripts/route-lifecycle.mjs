@@ -123,10 +123,33 @@ console.log(`FIRST_REASM ${stateful.includes("reassemble")}`);
 
 let bad = "";
 try { await vm.route({ proto: "tcp", dport: 70000 }, BRAVO); } catch (e) { bad = e.message; }
-let bare = "", half = "";
+let bare = "", none = "";
 try { await vm.route({ dport: 80 }, BRAVO); } catch (e) { bare = e.message; }
-try { await vm.route({ dst: "10.0.0.0/8", proto: "tcp" }, BRAVO); } catch (e) { half = e.message; }
-console.log(`BADROUTE ${bad.includes("dport")} ${bare.includes("needs its proto")} ${half.includes("both proto and dport")}`);
+try { await vm.route({}, BRAVO); } catch (e) { none = e.message; }
+console.log(`BADROUTE ${bad.includes("dport")} ${bare.includes("needs its proto")} ${none.includes("at least one")}`);
+
+/* Prefix routes that also name an interface, or a protocol and no port. */
+await vm.route({ dst: "127.0.0.0/8", proto: "udp" }, BOTH);
+await phase("dst_proto");                  // every UDP packet to the prefix: both ports
+await vm.unroute({ dst: "127.0.0.0/8", proto: "udp" });
+await vm.route({ dst: "127.0.0.0/8", iface: lo }, BOTH);
+await phase("dst_iface");                  // the prefix on one interface: both ports again
+console.log(`ROUTES2 ${J(Object.keys(vm.routes).sort())}`);
+await vm.unroute({ dst: "127.0.0.0/8", iface: lo });
+
+/* Per-connection state in a stage, apart from the dispatched program's. Both
+ * count the packets of a connection: the stage lets two through, and the
+ * program it hands them to drops the first it sees. Were the count shared, the
+ * first packet would be the one to arrive. */
+await vm.unroute(route);
+await vm.apply(load(`filter { if (proto != 17) decide pass; let n = flow.count; if (n == 1) decide drop("own_first"); decide pass; }`));
+await vm.first(load(`filter { if (proto != 17) decide pass; let n = flow.count; if (n > 2) decide drop("stage_third"); decide pass; }`));
+await phase("stage_state");
+{
+  const s = await vm.stats();
+  console.log(`STATS_STAGE ${J({ stage: s.first[0]?.rules, own: s.rules })}`);
+}
+await vm.first(null);
 
 /* A source ban outlives the program that made it, and holds with no program. */
 await vm.apply(load(`pattern alpha = "ALPHA"; filter { if (proto != 17) decide pass;

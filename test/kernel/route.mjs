@@ -47,11 +47,14 @@ const EXPECT = {
   dst: { [PORT]: [], [PORT2]: [] },
   dst_gone: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
   knob_default: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
+  dst_proto: { [PORT]: [], [PORT2]: [] },
+  dst_iface: { [PORT]: [], [PORT2]: [] },
+  stage_state: { [PORT]: ["BRAVO"], [PORT2]: ["BRAVO"] },
   ban: { [PORT]: [], [PORT2]: [] },
   ban_cleared: { [PORT]: [], [PORT2]: [] },
 };
 /* The phases that send a third word, for the first program to catch. */
-const WORDS = { first: ["ALPHA", "BRAVO", "CHARLIE"], chain: ["ALPHA", "BRAVO", "CHARLIE", "DELTA"], first_gone: ["ALPHA", "BRAVO", "CHARLIE"] };
+const WORDS = { first: ["ALPHA", "BRAVO", "CHARLIE"], chain: ["ALPHA", "BRAVO", "CHARLIE", "DELTA"], first_gone: ["ALPHA", "BRAVO", "CHARLIE"], stage_state: ["ALPHA", "BRAVO", "CHARLIE", "DELTA"] };
 const LABEL = {
   default_only: "apply(): one program, both ports — ALPHA dropped on each",
   routed: "route(udp/port2): that port runs its own program — BRAVO dropped there, ALPHA not",
@@ -67,6 +70,9 @@ const LABEL = {
   dst: "route({ dst }): a destination prefix beats a port route — both ports",
   dst_gone: "unroute({ dst }): back to the port route and the default",
   knob_default: "a knob two programs default differently keeps the value the first one gave it",
+  dst_proto: "route({ dst, proto }): a prefix and a protocol with no port — both ports",
+  dst_iface: "route({ dst, iface }): a prefix on one interface — both ports",
+  stage_state: "a stage keeps its own per-connection count: it lets two packets by, and the program after it drops the first of them",
   ban: "a ban is the source's: after ALPHA nothing from it arrives, whichever program the port has",
   ban_cleared: "clear(): no default program, and the standing ban still holds",
 };
@@ -110,7 +116,11 @@ check("vm.routes lists the route by name", routed.includes(`"names":["${name}"]`
 check("onVerdict names the rule and the route it came from", routed.includes(`drop:no_bravo:${name}:${PORT2}`) && routed.includes(`drop:no_alpha:default:${PORT}`), routed.slice(routed.indexOf("EVENTS"), routed.indexOf("EVENTS") + 200));
 check("onConsole formats with the routed program's own format", routed.includes(`"bravo on ${PORT2}"`), routed.slice(routed.indexOf("SAID")));
 check("unroute() reports whether there was a route", line("UNROUTE") === "UNROUTE true AGAIN false", line("UNROUTE"));
-check("a route that cannot exist is refused: a bad port, a port with no protocol, a prefix with half a port", line("BADROUTE") === "BADROUTE true true true", line("BADROUTE"));
+check("a route that cannot exist is refused: a bad port, a port with no protocol, one that names nothing", line("BADROUTE") === "BADROUTE true true true", line("BADROUTE"));
+check("a prefix route with an interface is named for both", line("ROUTES2") === `ROUTES2 ["127.0.0.0/8 if1","udp/${PORT2}"]`, line("ROUTES2"));
+/* Four packets to each port: the stage drops the third and fourth of each
+ * connection, and the default program the first. */
+check("...and each program counted the drops its own count made", line("STATS_STAGE").includes(`"stage_third":4`) && line("STATS_STAGE").includes(`"own_first":2`), line("STATS_STAGE"));
 const chain = line("STATS_CHAIN");
 check("each stage of a chain counts its own drops, under its own name", chain.includes(`["first",{"-":0,"no_charlie":2}]`) && chain.includes(`["first.1",{"-":0,"no_delta":2}]`), chain);
 check("a chain longer than a packet can run is refused", line("FIRST_MANY") === "FIRST_MANY true");

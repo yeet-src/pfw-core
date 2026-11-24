@@ -43,6 +43,7 @@
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
 #define PFW_NRULES   1024   /* rule ids: counters[rule] */
+#define PFW_STAGES   8    /* stage programs a packet may run before its own; a power of two */
 #define PFW_PROGS    64   /* program slots: `dispatch` sends a packet to one, or to `default_slot`; a power of two */
 #define PFW_GENS     2    /* every pool below is this many times one program's ceiling, so the
                            * largest program and its replacement fit side by side */
@@ -262,6 +263,8 @@ struct pfw_prog {
      * dispatches. */
     __u32 next_on;         /* 1 = another stage follows */
     __u32 next_slot;       /* its slot */
+    __u32 stage_ix;        /* its place in the chain: which of a connection's stage states is its */
+    __u32 stage_flow;      /* 1 = it scans or keeps per-connection state, so it wants that state looked up */
     __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
     __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
     __u32 re_start[RE_GROUPS];         /* the start state of each regex DFA: where a scan begins it */
@@ -279,16 +282,15 @@ struct flow_key {
     __u16 _pad;
 };
 
-struct flow {
-    __u32 mark;
-    __u32 rule;
-    __u64 expires;
+/* What one program keeps for a connection: where its scan stood, and the state
+ * its instructions read and write. The program a packet is dispatched to has
+ * one in the flow itself; a stage program has its own in `stage_flows`, so two
+ * programs on one connection never read each other's. */
+struct flow_prog {
     __u32 ac_state;
-    __u32 gen;
+    __u32 gen;        /* pfw_prog.gen of the program whose scan this is: another's starts over */
     __u64 mask;
     __u64 ureg[FLOW_REGS]; /* per-connection registers the program reads and writes (flow.r0 ..) */
-    __u64 bytes;      /* payload bytes this flow has carried (flow.bytes) */
-    __u64 packets;    /* packets of this flow (flow.packets) */
     __u32 user_state; /* a per-connection state the program sets and reads */
     __u32 hits;       /* per-connection hit counter, for rate limiting */
     __u64 state_expires; /* ktime ns when user_state reverts to 0 (0 = never) */
@@ -300,6 +302,15 @@ struct flow {
     __u32 ring[RING_CAP];
     __u32 ring_head;  /* next write slot (mod RING_CAP) */
     __u32 ring_count; /* live entries, saturating at RING_CAP */
+};
+
+struct flow {
+    __u32 mark;
+    __u32 rule;
+    __u64 expires;
+    __u64 bytes;      /* payload bytes this flow has carried (flow.bytes) */
+    __u64 packets;    /* packets of this flow (flow.packets) */
+    struct flow_prog own; /* the dispatched program's */
     /* TCP reassembly, for reasm-mode programs. Each segment is placed at its
      * sequence offset with a fill bitmap, first-wins on overlap (the Linux
      * policy), and the interpreter runs over the contiguous prefix from the

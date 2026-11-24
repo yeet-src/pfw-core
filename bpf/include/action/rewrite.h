@@ -120,7 +120,7 @@ static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, stru
     if (len == 0 || len > PFW_PAT_CAP)
         return;
     __u32 woff = st->rw[k].woff;
-    struct pfw_ctx wc = { .xdp = ctx, .st = st, .prog = p, .reasm = 0, .flow = 0 };
+    struct pfw_ctx wc = { .xdp = ctx, .st = st, .prog = p, .reasm = 0, .fp = 0 };
     __u32 wn = window(&wc, woff, SCAN_CAP);            /* bytes [woff, end) -> st->buf */
     if (!wn)
         return;

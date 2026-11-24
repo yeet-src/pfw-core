@@ -84,18 +84,20 @@ PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection
 /* ---- maps ---------------------------------------------------------------- */
 
 /* Which program a packet runs. A route names some of: the interface it arrived
- * on, its protocol, its destination port, a prefix its destination address is
- * in. The most specific route that matches wins, in this order:
+ * on, its protocol, its destination port (with the protocol), a prefix its
+ * destination address is in. The most specific route that matches wins. One
+ * with a prefix comes before one without; then, in each of those two groups,
+ * by what else it names:
  *
- *   destination prefix + protocol + port     (the longest prefix first)
- *   destination prefix
  *   interface + protocol + port
  *   protocol + port
  *   interface + protocol
  *   protocol
  *   interface
+ *   nothing else (a prefix alone)
  *
- * and a packet no route claims runs `default_slot`. The host installs a program
+ * and between two prefix routes that name the same things, the longer prefix.
+ * A packet no route claims runs `default_slot`. The host installs a program
  * in a free slot and then points the route at it, so a route never names a
  * half-written program.
  *
@@ -116,13 +118,20 @@ PFW_LINK struct {
 } dispatch SEC(".maps");
 
 /* The routes with a destination prefix: a longest-prefix match on the address,
- * behind 32 bits that must match whole — the family, and either the protocol
- * and port or zeros for a route that names neither. */
+ * behind DST_EXACT_BITS that must match whole — the shape (as in route_key),
+ * the family, and the protocol, port and interface the shape names, zero where
+ * it names none. One byte array, which is the shape of trie key the host can
+ * write:
+ *
+ *   data[0]      shape          data[3..4]   port, high byte first
+ *   data[1]      family         data[5..8]   interface index, high byte first
+ *   data[2]      protocol       data[9..11]  zero
+ *   data[12..27] the address
+ */
+#define DST_EXACT_BITS 96
 struct dst_key {
-    __u32 prefixlen;        /* 32 + the address prefix's length */
-    /* The family, the protocol, the port high byte first, then the address.
-     * One byte array, which is the shape of trie key the host can write. */
-    __u8 data[20];
+    __u32 prefixlen;        /* DST_EXACT_BITS + the address prefix's length */
+    __u8 data[28];
 };
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_LPM_TRIE);
@@ -132,10 +141,10 @@ PFW_LINK struct {
     __uint(map_flags, BPF_F_NO_PREALLOC);
 } dispatch_dst SEC(".maps");
 
-/* route_shapes bits: 1 << shape for the `dispatch` shapes, then the two of
- * `dispatch_dst`. */
-#define RS_DST_PORT (1u << 8)
-#define RS_DST      (1u << 9)
+/* route_shapes bits: 1 << shape for the `dispatch` shapes, and the same eight
+ * places up for those of `dispatch_dst`. */
+#define RS_DST(shape) (1u << (8 + (shape)))
+#define RS_DST_ANY    (0xffu << 8)
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -182,6 +191,21 @@ PFW_LINK struct {
     __type(key, struct flow_key);
     __type(value, struct flow);
 } flows SEC(".maps");
+
+/* What each stage program keeps for a connection (struct flow_prog), by the
+ * connection and the stage's place in the chain. Apart from `flows`, so a
+ * stage's state costs 150 bytes and only for the connections it keeps any on,
+ * and does not grow the record every connection has. */
+struct stage_key {
+    struct flow_key flow;
+    __u32 stage;
+};
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __uint(max_entries, MAX_FLOWS * 4);
+    __type(key, struct stage_key);
+    __type(value, struct flow_prog);
+} stage_flows SEC(".maps");
 
 /* Per-source state (struct source), keyed on the source address: the source ban
  * and src.state / src.count / src.rate. LRU, so a flood of spoofed sources
@@ -290,6 +314,7 @@ struct pfw_state {
     __u32 slot;
     __u32 prog_stamp;
     __u32 stage_slot;       /* the stage a passing stage hands the packet to (pfw_stage reads it) */
+    struct stage_key x_sk;  /* the key of a stage's per-connection state, built here for the same reason */
     /* The dispatch keys, built here and not on the entry's stack, which is full. */
     struct route_key x_rk;
     struct dst_key x_dk;
@@ -491,6 +516,7 @@ PFW_LINK const struct h2conn zero_h2conn;
 /* A zeroed flow lives in rodata, not on the 512-byte BPF stack: the flow
  * struct now carries a REASM_CAP buffer and will not fit as a local. */
 PFW_LINK const struct flow zero_flow;
+PFW_LINK const struct flow_prog zero_fprog;
 
 /* Tail-call targets: the entry (pfw_xdp) reassembles, then tail-calls the
  * decoder (which decodes and tail-calls the matcher) or the matcher directly.
