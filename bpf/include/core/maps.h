@@ -21,6 +21,11 @@
 /* ---- control and counters, read and patched from the host ---------------- */
 
 PFW_LINK volatile __u32 default_slot;    /* the program slot of a packet `dispatch` has no entry for */
+/* A program every packet runs first, before the one it is dispatched to: a
+ * blocklist ahead of each tenant's own rules. It decides, or passes the packet
+ * on. It keeps no per-connection state, since a flow holds one program's. */
+PFW_LINK volatile __u32 first_on;        /* 1 = there is one */
+PFW_LINK volatile __u32 first_slot;      /* its slot */
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
 PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
 PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */
@@ -214,12 +219,12 @@ PFW_LINK struct {
     __type(value, __u64);
 } knobs SEC(".maps");
 
-/* Host-loaded lookup tables, read by OP_TLOAD (`NAME[i]`). One flat array of
- * u64 cells per generation; the compiler gives each declared table a base and
- * a size within it. Per generation, like the automaton, because a table's
- * place is the program's to decide: apply() lays the next program's tables out
- * in the idle half and they come into force with the flip, whole. The host
- * rewrites cells of the live half whenever it likes. */
+/* Host-loaded lookup tables, read by OP_TLOAD (`NAME[i]`). One flat pool of
+ * u64 cells; the compiler gives each declared table a base and a size within
+ * its program's range. Per program, like the automaton, because a table's
+ * place is the program's to decide: the host lays the next program's tables
+ * out in a free range and they come into force with the flip, whole. It
+ * rewrites cells of a running program whenever it likes. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
     __uint(max_entries, TABLE_POOL);
@@ -452,9 +457,10 @@ PFW_LINK const struct flow zero_flow;
 #define SLOT_TRANSFORM 4
 #define SLOT_REWRITE   5
 #define SLOT_HPACK     6
+#define SLOT_DISPATCH  7 /* pfw_dispatch: where the first program hands a packet on */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 7);
+    __uint(max_entries, 8);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");

@@ -5,6 +5,8 @@
  *   route()    a program of its own for one protocol and port; routing the
  *              same packets again swaps it, as apply() swaps the default
  *   unroute()  the port is the default's again
+ *   first()    a program every packet runs before its own: it drops, or passes
+ *              the packet on to the program it was dispatched to
  *   knobs      reach every program that declares them, by name
  *   stats(), onVerdict, onConsole report per program: a rule, a format and a
  *              count belong to the program that owns them
@@ -37,7 +39,11 @@ const EXPECT = {
   rerouted: { [PORT]: ["BRAVO"], [PORT2]: [] },
   default_swapped: { [PORT]: ["ALPHA"], [PORT2]: [] },
   unrouted: { [PORT]: ["ALPHA"], [PORT2]: ["ALPHA"] },
+  first: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
+  first_gone: { [PORT]: ["BRAVO", "CHARLIE"], [PORT2]: ["ALPHA", "CHARLIE"] },
 };
+/* The phases that send a third word, for the first program to catch. */
+const WORDS = { first: ["ALPHA", "BRAVO", "CHARLIE"], first_gone: ["ALPHA", "BRAVO", "CHARLIE"] };
 const LABEL = {
   default_only: "apply(): one program, both ports — ALPHA dropped on each",
   routed: "route(udp/port2): that port runs its own program — BRAVO dropped there, ALPHA not",
@@ -45,6 +51,8 @@ const LABEL = {
   rerouted: "route() again swaps the route's program: port2 drops both, the default is untouched",
   default_swapped: "apply() swaps the default under a standing route: only the other port changes",
   unrouted: "unroute(): port2 is the default's again",
+  first: "first(): CHARLIE is dropped on both ports before either program sees it; the rest goes on as routed",
+  first_gone: "first(null): CHARLIE passes again, the routed programs are as they were",
 };
 
 console.log("kernel routing — two programs, one VM, on loopback\n");
@@ -60,7 +68,7 @@ const onLine = (line) => {
   pending.push((async () => {
     await sleep(500);
     const mark = got.length;
-    for (const port of [PORT, PORT2]) { await send(`ALPHA-${name}`, port); await send(`BRAVO-${name}`, port); }
+    for (const port of [PORT, PORT2]) for (const word of WORDS[name] ?? ["ALPHA", "BRAVO"]) await send(`${word}-${name}`, port);
     await sleep(700);
     const arrived = { [PORT]: [], [PORT2]: [] };
     for (const g of got.slice(mark)) { const [port, msg] = g.split(":"); arrived[port].push(msg.split("-")[0]); }
@@ -87,6 +95,13 @@ check("onVerdict names the rule and the route it came from", routed.includes(`dr
 check("onConsole formats with the routed program's own format", routed.includes(`"bravo on ${PORT2}"`), routed.slice(routed.indexOf("SAID")));
 check("unroute() reports whether there was a route", line("UNROUTE") === "UNROUTE true AGAIN false", line("UNROUTE"));
 check("a route that cannot exist is refused", line("BADROUTE") === "BADROUTE true");
+const first = line("STATS_FIRST");
+/* One CHARLIE to each port, both stopped by the first program; one ALPHA and
+ * one BRAVO reached the program of the port they were sent to and were dropped
+ * there, so each of the three programs counted its own. */
+check("the first program and the dispatched ones each count their own drops", /"first":\{[^}]*"no_charlie":2/.test(first) && /"default":\{[^}]*"no_alpha":1/.test(first) && /"routed":\{[^}]*"no_bravo":1/.test(first), first.slice(0, 200));
+check("...and their events say which program", first.includes(`drop:no_charlie:first:${PORT}`) && first.includes(`drop:no_charlie:first:${PORT2}`) && first.includes(`drop:no_bravo:udp/${PORT2}:${PORT2}`), first.slice(first.indexOf("EVENTS")));
+check("a first program that would reassemble is refused", line("FIRST_REASM") === "FIRST_REASM true");
 
 console.log(`\n${n - fail}/${n} passed`);
 process.exit(fail ? 1 : 0);

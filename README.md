@@ -327,6 +327,7 @@ await vm.stop();                              // detached; the hook is free agai
 | `running`, `program` | whether it is started; the compile result now enforcing |
 | `apply(program, opts)` | put a `Program`, a `compile()` result or pfw-C source into effect as the default program: the one every packet runs that no route claims. Installed beside the one it replaces, then one flip. `opts`: `argv`, `knobs`, `knobStrs`, `tables`, `shadow` |
 | `route(match, program, opts)`, `unroute(match)` | give one protocol and destination port a program of its own (`{ proto: "tcp", dport: 8443 }`), in place of the default; routing the same packets again swaps it. Up to 16 programs are installed at once, one of them a spare for the swap. `routes` lists them by name (`"tcp/8443"`) |
+| `first(program, opts)` | run a program on every packet before the one it is dispatched to: it decides, or passes the packet on. It has no per-connection state, so no `reassemble`, `decode`, `redact` or `replace`. `first(null)` removes it |
 | `clear()` | stop enforcing but stay attached (standing bans still apply) |
 | `setKnob(name, v)`, `setKnobStr(name, s)`, `setShadow(on)` | live control of the running program |
 | `setTable(name, values, offset)` | fill a declared `table` live (or pass `tables` to `apply`); contents follow the name across programs |
@@ -354,8 +355,9 @@ Things to know when embedding:
   instruction budget, `reassemble` and `decode`; nothing of the default runs on
   its packets. Knobs and tables are shared by name with every other installed
   program, and so are the sets and the `lookup` map. `stats().routes[name]`
-  holds its `rules` and `timing`; an event's `route` says which program raised
-  it (`"default"`, or the route's name).
+  holds its `rules` and `timing` (`stats().first` for the first program); an
+  event's `route` says which program raised it (`"default"`, `"first"`, or the
+  route's name).
 - **Knob values follow the name.** A value set with `setKnob` or `apply({ knobs })`
   is remembered and re-applied to any later program that declares that knob.
 - **No version check yet** between this JS and the `vm.bpf.o` it loads: ship them

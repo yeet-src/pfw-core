@@ -11,6 +11,7 @@
  *   await vm.setKnob("enforce", 0);         // live, no reload
  *   await vm.apply(load(nextSource));       // atomic swap to a new program
  *   await vm.route({ proto: "tcp", dport: 8443 }, load(apiSource));   // its own program for one port
+ *   await vm.first(load(blocklistSource));  // and one every packet runs before its own
  *   console.log(await vm.stats());
  *   await vm.stop();                        // detached; the hook is free again
  *
@@ -32,7 +33,7 @@ import { transformCells } from "#/transform.js";
 
 /* The tail-call stages, by their slot in the `decode_jmp` program array. Every
  * one must be in place before the entry is attached. */
-const STAGES = ["pfw_decode", "pfw_match", "pfw_resolve", "pfw_huff", "pfw_transform", "pfw_rewrite", "pfw_hpack"];
+const STAGES = ["pfw_decode", "pfw_match", "pfw_resolve", "pfw_huff", "pfw_transform", "pfw_rewrite", "pfw_hpack", "pfw_dispatch"];
 
 /* Maps the loader reads or writes, and the kind yeetd binds each as. */
 const MAPS = {
@@ -162,6 +163,7 @@ export class PfwVm {
       rule: new Pool(GENS * NRULES, "rules"),
     };
     this._default = null;        // the installed program packets run when no route claims them
+    this._first = null;          // the installed program every packet runs before that, if any
     this._routes = new Map();    // route name -> { key, rec }
     this._limbo = [];            // replaced programs, still whole until their grace is up
     this._byStamp = new Map();   // pfw_prog.gen -> the installed program, for its events
@@ -192,7 +194,7 @@ export class PfwVm {
       this._control = control;
       this._reset();
       /* No program yet: every slot is zero, and the entry passes when nops == 0. */
-      await new DataSec(control, "vm.bss").patch({ default_slot: 0, shadow: 0 });
+      await new DataSec(control, "vm.bss").patch({ default_slot: 0, first_on: 0, first_slot: 0, shadow: 0 });
       for (const part of chunks([...transformCells()], BATCH)) await this._map("tt_cells").updateBatch(part);
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
       this._subs.push(await new RingBuf(control, "console_ring").subscribe((w) => this._onConsole(w?.pfw_console ?? w)));
@@ -260,6 +262,36 @@ export class PfwVm {
     await new HashMap(control, "dispatch").update(key, rec.slot.base);
     this._retire(this._routes.get(name)?.rec);
     this._routes.set(name, { key, rec });
+    return this;
+  }
+
+  /**
+   * Run a program on every packet before the one the packet is dispatched to:
+   * a blocklist ahead of each port's own rules. It decides — drop, ban, rst —
+   * or it passes, and then the packet goes on to its route's program, or the
+   * default, as if this one were not there. `first(null)` takes it away.
+   *
+   * It sees the packet and its source, not the connection: a flow holds one
+   * program's scan state and registers, and they are the dispatched program's.
+   * So it may not `reassemble` or `decode`, nor `redact` or `replace`; per-source
+   * state (`src.count`, `src.rate`, `ban`), the sets and the knobs all work.
+   */
+  async first(program, opts = {}) {
+    const control = this._need("first");
+    const bss = new DataSec(control, "vm.bss");
+    if (program === null || program === undefined) {
+      await bss.patch({ first_on: 0 });
+      this._retire(this._first);
+      this._first = null;
+      return this;
+    }
+    const c = compiled(program);
+    if (c.program.reasm || c.program.decode) throw new Error("first(): the first program runs on each packet as it arrives, so it cannot `reassemble` or `decode`");
+    if (c.program.ops.some((o) => o.code === OP.REDACT || o.code === OP.REPLACE)) throw new Error("first(): `redact` and `replace` belong to the program a packet is dispatched to");
+    const rec = await this._install(c, opts, "first");
+    await bss.patch({ first_slot: rec.slot.base, first_on: 1 });
+    this._retire(this._first);
+    this._first = rec;
     return this;
   }
 
@@ -404,7 +436,7 @@ export class PfwVm {
   }
 
   /* Every program something points at: the default, then the routes. */
-  _live() { return [this._default, ...[...this._routes.values()].map((r) => r.rec)].filter(Boolean); }
+  _live() { return [this._first, this._default, ...[...this._routes.values()].map((r) => r.rec)].filter(Boolean); }
 
   /** Stop enforcing by default without detaching: swap in an empty default
    *  program (packets no route claims pass; standing bans still apply). */
@@ -526,6 +558,7 @@ export class PfwVm {
     const out = { active: this._default?.slot.base ?? 0, shadow: Number(bss.shadow ?? 0) !== 0, applied: this._stamp, applied_at: this._default?.appliedAt ?? null };
     for (const k of COUNTERS) if (bss[k] !== undefined) out[k] = BigInt(bss[k]);
     Object.assign(out, this._default ? await this._ruleStats(this._default) : { rules: {}, timing: {} });
+    if (this._first) out.first = { applied_at: this._first.appliedAt, ...(await this._ruleStats(this._first)) };
     /* The same for each route, by its name. */
     out.routes = {};
     for (const [name, { rec }] of this._routes) out.routes[name] = { applied_at: rec.appliedAt, ...(await this._ruleStats(rec)) };

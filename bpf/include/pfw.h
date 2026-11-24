@@ -5,7 +5,7 @@
 #ifndef PFW_H
 #define PFW_H
 
-#define PFW_MAX_OPS  65536 /* instructions per program: the `ops` map holds this many a generation */
+#define PFW_MAX_OPS  65536 /* instructions per program: the `ops` pool holds PFW_GENS times this */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
 #define PFW_PAT_CAP  256   /* bytes per pattern */
 #define SKIP_CAP     64   /* bytes a skipb passes over when given no cap, or one above this */
@@ -27,7 +27,7 @@
 #define PFW_KNOBSTRS 64   /* live host-set string knobs (OP_KNOBHAS / the `knob_strs` map) */
 #define KNOBSTR_CAP  64   /* bytes per string knob (the needle) */
 #define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
-#define TABLE_CELLS  131072 /* u64 cells of host-loaded lookup tables per generation (`NAME[i]`); a
+#define TABLE_CELLS  131072 /* u64 cells of host-loaded lookup tables per program (`NAME[i]`); a
                             * power of two, and past 65537 so a full-size Maglev table fits */
 #define FLOW_REGS    4     /* per-flow registers a program reads and writes (flow.r0 .. flow.r3); a power of two */
 #define FF_BYTES     4     /* OP_FLOAD reg: payload bytes this flow has carried, this packet included */
@@ -51,7 +51,7 @@
 #define RE_POOL      (PFW_GENS * RE_STATES)     /* regex DFA states, all programs */
 #define TABLE_POOL   (PFW_GENS * TABLE_CELLS)   /* lookup table cells, all programs */
 #define RULE_POOL    (PFW_GENS * PFW_NRULES)    /* rule counters, all programs */
-#define AC_STATES    16384 /* automaton states per generation */
+#define AC_STATES    16384 /* automaton states per program */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
 #define SCAN_CAP     4096 /* bytes one scan / findb may cover; a power of two */
 #define LOG_CAP      256  /* bytes a log carries into the event */

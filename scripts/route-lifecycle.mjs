@@ -53,6 +53,27 @@ await phase("default_swapped");            // the default swapped under a standi
 console.log(`UNROUTE ${await vm.unroute(route)} AGAIN ${await vm.unroute(route)}`);
 await phase("unrouted");                   // port2 is back on the default (now BRAVO's program)
 
+/* A program every packet runs first. It drops CHARLIE wherever it is headed;
+ * everything else goes on to the program it was always going to. */
+const FIRST = load(`pattern charlie = "CHARLIE"; filter {
+  if (proto != 17) decide pass;
+  if (scan(payload, 64) & charlie) { log(8); decide drop("no_charlie"); } decide pass; }`);
+await vm.apply(DEFAULT);
+await vm.route(route, BRAVO);
+seen.length = 0;
+await vm.first(FIRST);
+await phase("first");                      // CHARLIE dropped on both ports; ALPHA and BRAVO as routed
+{
+  const s = await vm.stats();
+  console.log(`STATS_FIRST ${J({ first: s.first?.rules, default: s.rules, routed: s.routes[`udp/${port2}`]?.rules })} EVENTS ${J(seen)}`);
+}
+await vm.first(null);
+await phase("first_gone");                 // CHARLIE passes again; the rest unchanged
+
+let stateful = "";
+try { await vm.first(load(`reassemble 80; filter { decide pass; }`)); } catch (e) { stateful = e.message; }
+console.log(`FIRST_REASM ${stateful.includes("reassemble")}`);
+
 let bad = "";
 try { await vm.route({ proto: "tcp", dport: 70000 }, BRAVO); } catch (e) { bad = e.message; }
 console.log(`BADROUTE ${bad.includes("dport")}`);
