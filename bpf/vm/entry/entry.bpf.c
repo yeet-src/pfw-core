@@ -43,12 +43,12 @@ int pfw_match(struct xdp_md *ctx)
 {
     struct pkt p = {};
     if (!parse(ctx, &p)) { passed++; return XDP_PASS; }
-    __u32 gen = active_gen & (PFW_GENS - 1);
-    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &gen);
-    if (!prog || prog->nops == 0) return XDP_PASS;
     __u32 zero = 0;
     struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
     if (!st) { passed++; return XDP_PASS; }
+    __u32 slot = st->slot & (PFW_PROGS - 1);
+    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &slot);
+    if (!prog || prog->nops == 0) return XDP_PASS;
     __u64 now = bpf_ktime_get_ns();
     struct flow_key key = {};
     struct flow *f = NULL;
@@ -63,23 +63,27 @@ int pfw_match(struct xdp_md *ctx)
     }
     /* Only ever reached by tail call from a decode stage, which left the decoded
      * view in st->view and pointed the registers at it: that is what is read. */
-    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, 1, st->view);
+    return match_half(ctx, &p, prog, f, st, now, &key, keyed, 1, st->view);
 }
 
 SEC("xdp")
 int pfw_xdp(struct xdp_md *ctx)
 {
     seen++;
-    __u32 gen = active_gen & (PFW_GENS - 1);
-    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &gen);
-    if (!prog || prog->nops == 0)
-        return XDP_PASS;
-
     struct pkt p = {};
     if (!parse(ctx, &p)) {
         passed++;
         return XDP_PASS;
     }
+
+    /* The program for this packet: the one its protocol and destination port
+     * are routed to, else the default. */
+    struct route_key rk = { .dport = p.dport, .proto = p.proto };
+    __u32 *routed = bpf_map_lookup_elem(&dispatch, &rk);
+    __u32 slot = (routed ? *routed : default_slot) & (PFW_PROGS - 1);
+    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &slot);
+    if (!prog || prog->nops == 0)
+        return XDP_PASS;
 
     /* A standing source ban drops everything from that address, on any port or
      * protocol, before any per-flow work. */
@@ -150,6 +154,8 @@ int pfw_xdp(struct xdp_md *ctx)
         passed++;
         return XDP_PASS;
     }
+    st->slot = slot;
+    st->prog_stamp = prog->gen;
     __builtin_memset(st->r, 0, sizeof(st->r));
     st->r[R_FRAME] = 0;
     st->r[R_L3] = p.l3;
@@ -269,5 +275,5 @@ int pfw_xdp(struct xdp_md *ctx)
         bpf_tail_call(ctx, &decode_jmp, SLOT_TRANSFORM);
     }
     (void) use_reasm;
-    return match_half(ctx, &p, prog, f, st, gen, now, &key, keyed, use_reasm, f ? f->reasm : NULL);
+    return match_half(ctx, &p, prog, f, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL);
 }

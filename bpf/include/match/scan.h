@@ -27,12 +27,14 @@ static long ac_step(__u32 i, void *pctx)
     if (i >= st->x_scan_len)
         return 1;
     __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
-    __u32 gbase = c->gen * AC_STATES * 256;
-    __u32 sbase = c->gen * AC_STATES;
+    struct pfw_prog *p = c->prog;
+    if (!p)
+        return 1;
+    __u32 sbase = p->ac_base;
     __u32 s = st->ac_state & (AC_STATES - 1);
 #pragma unroll
     for (int k = 0; k < AC_MAX_FAIL; k++) {
-        __u32 gkey = gbase + ((s << 8) | b);
+        __u32 gkey = (PFW_MASK(sbase + s, AC_POOL) << 8) | b;
         __u16 *next = bpf_map_lookup_elem(&ac_goto, &gkey);
         if (next && *next) {
             s = *next & (AC_STATES - 1);
@@ -40,14 +42,14 @@ static long ac_step(__u32 i, void *pctx)
         }
         if (s == 0)
             goto resolved;
-        __u32 fkey = sbase + s;
+        __u32 fkey = PFW_MASK(sbase + s, AC_POOL);
         __u16 *f = bpf_map_lookup_elem(&ac_fail, &fkey);
         s = f ? (*f & (AC_STATES - 1)) : 0;
     }
     s = 0;
 resolved:
     st->ac_state = s;
-    __u32 akey = sbase + s;
+    __u32 akey = PFW_MASK(sbase + s, AC_POOL);
     __u64 *acc = bpf_map_lookup_elem(&ac_accept, &akey);
     if (acc && *acc) {
         __u64 fresh = *acc & ~st->r[R_M];
@@ -68,15 +70,16 @@ resolved:
      * there is one bpf_loop, not two (a second nested loop blows the verifier
      * budget), and written out per group rather than looped for the same reason.
      * A program with no regex walks none. */
-    __u32 ng = c->prog ? c->prog->re_ngroups : 0;
+    __u32 ng = p->re_ngroups;
+    __u32 rbase = p->re_base;
 #define RE_WALK(g) \
     if (ng > (g)) { \
         __u32 rs = st->x_re[g] & (RE_STATES - 1); \
-        __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b; \
+        __u32 rk = (PFW_MASK(rbase + rs, RE_POOL) << 8) + b; \
         __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk); \
         rs = rn ? (*rn & (RE_STATES - 1)) : 0; \
         st->x_re[g] = rs; \
-        __u32 rak = c->gen * RE_STATES + rs; \
+        __u32 rak = PFW_MASK(rbase + rs, RE_POOL); \
         __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak); \
         if (racc && *racc) \
             st->r[R_M] |= *racc; \

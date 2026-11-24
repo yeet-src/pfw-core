@@ -20,9 +20,7 @@
 
 /* ---- control and counters, read and patched from the host ---------------- */
 
-/* Not plain `active`: vmlinux.h is generated from the build host's BTF, and some
- * kernels have an enum constant of that name. */
-PFW_LINK volatile __u32 active_gen;      /* the generation packets run */
+PFW_LINK volatile __u32 default_slot;    /* the program slot of a packet `dispatch` has no entry for */
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
 PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
 PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */
@@ -76,41 +74,56 @@ PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection
 
 /* ---- maps ---------------------------------------------------------------- */
 
+/* Which program a packet runs: by protocol and destination port, else
+ * `default_slot`. The host installs a program in a free slot and then points
+ * the route at it, so a route never names a half-written program. */
+struct route_key {
+    __u16 dport;
+    __u8 proto;
+    __u8 _pad;
+};
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __uint(max_entries, 1024);
+    __type(key, struct route_key);
+    __type(value, __u32);
+} dispatch SEC(".maps");
+
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS);
+    __uint(max_entries, PFW_PROGS);
     __type(key, __u32);
     __type(value, struct pfw_prog);
 } programs SEC(".maps");
 
-/* The instructions, one an entry: gen * PFW_MAX_OPS + pc. They are a map of
+/* The instructions, one an entry: prog->ops_base + pc. They are a map of
  * their own, not an array inside struct pfw_prog, so that a program costs the
  * host what it uses: a load writes nops entries, where the array made every
  * load carry PFW_MAX_OPS of them. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * PFW_MAX_OPS);
+    __uint(max_entries, OPS_POOL);
     __type(key, __u32);
     __type(value, struct pfw_op);
 } ops SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * AC_STATES * 256);
+    __uint(max_entries, AC_POOL * 256);
     __type(key, __u32);
     __type(value, __u16);
 } ac_goto SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * AC_STATES);
+    __uint(max_entries, AC_POOL);
     __type(key, __u32);
     __type(value, __u16);
 } ac_fail SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * AC_STATES);
+    __uint(max_entries, AC_POOL);
     __type(key, __u32);
     __type(value, __u64);
 } ac_accept SEC(".maps");
@@ -209,7 +222,7 @@ PFW_LINK struct {
  * rewrites cells of the live half whenever it likes. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * TABLE_CELLS);
+    __uint(max_entries, TABLE_POOL);
     __type(key, __u32);
     __type(value, __u64);
 } tables SEC(".maps");
@@ -224,6 +237,10 @@ PFW_LINK struct {
 
 struct pfw_state {
     __u64 r[NREGS];
+    /* The program this packet runs, chosen by the entry and read by every stage
+     * it tail-calls: its slot in `programs`, and its stamp for the events. */
+    __u32 slot;
+    __u32 prog_stamp;
     __u32 pc;
     __u32 flags;
     __u32 verdict;
@@ -397,14 +414,14 @@ PFW_LINK struct {
  * OP_RESCAN walks them one byte per step, ORing accept bits into %m. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * RE_STATES * 256);
+    __uint(max_entries, RE_POOL * 256);
     __type(key, __u32);
     __type(value, __u16);
 } re_goto SEC(".maps");
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
-    __uint(max_entries, PFW_GENS * RE_STATES);
+    __uint(max_entries, RE_POOL);
     __type(key, __u32);
     __type(value, __u64);
 } re_accept SEC(".maps");

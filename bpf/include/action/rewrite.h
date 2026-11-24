@@ -18,7 +18,7 @@
 #include "match/scan.h"   /* fold() */
 
 struct rw_ac_ctx { struct pfw_state *st; struct pfw_prog *p;
-                   __u32 gen, pat, len, mode, repl, fill, n, woff, l4, acstate, sumo, sumn, changed; };
+                   __u32 pat, len, mode, repl, fill, n, woff, l4, acstate, sumo, sumn, changed; };
 
 /* Overwrite one byte of a matched span and fold its old/new 16-bit checksum
  * contribution (placed high/low by the byte's parity within the L4 segment). */
@@ -50,23 +50,24 @@ static long rw_ac_step(__u32 i, void *ctx_)
     if (!st || i >= c->n)
         return 1;
     __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
-    __u32 gbase = c->gen * AC_STATES * 256;
-    __u32 sbase = c->gen * AC_STATES;
+    if (!c->p)
+        return 1;
+    __u32 sbase = c->p->ac_base;
     __u32 s = c->acstate & (AC_STATES - 1);
 #pragma unroll
     for (int k = 0; k < AC_MAX_FAIL; k++) {
-        __u32 gkey = gbase + ((s << 8) | b);
+        __u32 gkey = (PFW_MASK(sbase + s, AC_POOL) << 8) | b;
         __u16 *next = bpf_map_lookup_elem(&ac_goto, &gkey);
         if (next && *next) { s = *next & (AC_STATES - 1); goto resolved; }
         if (s == 0) goto resolved;
-        __u32 fkey = sbase + s;
+        __u32 fkey = PFW_MASK(sbase + s, AC_POOL);
         __u16 *f = bpf_map_lookup_elem(&ac_fail, &fkey);
         s = f ? (*f & (AC_STATES - 1)) : 0;
     }
     s = 0;
 resolved:
     c->acstate = s;
-    __u32 akey = sbase + s;
+    __u32 akey = PFW_MASK(sbase + s, AC_POOL);
     __u64 *acc = bpf_map_lookup_elem(&ac_accept, &akey);
     if (acc && ((*acc >> c->pat) & 1)) {
         __u32 base = (i + 1 >= c->len) ? (i + 1 - c->len) : 0;
@@ -89,12 +90,15 @@ static long rw_re_step(__u32 i, void *ctx_)
     if (!st || i >= c->n)
         return 1;
     __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
+    if (!c->p)
+        return 1;
+    __u32 rbase = c->p->re_base;
     __u32 rs = c->acstate & (RE_STATES - 1);
-    __u32 rk = c->gen * RE_STATES * 256 + (rs << 8) + b;
+    __u32 rk = (PFW_MASK(rbase + rs, RE_POOL) << 8) + b;
     __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk);
     rs = rn ? (*rn & (RE_STATES - 1)) : 0;
     c->acstate = rs;
-    __u32 rak = c->gen * RE_STATES + rs;
+    __u32 rak = PFW_MASK(rbase + rs, RE_POOL);
     __u64 *racc = bpf_map_lookup_elem(&re_accept, &rak);
     if (racc && ((*racc >> c->pat) & 1)) {
         __u32 base = (i + 1 >= c->len) ? (i + 1 - c->len) : 0;
@@ -121,7 +125,7 @@ static __noinline void do_rewrite(struct xdp_md *ctx, struct pfw_state *st, stru
     if (!wn)
         return;
     struct rw_ac_ctx c = {
-        .st = st, .p = p, .gen = active_gen & (PFW_GENS - 1), .pat = pat, .len = len,
+        .st = st, .p = p, .pat = pat, .len = len,
         .mode = st->rw[k].mode, .repl = st->rw[k].repl & (PFW_MAX_PATS - 1),
         .fill = st->rw[k].fill, .n = wn, .woff = woff, .l4 = (__u32) st->r[R_L4],
         .acstate = is_re ? p->re_pat_start[pat] : 0, .sumo = 0, .sumn = 0, .changed = 0,
