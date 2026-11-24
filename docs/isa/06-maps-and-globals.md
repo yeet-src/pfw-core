@@ -2,8 +2,9 @@
 
 | map | type | key → value | purpose |
 |---|---|---|---|
-| `programs` | ARRAY (16) | u32 → `pfw_prog` | a program's header and patterns, by slot |
-| `dispatch` | HASH | `route_key` (proto, dport) → u32 | the slot of the program for those packets; no entry means `default_slot` |
+| `programs` | ARRAY (64) | u32 → `pfw_prog` | a program's header and patterns, by slot |
+| `dispatch` | HASH | `route_key` (ifindex, proto, dport, shape) → u32 | routes with no destination prefix: the slot of the program for those packets. `shape` says which fields the route names |
+| `dispatch_dst` | LPM_TRIE | `dst_key` (family, proto, port, address) → u32 | routes with a destination prefix, longest match; the family, protocol and port must match whole |
 | `ops` | ARRAY (2 × 65536) | u32 → `pfw_op` | the instructions of every program (`ops_base + pc`) |
 | `ac_goto` | ARRAY | u32 → u16 | AC goto table (`(ac_base + state)·256 + byte`) |
 | `ac_fail` | ARRAY | u32 → u16 | AC failure links |
@@ -31,12 +32,13 @@
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
 | `samples` | RINGBUF (8 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[4096]) |
 | `emits` | RINGBUF (256 KiB) | — | `emit()` events (`pfw_emit`: ts, ifindex, id, n, vals[8]) |
-| `decode_jmp` | PROG_ARRAY (8) | u32 → prog | tail-call targets (§8) |
+| `decode_jmp` | PROG_ARRAY (9) | u32 → prog | tail-call targets (§8) |
 
 ### Globals (in `vm.bss`, host-readable/patchable)
 
 - `default_slot` — the slot of the program a packet runs when `dispatch` has no entry for it.
-- `first_on`, `first_slot` — whether there is a program every packet runs before the one it is dispatched to, and its slot. It runs without the flow (no per-connection state, no reassembly); a pass tail-calls `pfw_dispatch`.
+- `first_on`, `first_slot` — whether there is a chain of stage programs every packet runs before the one it is dispatched to, and the slot of its first. A stage runs without the flow (no per-connection state, no reassembly). Its pass tail-calls `pfw_stage` for the stage `pfw_prog.next_slot` names, or `pfw_dispatch` from the last.
+- `route_shapes` — a bit for each shape of route installed; the entry looks up only those. Tried in order: prefix + protocol + port, prefix, interface + protocol + port, protocol + port, interface + protocol, protocol, interface; then `default_slot`.
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
 - Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,

@@ -65,10 +65,57 @@ await vm.first(FIRST);
 await phase("first");                      // CHARLIE dropped on both ports; ALPHA and BRAVO as routed
 {
   const s = await vm.stats();
-  console.log(`STATS_FIRST ${J({ first: s.first?.rules, default: s.rules, routed: s.routes[`udp/${port2}`]?.rules })} EVENTS ${J(seen)}`);
+  console.log(`STATS_FIRST ${J({ first: s.first[0]?.rules, default: s.rules, routed: s.routes[`udp/${port2}`]?.rules })} EVENTS ${J(seen)}`);
+}
+/* A chain: a second stage, which drops DELTA, after the first. */
+const SECOND = load(`pattern delta = "DELTA"; filter {
+  if (proto != 17) decide pass;
+  if (scan(payload, 64) & delta) decide drop("no_delta"); decide pass; }`);
+await vm.first([FIRST, SECOND]);
+await phase("chain");                      // CHARLIE and DELTA dropped on both ports, each by its stage
+{
+  const s = await vm.stats();
+  console.log(`STATS_CHAIN ${J(s.first.map((f) => [f.name, f.rules]))}`);
 }
 await vm.first(null);
 await phase("first_gone");                 // CHARLIE passes again; the rest unchanged
+
+/* Routes by more than a port. The port route on port2 stands throughout. */
+const lo = Number(argv.iface ?? 1), port = Number(argv.port);
+await vm.route({ iface: lo, proto: "udp" }, BOTH);
+await phase("iface");                      // every UDP packet on the interface — but a port route is more specific
+console.log(`UNROUTE_IFACE ${await vm.unroute({ iface: lo, proto: "udp" })}`);
+
+await vm.route({ dst: "127.0.0.0/8", proto: "udp", dport: port }, BOTH);
+await phase("dst_port");                   // a prefix and a port: only the first port
+await vm.unroute({ dst: "127.0.0.0/8", proto: "udp", dport: port });
+
+await vm.route({ dst: "127.0.0.1" }, BOTH);
+await phase("dst");                        // a prefix beats a port route: both ports
+console.log(`ROUTES ${J(Object.keys(vm.routes).sort())}`);
+await vm.unroute({ dst: "127.0.0.1" });
+await phase("dst_gone");                   // back to the port route and the default
+
+/* A knob two programs declare with different defaults, and the host has not
+ * set: the one installed second does not change the value under the first. */
+const G_ROUTE = load(`pattern bravo = "BRAVO"; filter { if (knob("gate") ?? 1 == 0) decide pass;
+  if (scan(payload, 64) & bravo) decide drop("g_bravo"); decide pass; }`);
+const G_DEFAULT = load(`pattern alpha = "ALPHA"; filter { if (proto != 17) decide pass; if (knob("gate") ?? 0 == 0) decide pass;
+  if (scan(payload, 64) & alpha) decide drop("g_alpha"); decide pass; }`);
+await vm.route(route, G_ROUTE);
+await vm.apply(G_DEFAULT);
+await phase("knob_default");               // gate is still 1: both programs enforce
+
+/* Swaps in a row do not wait out the last one's grace. */
+{
+  const t = Date.now();
+  for (let i = 0; i < 4; i++) await vm.apply(G_DEFAULT);
+  console.log(`APPLY4_MS ${Date.now() - t}`);
+}
+
+let many = "";
+try { await vm.first(new Array(9).fill(FIRST)); } catch (e) { many = e.message; }
+console.log(`FIRST_MANY ${many.includes("at most")}`);
 
 let stateful = "";
 try { await vm.first(load(`reassemble 80; filter { decide pass; }`)); } catch (e) { stateful = e.message; }
@@ -76,7 +123,17 @@ console.log(`FIRST_REASM ${stateful.includes("reassemble")}`);
 
 let bad = "";
 try { await vm.route({ proto: "tcp", dport: 70000 }, BRAVO); } catch (e) { bad = e.message; }
-console.log(`BADROUTE ${bad.includes("dport")}`);
+let bare = "", half = "";
+try { await vm.route({ dport: 80 }, BRAVO); } catch (e) { bare = e.message; }
+try { await vm.route({ dst: "10.0.0.0/8", proto: "tcp" }, BRAVO); } catch (e) { half = e.message; }
+console.log(`BADROUTE ${bad.includes("dport")} ${bare.includes("needs its proto")} ${half.includes("both proto and dport")}`);
+
+/* A source ban outlives the program that made it, and holds with no program. */
+await vm.apply(load(`pattern alpha = "ALPHA"; filter { if (proto != 17) decide pass;
+  if (scan(payload, 64) & alpha) decide ban("banned", 12); decide pass; }`));
+await phase("ban");                        // ALPHA bans the sender: nothing more from it arrives, on any port
+await vm.clear();
+await phase("ban_cleared");                // no default program now, and the ban still stands
 
 await vm.stop();
 console.log("DONE");

@@ -40,10 +40,18 @@ const EXPECT = {
   default_swapped: { [PORT]: ["ALPHA"], [PORT2]: [] },
   unrouted: { [PORT]: ["ALPHA"], [PORT2]: ["ALPHA"] },
   first: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
+  chain: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
   first_gone: { [PORT]: ["BRAVO", "CHARLIE"], [PORT2]: ["ALPHA", "CHARLIE"] },
+  iface: { [PORT]: [], [PORT2]: ["ALPHA"] },
+  dst_port: { [PORT]: [], [PORT2]: ["ALPHA"] },
+  dst: { [PORT]: [], [PORT2]: [] },
+  dst_gone: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
+  knob_default: { [PORT]: ["BRAVO"], [PORT2]: ["ALPHA"] },
+  ban: { [PORT]: [], [PORT2]: [] },
+  ban_cleared: { [PORT]: [], [PORT2]: [] },
 };
 /* The phases that send a third word, for the first program to catch. */
-const WORDS = { first: ["ALPHA", "BRAVO", "CHARLIE"], first_gone: ["ALPHA", "BRAVO", "CHARLIE"] };
+const WORDS = { first: ["ALPHA", "BRAVO", "CHARLIE"], chain: ["ALPHA", "BRAVO", "CHARLIE", "DELTA"], first_gone: ["ALPHA", "BRAVO", "CHARLIE"] };
 const LABEL = {
   default_only: "apply(): one program, both ports — ALPHA dropped on each",
   routed: "route(udp/port2): that port runs its own program — BRAVO dropped there, ALPHA not",
@@ -52,7 +60,15 @@ const LABEL = {
   default_swapped: "apply() swaps the default under a standing route: only the other port changes",
   unrouted: "unroute(): port2 is the default's again",
   first: "first(): CHARLIE is dropped on both ports before either program sees it; the rest goes on as routed",
+  chain: "first([a, b]): a chain — CHARLIE dropped by the first stage, DELTA by the second, the rest goes on",
   first_gone: "first(null): CHARLIE passes again, the routed programs are as they were",
+  iface: "route({ iface, proto }): every UDP packet on the interface, but for the port a more specific route has",
+  dst_port: "route({ dst, proto, dport }): a destination prefix and a port — only that port",
+  dst: "route({ dst }): a destination prefix beats a port route — both ports",
+  dst_gone: "unroute({ dst }): back to the port route and the default",
+  knob_default: "a knob two programs default differently keeps the value the first one gave it",
+  ban: "a ban is the source's: after ALPHA nothing from it arrives, whichever program the port has",
+  ban_cleared: "clear(): no default program, and the standing ban still holds",
 };
 
 console.log("kernel routing — two programs, one VM, on loopback\n");
@@ -94,7 +110,16 @@ check("vm.routes lists the route by name", routed.includes(`"names":["${name}"]`
 check("onVerdict names the rule and the route it came from", routed.includes(`drop:no_bravo:${name}:${PORT2}`) && routed.includes(`drop:no_alpha:default:${PORT}`), routed.slice(routed.indexOf("EVENTS"), routed.indexOf("EVENTS") + 200));
 check("onConsole formats with the routed program's own format", routed.includes(`"bravo on ${PORT2}"`), routed.slice(routed.indexOf("SAID")));
 check("unroute() reports whether there was a route", line("UNROUTE") === "UNROUTE true AGAIN false", line("UNROUTE"));
-check("a route that cannot exist is refused", line("BADROUTE") === "BADROUTE true");
+check("a route that cannot exist is refused: a bad port, a port with no protocol, a prefix with half a port", line("BADROUTE") === "BADROUTE true true true", line("BADROUTE"));
+const chain = line("STATS_CHAIN");
+check("each stage of a chain counts its own drops, under its own name", chain.includes(`["first",{"-":0,"no_charlie":2}]`) && chain.includes(`["first.1",{"-":0,"no_delta":2}]`), chain);
+check("a chain longer than a packet can run is refused", line("FIRST_MANY") === "FIRST_MANY true");
+check("unroute() of an interface route", line("UNROUTE_IFACE") === "UNROUTE_IFACE true");
+check("vm.routes names a prefix route by its prefix", line("ROUTES") === `ROUTES ["127.0.0.1/32","udp/${PORT2}"]`, line("ROUTES"));
+/* Four applies of a small program, some 30 ms each. Before the grace was made
+ * lazy each also waited 50 ms for the one before it: over 200 ms in all. */
+const apply4 = Number(line("APPLY4_MS").split(" ")[1]);
+check("swaps in a row do not wait out each other's grace", apply4 > 0 && apply4 < 180, line("APPLY4_MS"));
 const first = line("STATS_FIRST");
 /* One CHARLIE to each port, both stopped by the first program; one ALPHA and
  * one BRAVO reached the program of the port they were sent to and were dropped

@@ -129,11 +129,16 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
         }
         dropped++; return XDP_DROP;
     default:
-        /* The first program let it through: on to the program it is dispatched
-         * to. If the call cannot be made the packet passes, as it would with no
-         * second program. */
-        if (chain)
+        /* A stage let it through: on to the stage after it, or from the last
+         * one to the program the packet is dispatched to. If the call cannot be
+         * made the packet passes, as it would with nothing after. */
+        if (chain) {
+            if (prog->next_on) {
+                st->stage_slot = prog->next_slot;
+                bpf_tail_call(ctx, &decode_jmp, SLOT_STAGE);
+            }
             bpf_tail_call(ctx, &decode_jmp, SLOT_DISPATCH);
+        }
         passed++;
         /* Forwarding the packet: if the program recorded redact/replace requests,
          * hand off to the rewrite stage (its own verifier budget) to apply them

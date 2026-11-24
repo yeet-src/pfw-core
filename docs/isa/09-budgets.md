@@ -32,7 +32,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | h2 dynamic table (`H2_DYN_SLOTS` × `H2_ENT_CAP`) | 64 × 256 B | per h2 connection, newest entries |
 | h2 connections (`H2_CONNS`) | 1024 | LRU |
 | flows (`MAX_FLOWS`) | 16384 | LRU |
-| program slots (`PROGS`) | 16 | programs installed at once: the default, the routes, and the one being swapped in |
+| program slots (`PROGS`) | 64 | programs installed at once: the default, the routes, and the one being swapped in |
 | pool factor (`GENS`) | 2 | each pool (instructions, automaton and regex states, table cells, rules) is this many times one program's ceiling |
 
 ---

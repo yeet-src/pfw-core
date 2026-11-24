@@ -21,11 +21,15 @@
 /* ---- control and counters, read and patched from the host ---------------- */
 
 PFW_LINK volatile __u32 default_slot;    /* the program slot of a packet `dispatch` has no entry for */
-/* A program every packet runs first, before the one it is dispatched to: a
- * blocklist ahead of each tenant's own rules. It decides, or passes the packet
- * on. It keeps no per-connection state, since a flow holds one program's. */
-PFW_LINK volatile __u32 first_on;        /* 1 = there is one */
-PFW_LINK volatile __u32 first_slot;      /* its slot */
+/* Stage programs: a chain every packet runs first, before the program it is
+ * dispatched to — a blocklist ahead of each tenant's own rules. Each decides,
+ * or passes the packet to the next, and the last to dispatch. A stage keeps no
+ * per-connection state, since a flow holds one program's. */
+PFW_LINK volatile __u32 first_on;        /* 1 = there is a chain */
+PFW_LINK volatile __u32 first_slot;      /* the slot of its first stage */
+/* Which shapes of route the host has installed, a bit each (RS_*): the entry
+ * looks up only those, so a VM with port routes alone pays for one lookup. */
+PFW_LINK volatile __u32 route_shapes;
 PFW_LINK volatile __u32 shadow;          /* 1 = shadow mode: enforcement verdicts are logged/counted but the packet passes */
 PFW_LINK volatile __u64 nat_reversed; /* reply packets whose source `dnat`'s reverse path restored */
 PFW_LINK volatile __u64 src_enforced; /* packets dropped by a standing source ban */
@@ -79,13 +83,30 @@ PFW_LINK volatile __u64 flows_created;  /* flow-table entries opened (connection
 
 /* ---- maps ---------------------------------------------------------------- */
 
-/* Which program a packet runs: by protocol and destination port, else
- * `default_slot`. The host installs a program in a free slot and then points
- * the route at it, so a route never names a half-written program. */
+/* Which program a packet runs. A route names some of: the interface it arrived
+ * on, its protocol, its destination port, a prefix its destination address is
+ * in. The most specific route that matches wins, in this order:
+ *
+ *   destination prefix + protocol + port     (the longest prefix first)
+ *   destination prefix
+ *   interface + protocol + port
+ *   protocol + port
+ *   interface + protocol
+ *   protocol
+ *   interface
+ *
+ * and a packet no route claims runs `default_slot`. The host installs a program
+ * in a free slot and then points the route at it, so a route never names a
+ * half-written program.
+ *
+ * `dispatch` holds the routes with no prefix. `shape` says which fields the
+ * route names (bit 0 interface, bit 1 protocol, bit 2 port) and the others are
+ * zero, so "any port" and "port 0" are different keys. */
 struct route_key {
+    __u32 ifindex;
     __u16 dport;
     __u8 proto;
-    __u8 _pad;
+    __u8 shape;
 };
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_HASH);
@@ -93,6 +114,28 @@ PFW_LINK struct {
     __type(key, struct route_key);
     __type(value, __u32);
 } dispatch SEC(".maps");
+
+/* The routes with a destination prefix: a longest-prefix match on the address,
+ * behind 32 bits that must match whole — the family, and either the protocol
+ * and port or zeros for a route that names neither. */
+struct dst_key {
+    __u32 prefixlen;        /* 32 + the address prefix's length */
+    /* The family, the protocol, the port high byte first, then the address.
+     * One byte array, which is the shape of trie key the host can write. */
+    __u8 data[20];
+};
+PFW_LINK struct {
+    __uint(type, BPF_MAP_TYPE_LPM_TRIE);
+    __uint(max_entries, 1024);
+    __type(key, struct dst_key);
+    __type(value, __u32);
+    __uint(map_flags, BPF_F_NO_PREALLOC);
+} dispatch_dst SEC(".maps");
+
+/* route_shapes bits: 1 << shape for the `dispatch` shapes, then the two of
+ * `dispatch_dst`. */
+#define RS_DST_PORT (1u << 8)
+#define RS_DST      (1u << 9)
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_ARRAY);
@@ -246,6 +289,10 @@ struct pfw_state {
      * it tail-calls: its slot in `programs`, and its stamp for the events. */
     __u32 slot;
     __u32 prog_stamp;
+    __u32 stage_slot;       /* the stage a passing stage hands the packet to (pfw_stage reads it) */
+    /* The dispatch keys, built here and not on the entry's stack, which is full. */
+    struct route_key x_rk;
+    struct dst_key x_dk;
     __u32 pc;
     __u32 flags;
     __u32 verdict;
@@ -457,10 +504,11 @@ PFW_LINK const struct flow zero_flow;
 #define SLOT_TRANSFORM 4
 #define SLOT_REWRITE   5
 #define SLOT_HPACK     6
-#define SLOT_DISPATCH  7 /* pfw_dispatch: where the first program hands a packet on */
+#define SLOT_DISPATCH  7 /* pfw_dispatch: where the last stage hands a packet on */
+#define SLOT_STAGE     8 /* pfw_stage: where a stage hands a packet to the stage after it */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 8);
+    __uint(max_entries, 9);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");
