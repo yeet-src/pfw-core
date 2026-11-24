@@ -171,6 +171,17 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
             }
             bpf_tail_call(ctx, &decode_jmp, SLOT_DISPATCH);
         }
+        /* The window held one piece of a segment larger than it, and nothing in
+         * the piece was stopped: on to the next. If the call cannot be made —
+         * a decode spends several a piece, and the kernel allows 33 — the rest
+         * would go by unread, so the connection is reset instead. */
+        if (st->seg_more) {
+            bpf_tail_call(ctx, &decode_jmp, SLOT_CONTINUE);
+            reasm_over++;
+            if (f) { f->mark = MARK_RST; f->rule = RULE_NONE; f->expires = 0; }
+            dropped++;
+            return XDP_DROP;
+        }
         passed++;
         /* Forwarding the packet: if the program recorded redact/replace requests,
          * hand off to the rewrite stage (its own verifier budget) to apply them

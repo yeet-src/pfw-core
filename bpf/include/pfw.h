@@ -94,6 +94,11 @@
 #define H2_ENT_CAP    256  /* bytes kept per dynamic-table entry (name + value, truncated past it) */
 #define H2_CONNS      1024 /* h2 connections with a live dynamic table (the `h2conns` map, LRU) */
 #define H2_RST_LINES  8    /* max ":frame: rst_stream" marker lines emitted per packet */
+/* The most of one segment the window takes at a time. A segment larger than
+ * this (loopback and jumbo frames carry up to 64 kB) is fed and inspected a
+ * piece at a time, each piece leaving room for the REASM_KEEP bytes kept from
+ * before it, so no part of it goes by unread. */
+#define REASM_CHUNK   (REASM_CAP - REASM_KEEP)
 #define REASM_KEEP    PFW_PAT_CAP /* bytes of the old window kept when the reassembly window slides,
                                    * so a pattern that straddles the edge is still seen whole */
 /* flow.h2_mode: what a `decode h2` connection turned out to carry. */

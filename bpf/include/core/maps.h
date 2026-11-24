@@ -336,6 +336,11 @@ struct pfw_state {
     __u32 slot;
     __u32 prog_stamp;
     __u32 stage_slot;       /* the stage a passing stage hands the packet to (pfw_stage reads it) */
+    /* A segment too large for the window in one piece: whether more of it is
+     * still to be fed after this run, and how much has been (pfw_continue). */
+    __u32 seg_more;
+    __u32 seg_off;
+    struct flow_key x_fk;   /* the entry's flow key */
     struct stage_key x_sk;  /* the key of a stage's per-connection state, built here for the same reason */
     /* The dispatch keys, built here and not on the entry's stack, which is full. */
     struct route_key x_rk;
@@ -554,9 +559,10 @@ PFW_LINK const struct flow_prog zero_fprog;
 #define SLOT_HPACK     6
 #define SLOT_DISPATCH  7 /* pfw_dispatch: where the last stage hands a packet on */
 #define SLOT_STAGE     8 /* pfw_stage: where a stage hands a packet to the stage after it */
+#define SLOT_CONTINUE  9 /* pfw_continue: the same program again, over the next piece of a segment larger than the window */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 9);
+    __uint(max_entries, 10);
     __type(key, __u32);
     __type(value, __u32);
 } decode_jmp SEC(".maps");

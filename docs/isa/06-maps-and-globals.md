@@ -34,7 +34,7 @@
 | `console_ring` | RINGBUF (256 KiB) | — | `console()` messages (`pfw_console`) |
 | `samples` | RINGBUF (8 MiB) | — | `sample()` copies of frames (`pfw_sample`: ts, ifindex, tag, wire_len, cap_len, data[4096]) |
 | `emits` | RINGBUF (256 KiB) | — | `emit()` events (`pfw_emit`: ts, ifindex, id, n, vals[8]) |
-| `decode_jmp` | PROG_ARRAY (9) | u32 → prog | tail-call targets (§8) |
+| `decode_jmp` | PROG_ARRAY (10) | u32 → prog | tail-call targets (§8) |
 
 ### Globals (in `vm.bss`, host-readable/patchable)
 

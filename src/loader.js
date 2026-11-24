@@ -34,7 +34,7 @@ import { transformCells } from "#/transform.js";
 
 /* The tail-call stages, by their slot in the `decode_jmp` program array. Every
  * one must be in place before the entry is attached. */
-const STAGES = ["pfw_decode", "pfw_match", "pfw_resolve", "pfw_huff", "pfw_transform", "pfw_rewrite", "pfw_hpack", "pfw_dispatch", "pfw_stage"];
+const STAGES = ["pfw_decode", "pfw_match", "pfw_resolve", "pfw_huff", "pfw_transform", "pfw_rewrite", "pfw_hpack", "pfw_dispatch", "pfw_stage", "pfw_continue"];
 
 /* Maps the loader reads or writes, and the kind yeetd binds each as. */
 const MAPS = {

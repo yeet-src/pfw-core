@@ -96,6 +96,20 @@ try {
 
     r = await stream("T6__", [fill(5000), fill(300), "x" + SIG + "y", "tail"]);
     check("...and the stream is still followed after it", r.reset && !r.received.includes("tail"), `reset=${r.reset} received=${r.received.length}`);
+
+    /* One write, one segment on loopback, many windows long. All of it is
+     * read, a window at a time, wherever in it a signature lies. */
+    r = await stream("T8__", [fill(3000) + SIG + fill(100), "tail"]);
+    check("a signature 3 kB into one segment is caught", r.reset && !r.received.includes(SIG), `reset=${r.reset} received=${r.received.length}`);
+    r = await stream("T9__", [fill(20000) + SIG + fill(100), "tail"]);
+    check("a signature 20 kB into one segment is caught", r.reset && !r.received.includes(SIG), `reset=${r.reset} received=${r.received.length}`);
+    r = await stream("T10_", [fill(60000) + SIG, "tail"]);
+    check("a signature at the very end of a 60 kB segment is caught", r.reset && !r.received.includes(SIG), `reset=${r.reset} received=${r.received.length}`);
+    /* Cut exactly where one piece ends and the next begins. */
+    r = await stream("T11_", [fill(3840 - 4 - 5) + SIG + fill(100), "tail"]);
+    check("a signature across the join between two pieces is caught", r.reset && !r.received.includes(SIG), `reset=${r.reset} received=${r.received.length}`);
+    r = await stream("T12_", [fill(60000), "tail"]);
+    check("a clean 60 kB segment is delivered whole, and the connection lives", !r.reset && r.received.length === 4 + 60000 + 4, `reset=${r.reset} received=${r.received.length}`);
   });
 
   /* `drop` on a stream. TCP retransmits the dropped segment; meanwhile later
