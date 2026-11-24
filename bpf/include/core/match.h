@@ -57,7 +57,7 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     if (slot) (*slot)++;
     /* And to the rule the packet ended on. `bi` is reused as the key: this
      * frame has no room for another local. */
-    bi = st->time_rule & (PFW_NRULES - 1);
+    bi = st->time_rule & (RULE_POOL - 1);
     struct rule_time *rt = bpf_map_lookup_elem(&rule_time, &bi);
     if (rt) { rt->ns += dt; rt->runs++; }
 

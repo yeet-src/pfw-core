@@ -10,6 +10,7 @@
  *   vm.onVerdict((e) => console.log(e.verdict, e.rule, e.src));
  *   await vm.setKnob("enforce", 0);         // live, no reload
  *   await vm.apply(load(nextSource));       // atomic swap to a new program
+ *   await vm.route({ proto: "tcp", dport: 8443 }, load(apiSource));   // its own program for one port
  *   console.log(await vm.stats());
  *   await vm.stop();                        // detached; the hook is free again
  *
@@ -24,7 +25,8 @@
 import { ArrayMap, BloomFilter, BpfObject, DataSec, HashMap, LpmTrie, PercpuArrayMap, RingBuf } from "yeet:bpf";
 import { build } from "#/ac.js";
 import { compile } from "#/clang";
-import { DECIDE_BOUNDS, LIMITS, VERDICT } from "#/isa.js";
+import { DECIDE_BOUNDS, LIMITS, OP, VERDICT } from "#/isa.js";
+import { Pool } from "#/pool.js";
 import { formatMsg } from "#/program";
 import { transformCells } from "#/transform.js";
 
@@ -68,6 +70,24 @@ const cidr6Key = (cidr) => {
   for (const g of groups) { const n = parseInt(g || "0", 16) & 0xffff; data.push((n >> 8) & 0xff, n & 0xff); }
   return { prefixlen: Number(p), data };
 };
+
+/* A route: the packets a program is for, as the host says it and as `dispatch`
+ * keys it (struct route_key). */
+const PROTO = { tcp: 6, udp: 17 };
+function routeKey(match) {
+  const proto = typeof match?.proto === "string" ? PROTO[match.proto.toLowerCase()] : Number(match?.proto);
+  const dport = Number(match?.dport);
+  if (!Number.isInteger(proto) || proto < 0 || proto > 255) throw new TypeError(`route: proto is "tcp", "udp" or a protocol number, not ${match?.proto}`);
+  if (!Number.isInteger(dport) || dport < 0 || dport > 65535) throw new TypeError(`route: dport is 0–65535, not ${match?.dport}`);
+  const name = `${Object.keys(PROTO).find((k) => PROTO[k] === proto) ?? proto}/${dport}`;
+  return { name, key: { dport, proto, _pad: 0 } };
+}
+
+/* How long a replaced program is left whole before its tables are zeroed and
+ * its ranges reused: a packet that picked it up just before the flip is still
+ * running it on some CPU. A run is microseconds; this is a wide margin. */
+const GRACE_MS = 50;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /* Anything apply() accepts → the compile result shape. */
 function compiled(program) {
@@ -125,20 +145,38 @@ export class PfwVm {
     this._emitCbs = new Set();
     this._sampleCbs = new Set();
     this._tableValues = {};          // name -> BigInt[]: what the host has put in each table
-    this._tableWritten = [[], []];   // per generation: the cells holding something
-    this._active = 0;          // the generation packets run
-    this._stamp = 0;           // pfw_prog.gen: unique per apply, so flows restart their automaton
-    this._written = [{ ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }, { ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] }];
-    this._current = null;      // the compile result now running
+    this._stamp = 0;           // pfw_prog.gen: unique per install, so flows restart their automaton
+    this._reset();
+    this._knobValues = {};     // host-set numeric knobs by name: survive a re-apply
     this._knobValues = {};     // host-set numeric knobs by name: survive a re-apply
     this._knobStrValues = {};  // host-set string knobs by name
+  }
+
+  /* The kernel is empty: no program installed, every pool whole. */
+  _reset() {
+    const { PROGS, GENS, MAX_OPS, AC_STATES, RE_STATES, TABLE_CELLS, NRULES } = LIMITS;
+    this._slots = new Pool(PROGS, "program slots");
+    this._pools = {
+      ops: new Pool(GENS * MAX_OPS, "instructions"), ac: new Pool(GENS * AC_STATES, "automaton states"),
+      re: new Pool(GENS * RE_STATES, "regex DFA states"), tbl: new Pool(GENS * TABLE_CELLS, "table cells"),
+      rule: new Pool(GENS * NRULES, "rules"),
+    };
+    this._default = null;        // the installed program packets run when no route claims them
+    this._routes = new Map();    // route name -> { key, rec }
+    this._limbo = [];            // replaced programs, still whole until their grace is up
+    this._byStamp = new Map();   // pfw_prog.gen -> the installed program, for its events
+    this._knobSlots = new Map();     // knob name -> its slot in `knobs`, shared by every program
+    this._knobStrSlots = new Map();  // string knob name -> its slot in `knob_strs`
   }
 
   /** True between a successful start() and stop(). */
   get running() { return this._control !== null; }
 
-  /** The compile result of the program now enforcing (null before the first apply). */
-  get program() { return this._current; }
+  /** The compile result of the default program (null before the first apply). */
+  get program() { return this._default?.c ?? null; }
+
+  /** The routes now installed, by name ("tcp/8443"): each one's compile result. */
+  get routes() { return Object.fromEntries([...this._routes].map(([name, { rec }]) => [name, rec.c])); }
 
   /** Load the interpreter into the kernel and attach it. Until apply(), every
    *  packet passes. Throws if already running, or if the interface's XDP hook is
@@ -152,13 +190,8 @@ export class PfwVm {
     const control = await obj.start();
     try {
       this._control = control;
-      this._active = 0;
-      this._current = null;
-      for (const g of this._written) for (const k of Object.keys(g)) g[k] = [];
-      this._tableWritten = [[], []];
-      /* An empty program in both generations: the entry passes when nops == 0. */
-      await this._map("programs").update(0, progValue(EMPTY, 0, []));
-      await this._map("programs").update(1, progValue(EMPTY, 0, []));
+      this._reset();
+      /* No program yet: every slot is zero, and the entry passes when nops == 0. */
       await new DataSec(control, "vm.bss").patch({ default_slot: 0, shadow: 0 });
       for (const part of chunks([...transformCells()], BATCH)) await this._map("tt_cells").updateBatch(part);
       this._subs.push(await new RingBuf(control, "events").subscribe((w) => this._onEvent(w?.pfw_event ?? w)));
@@ -178,7 +211,7 @@ export class PfwVm {
     const control = this._control;
     if (!control) return;
     this._control = null;
-    this._current = null;
+    this._reset();
     for (const s of this._subs.splice(0)) { try { await s?.unsubscribe?.(); } catch { /* already gone */ } }
     await control.stop();
   }
@@ -186,10 +219,11 @@ export class PfwVm {
   [Symbol.asyncDispose]() { return this.stop(); }
 
   /**
-   * Put a program into effect. It is written into the idle generation — bytecode,
-   * automaton and regex tables — and only then does one write flip `active_gen`, so
-   * no packet ever runs a half-written program. Connection state (flows, bans,
-   * per-source counters) is kept across the swap.
+   * Put a program into effect as the default: the one every packet runs that no
+   * route claims. It is installed beside the one it replaces — bytecode,
+   * automaton and regex tables — and only then does one write point the kernel
+   * at it, so no packet ever runs a half-written program. Connection state
+   * (flows, bans, per-source counters) is kept across the swap.
    *
    * @param {Program|object|string} program  a Program, a compile() result, or pfw-C source
    * @param {object} [opts]
@@ -201,94 +235,190 @@ export class PfwVm {
    */
   async apply(program, opts = {}) {
     const control = this._need("apply");
-    const c = compiled(program);
-    const g = this._active ^ 1;
-    const tables = c.tables?.() ?? build(c.patterns ?? [], c.nocase);
-    const acBase = g * LIMITS.AC_STATES, reBase = g * LIMITS.RE_STATES;
-
-    const want = { ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] };
-    for (const [k, next] of tables.edges) want.ac_goto.push([acBase * 256 + k, next & 0xffff]);
-    for (const [s, f] of tables.fails) want.ac_fail.push([acBase + s, f & 0xffff]);
-    for (const [s, m] of tables.accepts) want.ac_accept.push([acBase + s, BigInt(m)]);
-    if (c.regex) {
-      for (let s = 0; s < c.regex.nstates; s++) {
-        const row = c.regex.trans[s];
-        for (let b = 0; b < 256; b++) if (row[b]) want.re_goto.push([reBase * 256 + s * 256 + b, row[b] & 0xffff]);
-        if (c.regex.accept[s]) want.re_accept.push([reBase + s, BigInt(c.regex.accept[s])]);
-      }
-    }
-    /* The tables are sparse, so cells the generation's previous program set and
-     * this one does not must be zeroed, or its automaton would leak through. */
-    for (const name of Object.keys(want)) {
-      const keep = new Set(want[name].map(([k]) => k));
-      const zero = name.endsWith("accept") ? 0n : 0;
-      const stale = this._written[g][name].filter((k) => !keep.has(k)).map((k) => [k, zero]);
-      for (const part of chunks(stale.concat(want[name]), BATCH)) await this._map(name).updateBatch(part);
-      this._written[g][name] = [...keep];
-    }
-    /* Lookup tables: laid out by this program, so written into the idle half of
-     * the cell space with everything else and brought in by the flip. What the
-     * host has set carries over by NAME; cells nobody set are 0. Cells the
-     * generation's last program used and this one does not are zeroed, so a
-     * table that shrank or moved leaves nothing behind. */
-    for (const [name, values] of Object.entries(opts.tables ?? {})) this._tableValues[name] = Array.from(values, (v) => BigInt(v));
-    {
-      const base = g * LIMITS.TABLE_CELLS, cells = new Map();
-      for (const t of c.lookupTables ?? []) {
-        const have = this._tableValues[t.name] ?? [];
-        for (let i = 0; i < t.size; i++) { const v = have[i] ?? 0n; if (v !== 0n) cells.set(base + t.base + i, v); }
-      }
-      const stale = (this._tableWritten[g] ?? []).filter((k) => !cells.has(k)).map((k) => [k, 0n]);
-      for (const part of chunks(stale.concat([...cells]), BATCH)) await this._map("tables").updateBatch(part);
-      this._tableWritten[g] = [...cells.keys()];
-    }
-    /* The instructions, then the header that says how many of them there are.
-     * What an earlier program left past `nops` is never reached. */
-    const opBase = g * LIMITS.MAX_OPS;
-    const opPairs = c.program.ops.slice(0, LIMITS.MAX_OPS).map((o, pc) => [opBase + pc, { code: o.code >>> 0, reg: o.reg >>> 0, imm: BigInt(o.imm) }]);
-    for (const part of chunks(opPairs, BATCH)) await this._map("ops").updateBatch(part);
-    await this._map("programs").update(g, progValue(c, ++this._stamp, opts.argv ?? [], { ops: opBase, ac: acBase, re: reBase, tbl: g * LIMITS.TABLE_CELLS }));
-
-    /* Knobs are one map shared by both generations and slots are assigned per
-     * program, so they are written last, immediately before the flip. Values the
-     * host set earlier carry over by NAME; a new program's defaults fill the rest. */
-    Object.assign(this._knobValues, opts.knobs ?? {});
-    Object.assign(this._knobStrValues, opts.knobStrs ?? {});
-    const knobPairs = (c.knobs ?? []).map((name, slot) => [slot, BigInt(this._knobValues[name] ?? c.knobDefaults?.[slot] ?? 0)]);
-    if (knobPairs.length) await this._map("knobs").updateBatch(knobPairs);
-    for (const [slot, name] of (c.knobStrs ?? []).entries()) await this._map("knob_strs").update(slot, strBytes(this._knobStrValues[name] ?? "", LIMITS.KNOBSTR_CAP));
-
-    const patch = { default_slot: g };
+    const rec = await this._install(program, opts, "default");
+    const patch = { default_slot: rec.slot.base };
     if (opts.shadow !== undefined) patch.shadow = opts.shadow ? 1 : 0;
     await new DataSec(control, "vm.bss").patch(patch);
-    this._active = g;
-    this._current = c;
-    /* A rule counter belongs to a slot, not a name, and both generations share
-     * the slots: slot 2 was the last program's second rule and is now this
-     * one's. What each slot held at the flip is what the new rules start from. */
-    this._ruleBase = new Map();
-    this._timeBase = new Map();
-    for (const r of c.rules ?? []) {
-      this._ruleBase.set(r.id, await this._ruleCount(r.id));
-      this._timeBase.set(r.id, await this._ruleTime(r.id));
-    }
-    this._appliedAt = Date.now();
+    this._retire(this._default);
+    this._default = rec;
     return this;
   }
 
-  /** Stop enforcing without detaching: swap in an empty program (everything
-   *  passes; standing bans still apply). */
+  /**
+   * Give the packets of one protocol and destination port a program of their
+   * own, in place of the default: `route({ proto: "tcp", dport: 8443 }, program)`.
+   * It has its own patterns, rules, instruction budget, `reassemble` and
+   * `decode`; knobs and tables are shared with every other program by name, and
+   * so are the sets and the `lookup` map. Routing the same packets again swaps
+   * the program as apply() does. Takes the options apply() takes, but for
+   * `shadow`, which is the whole VM's.
+   */
+  async route(match, program, opts = {}) {
+    const control = this._need("route");
+    const { name, key } = routeKey(match);
+    const rec = await this._install(program, opts, name);
+    await new HashMap(control, "dispatch").update(key, rec.slot.base);
+    this._retire(this._routes.get(name)?.rec);
+    this._routes.set(name, { key, rec });
+    return this;
+  }
+
+  /** Take a route away: its packets run the default program again. Returns
+   *  false if there was no such route. */
+  async unroute(match) {
+    const control = this._need("unroute");
+    const { name, key } = routeKey(match);
+    const route = this._routes.get(name);
+    if (!route) return false;
+    await new HashMap(control, "dispatch").delete(key);
+    this._routes.delete(name);
+    this._retire(route.rec);
+    return true;
+  }
+
+  /* Write a program into a free slot and a free range of each pool. Nothing
+   * runs it until the caller points the default, or a route, at its slot. */
+  async _install(program, opts, name) {
+    const c = compiled(program);
+    await this._reap();
+    const tables = c.tables?.() ?? build(c.patterns ?? [], c.nocase);
+    const ops = c.program.ops.slice(0, LIMITS.MAX_OPS);
+    const nrules = (c.rules ?? []).reduce((n, r) => Math.max(n, r.id + 1), 1);
+    const ncells = (c.lookupTables ?? []).reduce((n, t) => Math.max(n, t.base + t.size), 0);
+
+    const rec = { name, c, stamp: ++this._stamp, slot: null, ranges: {}, written: {}, ruleBase: new Map(), timeBase: new Map(), appliedAt: Date.now(), retiredAt: null };
+    try {
+      rec.slot = this._slots.take(1);
+      const P = this._pools, R = rec.ranges;
+      R.ops = P.ops.take(ops.length); R.ac = P.ac.take(tables.count ?? 0); R.re = P.re.take(c.regex?.nstates ?? 0);
+      R.tbl = P.tbl.take(ncells); R.rule = P.rule.take(nrules);
+
+      /* The automata. They are sparse — a cell nobody writes is "no edge" — which
+       * is why a program's cells are zeroed when it goes (_release), and a range
+       * is always clean when it is taken. */
+      const want = { ac_goto: [], ac_fail: [], ac_accept: [], re_goto: [], re_accept: [] };
+      for (const [k, next] of tables.edges) want.ac_goto.push([R.ac.base * 256 + k, next & 0xffff]);
+      for (const [s, f] of tables.fails) want.ac_fail.push([R.ac.base + s, f & 0xffff]);
+      for (const [s, m] of tables.accepts) want.ac_accept.push([R.ac.base + s, BigInt(m)]);
+      if (c.regex) {
+        for (let s = 0; s < c.regex.nstates; s++) {
+          const row = c.regex.trans[s];
+          for (let b = 0; b < 256; b++) if (row[b]) want.re_goto.push([(R.re.base + s) * 256 + b, row[b] & 0xffff]);
+          if (c.regex.accept[s]) want.re_accept.push([R.re.base + s, BigInt(c.regex.accept[s])]);
+        }
+      }
+      for (const [map, pairs] of Object.entries(want)) {
+        rec.written[map] = pairs.map(([k]) => k);
+        for (const part of chunks(pairs, BATCH)) await this._map(map).updateBatch(part);
+      }
+
+      /* Lookup tables: what the host has set carries over by NAME; cells nobody
+       * set are 0, which is what a clean range already holds. */
+      for (const [tname, values] of Object.entries(opts.tables ?? {})) this._tableValues[tname] = Array.from(values, (v) => BigInt(v));
+      const cells = [];
+      for (const t of c.lookupTables ?? []) {
+        const have = this._tableValues[t.name] ?? [];
+        for (let i = 0; i < t.size; i++) { const v = have[i] ?? 0n; if (v !== 0n) cells.push([R.tbl.base + t.base + i, v]); }
+      }
+      rec.written.tables = cells.map(([k]) => k);
+      for (const part of chunks(cells, BATCH)) await this._map("tables").updateBatch(part);
+
+      /* Knobs are one map every program shares, a name owning a slot for good:
+       * the instructions carry the program's own numbering, and are pointed at
+       * the shared slots here. Values the host set carry over by NAME; a new
+       * program's defaults fill the rest. */
+      Object.assign(this._knobValues, opts.knobs ?? {});
+      Object.assign(this._knobStrValues, opts.knobStrs ?? {});
+      const knobAt = (c.knobs ?? []).map((kname) => this._slotOf(this._knobSlots, kname, LIMITS.KNOBS, "knobs"));
+      const kstrAt = (c.knobStrs ?? []).map((kname) => this._slotOf(this._knobStrSlots, kname, LIMITS.KNOBSTRS, "string knobs"));
+      const knobPairs = (c.knobs ?? []).map((kname, i) => [knobAt[i], BigInt(this._knobValues[kname] ?? c.knobDefaults?.[i] ?? 0)]);
+      if (knobPairs.length) await this._map("knobs").updateBatch(knobPairs);
+      for (const [i, kname] of (c.knobStrs ?? []).entries()) await this._map("knob_strs").update(kstrAt[i], strBytes(this._knobStrValues[kname] ?? "", LIMITS.KNOBSTR_CAP));
+
+      /* The instructions, then the header that says how many there are and
+       * where everything is. */
+      const opPairs = ops.map((o, pc) => {
+        const imm = o.code === OP.KNOB ? BigInt(knobAt[Number(o.imm)] ?? 0) : o.code === OP.KNOBHAS ? BigInt(kstrAt[Number(o.imm)] ?? 0) : BigInt(o.imm);
+        return [R.ops.base + pc, { code: o.code >>> 0, reg: o.reg >>> 0, imm }];
+      });
+      for (const part of chunks(opPairs, BATCH)) await this._map("ops").updateBatch(part);
+      const at = { ops: R.ops.base, ac: R.ac.base, re: R.re.base, tbl: R.tbl.base, rule: R.rule.base };
+      await this._map("programs").update(rec.slot.base, progValue(c, rec.stamp, opts.argv ?? [], at));
+
+      /* A rule counter belongs to its slot in the pool, and the slot had an
+       * owner before: what each held now is what this program's rules start from. */
+      for (const r of c.rules ?? []) {
+        rec.ruleBase.set(r.id, await this._ruleCount(R.rule.base + r.id));
+        rec.timeBase.set(r.id, await this._ruleTime(R.rule.base + r.id));
+      }
+    } catch (e) {
+      await this._release(rec).catch(() => {});
+      throw e;
+    }
+    this._byStamp.set(rec.stamp, rec);
+    this._byStamp.delete(rec.stamp - 64);   // events of a program that long gone have been read
+    return rec;
+  }
+
+  /* A knob's slot in the map every program shares: the one its name already
+   * has, or the next free one. */
+  _slotOf(slots, name, cap, what) {
+    if (!slots.has(name)) {
+      if (slots.size >= cap) throw new Error(`more than ${cap} ${what} across the installed programs`);
+      slots.set(name, slots.size);
+    }
+    return slots.get(name);
+  }
+
+  /* Nothing points at this program any more. It stays whole for GRACE_MS. */
+  _retire(rec) {
+    if (!rec) return;
+    rec.retiredAt = Date.now();
+    this._limbo.push(rec);
+  }
+
+  /* Free every replaced program, waiting out what is left of its grace. */
+  async _reap() {
+    while (this._limbo.length) {
+      const rec = this._limbo[0];
+      const left = rec.retiredAt + GRACE_MS - Date.now();
+      if (left > 0) await sleep(left);
+      this._limbo.shift();
+      await this._release(rec);
+    }
+  }
+
+  /* Empty a program's slot, zero the sparse cells it wrote, and give its
+   * ranges back. */
+  async _release(rec) {
+    if (rec.slot) await this._map("programs").update(rec.slot.base, progValue(EMPTY, 0, []));
+    for (const [map, keys] of Object.entries(rec.written)) {
+      const zero = map === "ac_accept" || map === "re_accept" || map === "tables" ? 0n : 0;
+      for (const part of chunks(keys.map((k) => [k, zero]), BATCH)) await this._map(map).updateBatch(part);
+    }
+    rec.written = {};
+    for (const [pool, range] of Object.entries(rec.ranges)) this._pools[pool].give(range);
+    rec.ranges = {};
+    if (rec.slot) this._slots.give(rec.slot);
+    rec.slot = null;
+  }
+
+  /* Every program something points at: the default, then the routes. */
+  _live() { return [this._default, ...[...this._routes.values()].map((r) => r.rec)].filter(Boolean); }
+
+  /** Stop enforcing by default without detaching: swap in an empty default
+   *  program (packets no route claims pass; standing bans still apply). */
   async clear() {
     this._need("clear");
     return this.apply(EMPTY);
   }
 
-  /** Set a numeric knob of the running program by name. */
+  /** Set a numeric knob by name, in every program that declares it. */
   async setKnob(name, value) {
     this._need("setKnob");
     this._knobValues[name] = value;
-    const slot = (this._current?.knobs ?? []).indexOf(name);
-    if (slot < 0) return false;                       // remembered; applied when a program declares it
+    const slot = this._knobSlots.get(name);
+    if (slot === undefined) return false;             // remembered; applied when a program declares it
     await this._map("knobs").update(slot, BigInt(value));
     return true;
   }
@@ -301,31 +431,33 @@ export class PfwVm {
    * packet may run between two of them: a table whose every cell is valid on
    * its own (a backend in each slot) can be rewritten under traffic; one whose
    * cells must agree with each other wants an apply().
-   * Returns false if the running program declares no such table.
+   * Every installed program that declares the table gets them. Returns false if
+   * none does.
    */
   async setTable(name, values, offset = 0) {
     this._need("setTable");
     const kept = (this._tableValues[name] ??= []);
     const list = Array.from(values, (v) => BigInt(v));
     list.forEach((v, i) => { kept[offset + i] = v; });
-    const t = (this._current?.lookupTables ?? []).find((x) => x.name === name);
-    if (!t) return false;                              // remembered; applied when a program declares it
-    const base = this._active * LIMITS.TABLE_CELLS + t.base;
-    const pairs = [];
-    list.forEach((v, i) => { if (offset + i < t.size) pairs.push([base + offset + i, v]); });
-    for (const part of chunks(pairs, BATCH)) await this._map("tables").updateBatch(part);
-    const written = new Set(this._tableWritten[this._active] ?? []);
-    for (const [k] of pairs) written.add(k);
-    this._tableWritten[this._active] = [...written];
-    return true;
+    let any = false;
+    for (const rec of this._live()) {
+      const t = (rec.c.lookupTables ?? []).find((x) => x.name === name);
+      if (!t) continue;
+      const base = rec.ranges.tbl.base + t.base, pairs = [];
+      list.forEach((v, i) => { if (offset + i < t.size) pairs.push([base + offset + i, v]); });
+      for (const part of chunks(pairs, BATCH)) await this._map("tables").updateBatch(part);
+      rec.written.tables = [...new Set([...(rec.written.tables ?? []), ...pairs.map(([k]) => k)])];
+      any = true;
+    }
+    return any;                                        // false: remembered; applied when a program declares it
   }
 
   /** Set a string knob (the needle `kstr("name")` searches for) by name. */
   async setKnobStr(name, value) {
     this._need("setKnobStr");
     this._knobStrValues[name] = value;
-    const slot = (this._current?.knobStrs ?? []).indexOf(name);
-    if (slot < 0) return false;
+    const slot = this._knobStrSlots.get(name);
+    if (slot === undefined) return false;
     await this._map("knob_strs").update(slot, strBytes(value, LIMITS.KNOBSTR_CAP));
     return true;
   }
@@ -379,8 +511,8 @@ export class PfwVm {
    *  BigInt in the order the program gave them. Returns an unsubscriber. */
   onEmit(cb) { this._emitCbs.add(cb); return () => this._emitCbs.delete(cb); }
 
-  /** The global counters since start(); hits per rule name since that rule's
-   *  program was applied (`applied` counts applies, so a change in it says the
+  /** The global counters since start(); hits per rule name of the default
+   *  program since it was applied (`applied` counts applies, so a change in it says the
    *  rule counts started over; `applied_at` is when, in ms); `timing`, the
    *  decision time by rule — `timing[name] = { runs, ns }` for the packets whose
    *  last-touched rule (a count, or the verdict's) was that one, with "-" for
@@ -391,19 +523,12 @@ export class PfwVm {
   async stats() {
     const control = this._need("stats");
     const bss = (await new DataSec(control, "vm.bss").read()) ?? {};
-    const out = { active: this._active, shadow: Number(bss.shadow ?? 0) !== 0, applied: this._stamp, applied_at: this._appliedAt ?? null, rules: {} };
+    const out = { active: this._default?.slot.base ?? 0, shadow: Number(bss.shadow ?? 0) !== 0, applied: this._stamp, applied_at: this._default?.appliedAt ?? null };
     for (const k of COUNTERS) if (bss[k] !== undefined) out[k] = BigInt(bss[k]);
-    for (const r of this._current?.rules ?? []) {
-      const now = await this._ruleCount(r.id), base = this._ruleBase?.get(r.id) ?? 0n;
-      out.rules[r.name] = now >= base ? now - base : now;
-    }
-    /* Decision time by the rule each packet ended on, from the same baseline. */
-    out.timing = {};
-    for (const r of this._current?.rules ?? []) {
-      const now = await this._ruleTime(r.id), base = this._timeBase?.get(r.id) ?? { ns: 0n, runs: 0n };
-      const fresh = now.runs < base.runs;
-      out.timing[r.name] = { runs: fresh ? now.runs : now.runs - base.runs, ns: fresh ? now.ns : now.ns - base.ns };
-    }
+    Object.assign(out, this._default ? await this._ruleStats(this._default) : { rules: {}, timing: {} });
+    /* The same for each route, by its name. */
+    out.routes = {};
+    for (const [name, { rec }] of this._routes) out.routes[name] = { applied_at: rec.appliedAt, ...(await this._ruleStats(rec)) };
     /* One slot per bucket, one count per CPU: the kernel never shares a line. */
     const hist = new PercpuArrayMap(control, "decide_hist");
     out.decide_hist = { bounds: [...DECIDE_BOUNDS], counts: [] };
@@ -415,6 +540,23 @@ export class PfwVm {
   }
 
   /* ---- internals ---- */
+
+  /* One program's hits per rule name, and decision time by the rule each packet
+   * ended on, both since it was installed. */
+  async _ruleStats(rec) {
+    const rules = {}, timing = {}, at = rec.ranges.rule.base;
+    for (const r of rec.c.rules ?? []) {
+      const now = await this._ruleCount(at + r.id), base = rec.ruleBase.get(r.id) ?? 0n;
+      rules[r.name] = now >= base ? now - base : now;
+      const t = await this._ruleTime(at + r.id), tb = rec.timeBase.get(r.id) ?? { ns: 0n, runs: 0n };
+      const fresh = t.runs < tb.runs;
+      timing[r.name] = { runs: fresh ? t.runs : t.runs - tb.runs, ns: fresh ? t.ns : t.ns - tb.ns };
+    }
+    return { rules, timing };
+  }
+
+  /* The installed program an event came from, by the stamp it carries. */
+  _from(e) { return this._byStamp.get(Number(e.prog ?? 0)); }
 
   _need(what) { if (!this._control) throw new Error(`PfwVm.${what}(): not running — call start() first`); return this._control; }
   _map(name) { return new ArrayMap(this._control, name); }
@@ -433,10 +575,14 @@ export class PfwVm {
     if (!this._verdictCbs.size || !e) return;
     const family = Number(e.family ?? 0), v6 = family === 10;
     const len = Math.min(Number(e.len ?? 0), LIMITS.LOG_CAP);
+    /* The kernel reports the rule's counter slot; the program's own id is that
+     * less where its rules begin. */
+    const rec = this._from(e), ruleId = Number(e.rule ?? 0) - (rec?.ranges.rule?.base ?? 0);
     const ev = {
       verdict: VERDICT[Number(e.verdict ?? 0)] ?? "pass",
-      ruleId: Number(e.rule ?? 0),
-      rule: this._current?.rules?.[Number(e.rule ?? 0)]?.name,
+      ruleId,
+      rule: rec?.c.rules?.[ruleId]?.name,
+      route: rec?.name,
       src: v6 ? ip6(e.saddr) : ip4(e.saddr), dst: v6 ? ip6(e.daddr) : ip4(e.daddr),
       sport: Number(e.sport ?? 0), dport: Number(e.dport ?? 0), proto: Number(e.proto ?? 0), family,
       ifindex: Number(e.ifindex ?? 0), mask: BigInt(e.mask ?? 0), ts: BigInt(e.ts ?? 0),
@@ -449,7 +595,8 @@ export class PfwVm {
     if (!this._sampleCbs.size || !e) return;
     const n = Math.min(Number(e.cap_len ?? 0), LIMITS.SAMPLE_CAP);
     const ev = {
-      tag: this._current?.sampleTags?.[Number(e.tag ?? 0)] || null,
+      tag: this._from(e)?.c.sampleTags?.[Number(e.tag ?? 0)] || null,
+      route: this._from(e)?.name,
       data: Uint8Array.from(Array.from(e.data ?? []).slice(0, n)),
       wireLen: Number(e.wire_len ?? 0), ts: BigInt(e.ts ?? 0), ifindex: Number(e.ifindex ?? 0),
     };
@@ -460,7 +607,8 @@ export class PfwVm {
     if (!this._emitCbs.size || !e) return;
     const id = Number(e.id ?? 0), n = Math.min(Number(e.n ?? 0), LIMITS.FARGS);
     const ev = {
-      name: this._current?.emits?.[id]?.name, id,
+      name: this._from(e)?.c.emits?.[id]?.name, id,
+      route: this._from(e)?.name,
       values: Array.from({ length: n }, (_, i) => BigInt(e.vals?.[i] ?? 0)),
       ts: BigInt(e.ts ?? 0), ifindex: Number(e.ifindex ?? 0),
     };
@@ -475,7 +623,7 @@ export class PfwVm {
       const len = Number(e.slen?.[s] ?? 0), by = e.strs?.[s] ?? [];
       let str = ""; for (let b = 0; b < len; b++) str += String.fromCharCode((by[b] ?? 0) & 0xff); return str;
     });
-    const line = formatMsg(this._current?.consoleFormats?.[Number(e.fmtid ?? 0)] ?? "", nums, strs);
+    const line = formatMsg(this._from(e)?.c.consoleFormats?.[Number(e.fmtid ?? 0)] ?? "", nums, strs);
     for (const cb of this._consoleCbs) { try { cb(line); } catch (err) { console.error(err?.message ?? err); } }
   }
 }

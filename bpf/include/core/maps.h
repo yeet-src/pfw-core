@@ -61,7 +61,7 @@ PFW_LINK struct {
  * at the first port check; this is what the path that reached a rule cost. */
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, PFW_NRULES);
+    __uint(max_entries, RULE_POOL);
     __type(key, __u32);
     __type(value, struct rule_time);
 } rule_time SEC(".maps");
@@ -156,7 +156,7 @@ PFW_LINK struct {
 
 PFW_LINK struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
-    __uint(max_entries, PFW_NRULES);
+    __uint(max_entries, RULE_POOL);
     __type(key, __u32);
     __type(value, __u64);
 } counters SEC(".maps");

@@ -2,12 +2,13 @@
 
 | map | type | key → value | purpose |
 |---|---|---|---|
-| `programs` | ARRAY (2) | u32 → `pfw_prog` | the program's header and patterns, per generation |
-| `ops` | ARRAY (2 × 65536) | u32 → `pfw_op` | the instructions (`gen·PFW_MAX_OPS + pc`) |
-| `ac_goto` | ARRAY | u32 → u16 | AC goto table (`gen·AC_STATES·256 + state·256 + byte`) |
+| `programs` | ARRAY (16) | u32 → `pfw_prog` | a program's header and patterns, by slot |
+| `dispatch` | HASH | `route_key` (proto, dport) → u32 | the slot of the program for those packets; no entry means `default_slot` |
+| `ops` | ARRAY (2 × 65536) | u32 → `pfw_op` | the instructions of every program (`ops_base + pc`) |
+| `ac_goto` | ARRAY | u32 → u16 | AC goto table (`(ac_base + state)·256 + byte`) |
 | `ac_fail` | ARRAY | u32 → u16 | AC failure links |
 | `ac_accept` | ARRAY | u32 → u64 | AC per-state accept bitmask |
-| `re_goto` | ARRAY | u32 → u16 | regex DFA transitions (`gen·RE_STATES·256 + state·256 + byte`); up to `RE_GROUPS = 4` DFAs share the state space, each in its own range |
+| `re_goto` | ARRAY | u32 → u16 | regex DFA transitions (`(re_base + state)·256 + byte`); up to `RE_GROUPS = 4` DFAs share the state space, each in its own range |
 | `re_accept` | ARRAY | u32 → u64 | regex DFA accept masks |
 | `tt_cells` | ARRAY | u32 → u32 | loadable byte-transform tables |
 | `lpm` / `lpm6` | LPM_TRIE | `lpm_key`/`lpm6_key` → u32 | `src in set` / `src6 in set6` |
@@ -15,7 +16,7 @@
 | `bloom` | BLOOM_FILTER | u32 value | `x in bloom` (`map_extra = 5`) |
 | `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
 | `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 256`) |
-| `tables` | ARRAY (2 × 131072) | u32 → u64 | host-loaded lookup tables (`NAME[i]`), one half per generation; key = `gen * TABLE_CELLS + base + index` |
+| `tables` | ARRAY (2 × 131072) | u32 → u64 | host-loaded lookup tables (`NAME[i]`) of every program; key = `tbl_base + base + index` |
 | `kv` | HASH (262144) | u64 → u64 | the host-loaded key → value map (`lookup(key)`) |
 | `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 64`) |
 | `sources` | LRU_HASH | `src_key` → `source` | per-source state and the source ban (`SRC_MAX = 262144`) |
@@ -34,7 +35,7 @@
 
 ### Globals (in `vm.bss`, host-readable/patchable)
 
-- `active_gen` — the generation packets run.
+- `default_slot` — the slot of the program a packet runs when `dispatch` has no entry for it.
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
 - Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,

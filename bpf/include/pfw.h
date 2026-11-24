@@ -50,6 +50,7 @@
 #define AC_POOL      (PFW_GENS * AC_STATES)     /* literal automaton states, all programs */
 #define RE_POOL      (PFW_GENS * RE_STATES)     /* regex DFA states, all programs */
 #define TABLE_POOL   (PFW_GENS * TABLE_CELLS)   /* lookup table cells, all programs */
+#define RULE_POOL    (PFW_GENS * PFW_NRULES)    /* rule counters, all programs */
 #define AC_STATES    16384 /* automaton states per generation */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
 #define SCAN_CAP     4096 /* bytes one scan / findb may cover; a power of two */

@@ -9,7 +9,7 @@
 
 static __always_inline void count_rule(__u32 rule)
 {
-    __u32 key = rule & (PFW_NRULES - 1);
+    __u32 key = rule & (RULE_POOL - 1);
     __u64 *n = bpf_map_lookup_elem(&counters, &key);
     if (n)
         (*n)++;
