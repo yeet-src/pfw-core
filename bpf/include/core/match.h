@@ -120,7 +120,9 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
     case V_DROP: count_rule(st->rule); dropped++; return XDP_DROP;
     case V_BAN: count_rule(st->rule); bans++; dropped++; return XDP_DROP;
     case V_RST:
-        count_rule(st->rule); bans++;
+        /* Not `bans`: nothing is banned. A reset is counted once, as `rsts`
+         * when the RST goes out and as `dropped` when it cannot. */
+        count_rule(st->rule);
         if (pp->family == AF_INET && pp->proto == IPPROTO_TCP) {
             int v = send_rst(ctx, pp->l2);
             if (v == XDP_TX) { rsts++; return v; }

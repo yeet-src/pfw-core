@@ -40,6 +40,9 @@
   reasm_midjoin, reasm_over, reasm_slid, reasm_held, reasm_trunc`), the h2 counters
   (`h2_blocks, h2_raw, h2_unresolved, h2_trunc, h2_failed`), `src_enforced`,
   `nat_reversed`, `decide_ns`, `scanned_bytes`, `flows_created`, `sampled`.
+  A blocked packet is counted once in `dropped` or `rsts`. `bans` counts
+  `ban` verdicts only, each of which is also in `dropped`: so the packets
+  blocked are `dropped + rsts`, and `bans` is never added to them.
 
 ### Event records
 

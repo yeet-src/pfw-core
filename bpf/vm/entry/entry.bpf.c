@@ -237,7 +237,6 @@ int pfw_xdp(struct xdp_md *ctx)
             f->mark = MARK_RST;
             f->rule = 0;
             f->expires = 0;
-            bans++;
             count_rule(0);
             if (p.family == AF_INET) {
                 int v = send_rst(ctx, p.l2);
