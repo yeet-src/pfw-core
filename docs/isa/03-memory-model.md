@@ -81,7 +81,7 @@ whole. A connection is therefore followed for its whole life.
 | out-of-order segment inside the window | placed; inspected once the gap fills |
 | out-of-order segment beyond the window | **dropped**, not reset — the sender retransmits it after the window has moved (`reasm_held`) |
 | a flow first seen mid-stream (no SYN: open before the program was, or dropped from the table) | followed from that segment on, and counted (`reasm_midjoin`); reset if the program decodes, since a decode cannot begin part-way |
-| one segment larger than the window (loopback and jumbo frames carry up to 64 kB) | read whole, `REASM_CHUNK` bytes at a time: the program runs over each piece in turn (`pfw_continue`), and the packet passes only if every piece does. A decode spends several tail calls a piece, so past about 20 kB a decoded connection is reset instead (`reasm_over`) |
+| one segment larger than the window (loopback and jumbo frames carry up to 64 kB) | read whole, `REASM_CHUNK` bytes at a time: the program runs over each piece in turn (`pfw_continue`), and the packet passes only if every piece does. A decode spends several tail calls a piece, so a segment too long for it to finish within the kernel's 33 is reset instead (`reasm_over`) |
 | a FIN segment carrying data | inspected like any other |
 
 `decode h2` connections do not slide here; the h2 stage consumes whole frames

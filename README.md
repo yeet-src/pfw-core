@@ -370,6 +370,52 @@ Things to know when embedding:
   together. The release package does (`make package` puts the object and the
   bundled JS side by side in `pkg/`); from a checkout, run `make bpf` first.
 
+### Several programs on one interface
+
+The kernel allows one XDP program on an interface. The VM is that program, and
+what you install in it are programs it dispatches each packet to: a default,
+any number with packets of their own, and optionally a chain every packet runs
+first.
+
+```js
+const vm = new PfwVm({ iface: 2 });
+await vm.start();
+
+await vm.apply(load(defaultSource));                                  // every packet no route claims
+await vm.route({ proto: "tcp", dport: 8443 }, load(apiSource));       // one port
+await vm.route({ dst: "10.1.0.0/16" }, load(tenantSource));           // one destination prefix
+await vm.route({ dst: "10.1.2.3", proto: "tcp", dport: 22 }, load(sshSource));
+await vm.first([load(blocklistSource), load(rateLimitSource)]);       // every packet, before its own
+```
+
+**Which program a packet runs.** First the stages `first()` installed, in
+order: any of them can stop it, and if all pass it goes on. Then one program:
+the route with the longest `dst` prefix its destination is in — a route with no
+`dst` counting as the shortest — and, between routes with the same prefix, the
+one that names a port, then a protocol, then an interface. A packet no route
+claims runs the default.
+
+**Changing it while it runs.** `route()` or `apply()` again with the same
+match swaps that program: the new one is installed beside the old and one write
+switches to it. `unroute(match)` gives the packets back to whatever else claims
+them, and `first(null)` removes the stages. `vm.routes` lists what is installed.
+
+**What a program has to itself, and what it shares.** Each has its own
+patterns, rules, instruction budget, `reassemble` and `decode`, and its own
+state for every connection — two programs on one connection never read each
+other's `flow.state`, count, ring or registers. Knobs, lookup tables, the sets
+and the `lookup` map are shared by name. A stage has no reassembled stream,
+so it may not `reassemble`, `decode`, `redact` or `replace`.
+
+**What each one did.** `stats()` reports the default's rules, each route's
+under `routes[name]`, and each stage's in `first`, and every event carries
+`route`: `"default"`, `"first"`, `"first.1"`, or the route's name.
+
+For more than one interface, give `iface` an array and name the interface in
+the routes. [`examples/host/several-programs.mjs`](examples/host/several-programs.mjs)
+is all of this as one script to run; the limits are 64 programs installed at
+once and 8 stages.
+
 `scripts/apply-and-hold.mjs` is a 50-line CLI over `PfwVm` that every kernel test
 drives, and `scripts/loader-lifecycle.mjs` walks the whole lifecycle. To bind the
 maps yourself instead, `src/loader.js` is the reference; the map list and the
@@ -542,3 +588,5 @@ private, so the download needs GitHub auth (`gh auth login`, or a token).
   and expression, the calling convention, and how each construct lowers.
 - [`docs/primitives.md`](docs/primitives.md) — the design note on building higher
   features from the base primitives.
+- [`docs/upgrade-notes.md`](docs/upgrade-notes.md) — what behaves differently for
+  a program or a host written against an earlier version.

@@ -47,7 +47,7 @@
   `scan(payload, 4096)`, or `within(ptr, N)` when a bounded look is the point.
 - `decode h2` shows one packet's completed header blocks, not the whole
   connection, and `len == 0` when a packet completed none. It needs cleartext
-  HTTP/2 and segments no larger than the window (see isa §8).
+  HTTP/2 (see isa §8).
 - Payload on a TLS port is ciphertext. Only the handshake (`ClientHello`: SNI,
   versions, cipher list) is readable there.
 - `dnat` is two-way for TCP/UDP over IPv4, but it cannot move a connection that
