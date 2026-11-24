@@ -164,9 +164,9 @@ export function machine({ asm, tables, regex = null }) {
           }
           break;
         }
-        case OP.MPOS: if (mpos[rawReg & 63]) cur = BigInt(mpos[rawReg & 63]); else ff = true; break;
+        case OP.MPOS: if (mpos[rawReg & (MAX_PATS - 1)]) cur = BigInt(mpos[rawReg & (MAX_PATS - 1)]); else ff = true; break;
         case OP.CMPSTR: {
-          const p = pats[rawReg & 63];
+          const p = pats[rawReg & (MAX_PATS - 1)];
           cf = false;
           if (!p || p.len === 0 || p.len > PAT_CAP) { zf = false; break; } /* an empty slot just clears the flags */
           const w = window(cur, p.len);
@@ -232,7 +232,7 @@ export function machine({ asm, tables, regex = null }) {
             }
             break;
           }
-          const p = pats[rawReg & 63];
+          const p = pats[rawReg & (MAX_PATS - 1)];
           if (p && p.len > 0 && (!repl || repl.len === p.len)) {
             for (let o = start; o >= 0 && o + p.len <= end && o < start + SCAN_CAP; o++) {
               let hit = true;
@@ -258,9 +258,9 @@ export function machine({ asm, tables, regex = null }) {
         case OP.LOG: break;
         case OP.PASS: verdict = V.PASS; break;
         case OP.END: verdict = V.PASS; break;
-        case OP.DROP: verdict = V.DROP; rule = rawReg & 63; break;
-        case OP.BAN: verdict = V.BAN; rule = rawReg & 63; break;
-        case OP.RST: verdict = V.RST; rule = rawReg & 63; break;
+        case OP.DROP: verdict = V.DROP; rule = rawReg & (LIMITS.NRULES - 1); break;
+        case OP.BAN: verdict = V.BAN; rule = rawReg & (LIMITS.NRULES - 1); break;
+        case OP.RST: verdict = V.RST; rule = rawReg & (LIMITS.NRULES - 1); break;
         case OP.DNAT: { /* the headers are the kernel's to rewrite; the host model records where the packet was sent */
           const t = rawReg & 1 ? cur : imm;
           if (!(rawReg & 1) || (t & 0xffffffffn)) dnat = { ip: Number(t & 0xffffffffn), port: Number((t >> 32n) & 0xffffn) };
@@ -272,7 +272,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.LPM6: zf = set6.some((c) => (src6 & c.mask) === (c.net & c.mask)); cf = false; break; /* IPv6 src in the CIDR set */
         case OP.ARG: { const idx = Number((imm >> 32n) & 0xffffn); cur = idx < argv.length ? BigInt(argv[idx]) & U64 : (imm & 0xffffffffn); break; } /* runtime arg or inline default */
         case OP.ARGC: cur = BigInt(argv.length); break; /* number of args the host set */
-        case OP.KNOB: { const slot = Number(imm) & 31; cur = BigInt(knobs[slot] ?? 0) & U64; break; } /* live host-set control value */
+        case OP.KNOB: { const slot = Number(imm) & (LIMITS.KNOBS - 1); cur = BigInt(knobs[slot] ?? 0) & U64; break; } /* live host-set control value */
         case OP.KVGET: { /* the value under key cur, or the default and a fault */
           if (kvMap.has(cur)) cur = kvMap.get(cur);
           else { cur = imm & U64; ff = true; }
@@ -286,7 +286,7 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.KNOBHAS: { /* ZF = the host-set string knob occurs in the payload window */
-          const needle = knobStrs[Number(imm) & 15];
+          const needle = knobStrs[Number(imm) & (LIMITS.KNOBSTRS - 1)];
           zf = false; cf = false;
           if (needle && needle.length) {
             const off = Number(r[REG.payload]), end = Math.min(Number(r[REG.end]), frame.length, off + KNOB_SCAN);

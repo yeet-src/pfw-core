@@ -61,18 +61,18 @@
 | regex DFA states | 1024 |
 | scratch registers (locals, by live range) | 16 |
 | subroutine args | 7 (`%a0..%a6`) |
-| data-stack depth | 64 |
+| data-stack depth | 256 |
 | rules (named verdicts) | 64 |
-| runtime args (`argv`) | 16 |
+| runtime args (`argv`) | 64 |
 | lookup tables / cells in all | 16 / 131072 |
 | `lookup` map entries | 262144 |
-| numeric knobs (`knob`) | 32 |
-| string knobs (`kstr`) | 16 (≤ 64 B, scans 256 B) |
+| numeric knobs (`knob`) | 256 |
+| string knobs (`kstr`) | 64 (≤ 64 B, scans 256 B) |
 | per-flow ring | 16 |
 | `sample` length / tags | 2048 B / 63 |
 | per-flow registers (`flow.r0`…) | 4 |
 | `console` %s capture | 256 B |
-| `printk` formats / length | 8 / 64 B |
+| `printk` formats / length | 16 / 64 B |
 
 See [`isa.md`](isa.md) for the machine these compile to, and the README for the
 public JS interface and loading a program into the kernel.

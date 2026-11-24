@@ -14,15 +14,15 @@
 #define BLOOM_MAX    1048576 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    1024 /* max states in the regex DFA (re_goto/re_accept); a power of two */
-#define PFW_ARGC     16   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
+#define PFW_ARGC     64   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define FARGS_MAX    8    /* numeric args a console() or emit() can carry (printk takes 3); a power of two */
 #define FSTR_MAX     2    /* %s string args a call can carry */
 #define STRARG_CAP   256  /* bytes captured per %s arg (power of two) */
-#define PFW_FMTS     8    /* printk format strings a program can hold (in-kernel, for bpf_trace_printk) */
+#define PFW_FMTS     16    /* printk format strings a program can hold (in-kernel, for bpf_trace_printk) */
 #define PFW_FMT_CAP  64   /* bytes per printk format string */
-#define STACK_CAP    64   /* data-stack depth (push/pop), power of two */
-#define PFW_KNOBS    32   /* live host-set control values (OP_KNOB / the `knobs` map) */
-#define PFW_KNOBSTRS 16   /* live host-set string knobs (OP_KNOBHAS / the `knob_strs` map) */
+#define STACK_CAP    256   /* data-stack depth (push/pop), power of two */
+#define PFW_KNOBS    256   /* live host-set control values (OP_KNOB / the `knobs` map) */
+#define PFW_KNOBSTRS 64   /* live host-set string knobs (OP_KNOBHAS / the `knob_strs` map) */
 #define KNOBSTR_CAP  64   /* bytes per string knob (the needle) */
 #define KNOB_SCAN    256  /* payload window OP_KNOBHAS searches (power of two) */
 #define TABLE_CELLS  131072 /* u64 cells of host-loaded lookup tables per generation (`NAME[i]`); a

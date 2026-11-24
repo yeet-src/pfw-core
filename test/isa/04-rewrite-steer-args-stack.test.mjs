@@ -9,6 +9,7 @@
 import { LIMITS } from "#/isa.js";
 import { isa, li, OP, REG, V } from "./harness.mjs";
 
+const { ARGC, KNOBS, STACK } = LIMITS;
 const t = isa("rewrite/args/stack");
 const MAX = "0xffffffffffffffff";
 const FAULT = `mov %end, %cur\nmovb 0(%cur), %cur`;
@@ -80,9 +81,9 @@ t("arg: indexes the argument vector", { asm: `arg $2, $80`, opts: { argv: [10, 2
 t("arg: an index at argc reads the default", { asm: `arg $2, $80`, opts: { argv: [10, 20] }, cur: 80 });
 t("arg: arguments are 64-bit", { asm: `arg $0`, opts: { argv: [0x123456789abcn] }, cur: "0x123456789abc" });
 t("arg: the default is 32-bit", { asm: `arg $1, $0xffffffff`, cur: 0xffffffff });
-t("arg: the last slot", { asm: `arg $15, $7`, opts: { argv: Array.from({ length: 16 }, (_, i) => i * 3) }, cur: 45 });
+t("arg: the last slot", { asm: `arg $${ARGC - 1}, $7`, opts: { argv: Array.from({ length: ARGC }, (_, i) => i * 3) }, cur: (ARGC - 1) * 3 });
 t("arg: leaves the flags alone", { asm: `${FLAGS}\narg $0, $80`, zf: false, cf: true, ff: false });
-t("arg: index 16 is out of range", { asm: `arg $16`, rejects: /arg index/ });
+t("arg: an index past the last slot is out of range", { asm: `arg $${ARGC}`, rejects: /arg index/ });
 t("argc: 0 when the host set none", { asm: `${li(9)}\nargc`, cur: 0 });
 t("argc: the number of arguments set", { asm: `argc`, opts: { argv: [10, 20, 30] }, cur: 3 });
 t("argc: leaves the flags alone", { asm: `${FLAGS}\nargc`, zf: false, cf: true, ff: false });
@@ -91,8 +92,8 @@ t("argc: leaves the flags alone", { asm: `${FLAGS}\nargc`, zf: false, cf: true, 
 t("knob: an unset slot reads 0", { asm: `${li(9)}\nknob $0`, cur: 0 });
 t("knob: cur = knobs[slot]", { asm: `knob $3`, opts: { knobs: [1, 2, 3, 44] }, cur: 44 });
 t("knob: values are 64-bit", { asm: `knob $0`, opts: { knobs: [0xfedcba9876543210n] }, cur: "0xfedcba9876543210" });
-t("knob: the last slot", { asm: `knob $31`, opts: { knobs: Array.from({ length: 32 }, (_, i) => i + 100) }, cur: 131 });
-t("knob: the slot is masked to 5 bits", { ops: [[OP.KNOB, 0, 32 + 2]], opts: { knobs: [7, 8, 9] }, cur: 9 });
+t("knob: the last slot", { asm: `knob $${KNOBS - 1}`, opts: { knobs: Array.from({ length: KNOBS }, (_, i) => i + 100) }, cur: KNOBS + 99 });
+t("knob: the slot is masked to the knob count", { ops: [[OP.KNOB, 0, KNOBS + 2]], opts: { knobs: [7, 8, 9] }, cur: 9 });
 t("knob: leaves the flags alone", { asm: `${FLAGS}\nknob $0`, zf: false, cf: true, ff: false });
 const KS = (...s) => ({ opts: { knobStrs: s } });
 t("knobhas: the string occurs in the payload -> ZF", { asm: `knobhas $0`, frame: "GET /x?evil=1", ...KS("evil"), zf: true });
@@ -134,9 +135,9 @@ t("pop: decrements %sp and loads %cur", { asm: `${li(42)}\npush\nand $0, %cur\np
 t("stack: is last-in first-out", { asm: `${pushN(3)}\npop\nmov %cur, %s0\npop\nmov %cur, %s1\npop`, cur: 100, regs: { s0: 102, s1: 101, sp: 0 } });
 t("stack: holds 64-bit values", { asm: `${li(MAX)}\npush\nand $0, %cur\npop`, cur: MAX });
 t("pop: on an empty stack is a no-op", { asm: `${li(9)}\npop`, cur: 9, regs: { sp: 0 }, ff: false });
-t("stack: holds 64 entries", { asm: `${pushN(64)}\npop`, cur: 163, regs: { sp: 63 } });
-t("push: on a full stack is a no-op", { asm: `${pushN(65)}\nmov %sp, %cur`, cur: 64 });
-t("push: … and does not clobber the top", { asm: `${pushN(65)}\npop`, cur: 163 });
+t("stack: holds STACK entries", { asm: `${pushN(STACK)}\npop`, cur: STACK + 99, regs: { sp: STACK - 1 } });
+t("push: on a full stack is a no-op", { asm: `${pushN(STACK + 1)}\nmov %sp, %cur`, cur: STACK });
+t("push: … and does not clobber the top", { asm: `${pushN(STACK + 1)}\npop`, cur: STACK + 99 });
 t("push / pop: leave the flags alone", { asm: `${FLAGS}\npush\npop`, zf: false, cf: true, ff: false });
 t("stack: %sp is an ordinary register — lowering it discards entries", { asm: `${pushN(3)}\n${li(1)}`, ops: [[OP.MOV_CR, REG.sp], [OP.POP]], cur: 100, regs: { sp: 0 } });
 t("stack: %bp marks a frame to unwind to", {
@@ -152,12 +153,12 @@ t("call: nests", { asm: `${li(0)}\ncall f\njmp done\nf: add $1, %cur\ncall g\nad
 t("call: the same subroutine twice", { asm: `${li(0)}\ncall f\ncall f\njmp done\nf: add $5, %cur\nret\ndone:`, cur: 10 });
 t("call: registers pass arguments and results", { asm: `${li(20)}`, ops: [[OP.MOV_CR, REG.a0], [OP.CALL, 0, (pc) => pc + 3], [OP.MOV_RC, REG.rv], [OP.JMP, 0, (pc) => pc + 5], [OP.MOV_RC, REG.a0], [OP.ADD_R, REG.a0], [OP.MOV_CR, REG.rv], [OP.RET]], cur: 40, regs: { a0: 20, rv: 40 } });
 t("call / ret: leave the flags alone", { asm: `${FLAGS}\ncall f\njmp done\nf: ret\ndone:`, zf: false, cf: true, ff: false });
-t("call: with the stack full does not jump", { asm: `${pushN(64)}\n${li(0)}\ncall f\nadd $1, %cur\njmp done\nf: add $50, %cur\ndone:`, cur: 1, regs: { sp: 64 } });
+t("call: with the stack full does not jump", { asm: `${pushN(STACK)}\n${li(0)}\ncall f\nadd $1, %cur\njmp done\nf: add $50, %cur\ndone:`, cur: 1, regs: { sp: STACK } });
 t("ret: with the stack empty falls through", { asm: `${li(1)}\nret\nadd $2, %cur`, cur: 3, regs: { sp: 0 } });
 t("ret: returns to whatever was pushed", { asm: `${li(7)}\npush\n${li(0)}\nret\nadd $1, %cur\nadd $2, %cur`, cur: 2 });
 t("ret: a subroutine must balance the stack — a stray push is taken for the return pc", { asm: `call f\ndrop $1\nf: ${li(8)}\npush\nret\ndrop $2\ndrop $3\nrst $4, $0`, verdict: V.RST, rule: 4 });
 t("budget: a ret loop is cut off after MAX_OPS steps, with pass", { ops: [[OP.AND_I], [OP.PUSH], [OP.RET], [OP.DROP, 1]], verdict: V.PASS });
-t("budget: a recursive call bottoms out when the stack fills", { asm: `${li(0)}\nf: add $1, %cur\ncall f`, cur: 65, regs: { sp: 64 } });
+t("budget: a recursive call bottoms out when the stack fills", { asm: `${li(0)}\nf: add $1, %cur\ncall f`, cur: STACK + 1, regs: { sp: STACK } });
 
 /* ---- 69 EMIT -------------------------------------------------------------- */
 t("emit: sends the event id with no values", { asm: `emit $3`, emitted: [{ id: 3 }] });
