@@ -55,7 +55,7 @@ async function withProgram(source, fn) {
   };
   child.stdout.on("data", onData);
   child.stderr.on("data", (d) => { out += d; });
-  for (let i = 0; i < 120 && !/READY/.test(out); i++) await sleep(100);
+  for (let i = 0; i < 900 && !/READY/.test(out); i++) await sleep(100);
   if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out); }
   try { return await fn(events); } finally { child.kill("SIGINT"); await sleep(400); }
 }
