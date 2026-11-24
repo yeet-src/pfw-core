@@ -2,7 +2,7 @@ name: ci
 
 # The one entry point. On pull requests and on pushes to master:
 #
-#   test            the host suites                       (test.yml)
+#   test            the host suites, and the kernel tests  (test.yml)
 #   kernel-matrix   the verifier, on each supported kernel (kernel-matrix.yml)
 #   package         build the distributable tarball, install it into an empty
 #                   project, and run the ISA and unit suites against the
