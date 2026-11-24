@@ -154,7 +154,7 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
          * at all (clear()), and under whichever one the packet would have run. */
         if (src_banned(&p)) {
             src_enforced++;
-            if (shadow) { shadowed++; passed++; return XDP_PASS; }
+            if (shadow) { shadow_enforced++; passed++; return XDP_PASS; }
             dropped++;
             return XDP_DROP;
         }
@@ -217,8 +217,8 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
         }
         if (f && (f->mark == MARK_DROP || f->mark == MARK_RST)) {
             enforced++;
-            count_rule(f->rule);
-            if (shadow) { shadowed++; passed++; return XDP_PASS; } /* shadow mode: would enforce, but pass */
+            count_enforced(f->rule);
+            if (shadow) { shadow_enforced++; passed++; return XDP_PASS; } /* shadow mode: would enforce, but pass */
             if (f->mark == MARK_RST && p.family == AF_INET && p.proto == IPPROTO_TCP) {
                 int v = send_rst(ctx, p.l2);
                 if (v == XDP_TX)
@@ -333,9 +333,8 @@ static __always_inline int entry(struct xdp_md *ctx, const __u32 mode)
             /* Fail closed: mark the flow and tear it down so the peer reconnects
              * on a fresh flow we can see whole. */
             f->mark = MARK_RST;
-            f->rule = 0;
+            f->rule = RULE_NONE;
             f->expires = 0;
-            count_rule(0);
             if (p.family == AF_INET) {
                 int v = send_rst(ctx, p.l2);
                 if (v == XDP_TX) { rsts++; return v; }

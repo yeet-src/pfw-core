@@ -52,6 +52,7 @@
 #define RE_POOL      (PFW_GENS * RE_STATES)     /* regex DFA states, all programs */
 #define TABLE_POOL   (PFW_GENS * TABLE_CELLS)   /* lookup table cells, all programs */
 #define RULE_POOL    (PFW_GENS * PFW_NRULES)    /* rule counters, all programs */
+#define RULE_NONE    RULE_POOL                  /* a mark no rule set: the VM reset the connection itself (it could not follow it) */
 #define AC_STATES    16384 /* automaton states per program */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
 #define SCAN_CAP     4096 /* bytes one scan / findb may cover; a power of two */

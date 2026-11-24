@@ -35,8 +35,7 @@ static __always_inline struct flow *flow_lookup(struct pkt *p, struct flow_key *
  * stage that cannot safely decode does `return stage_reset(ctx, &p, f)`. */
 static __always_inline int stage_reset(struct xdp_md *ctx, struct pkt *p, struct flow *f)
 {
-    f->mark = MARK_RST; f->rule = 0; f->expires = 0;
-    count_rule(0);
+    f->mark = MARK_RST; f->rule = RULE_NONE; f->expires = 0;
     if (p->family == AF_INET) {
         int v = send_rst(ctx, p->l2);
         if (v == XDP_TX) { rsts++; return v; }

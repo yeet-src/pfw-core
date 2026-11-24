@@ -10,8 +10,9 @@
  *
  * Prints READY once enforcing, `EVENT <verdict>[ <json bytes>]` per verdict/log
  * event (2=drop 3=ban 4=rst — the pfw_verdict enum), `CONSOLE <line>` per
- * console() message, `STATS <json counters>` when the hold ends (--stats 1),
- * and `detached` after stop().
+ * console() message, `STATS <json counters>` once a second through the hold
+ * (--stats 1: the last one is how they stood when it ended), and `detached`
+ * after stop().
  */
 import { PfwVm } from "#/loader.js";
 import { compile } from "#/clang";
@@ -48,12 +49,12 @@ await vm.apply(c, {
 });
 
 console.log(`READY nops=${c.program.nops} decode=${c.program.decode ?? 0} reasm=${c.program.reasm ?? 0}`);
-for (let i = 0; i < Number(argv.hold ?? 20); i++) await new Promise((r) => setTimeout(r, 1000));
-/* --stats 1: the counters as they stand when the hold ends, for a test that
- * asks what a packet was counted as. BigInts print as numbers. */
-if (argv.stats) {
-  const { timing, decide_hist, ...counters } = await vm.stats();
-  console.log("STATS " + JSON.stringify(counters, (k, v) => (typeof v === "bigint" ? Number(v) : v)));
+/* --stats 1 prints the counters once a second, so a test can read what the
+ * kernel counted and not only what it did. */
+const J = (o) => JSON.stringify(o, (_, v) => (typeof v === "bigint" ? Number(v) : v));
+for (let i = 0; i < Number(argv.hold ?? 20); i++) {
+  await new Promise((r) => setTimeout(r, 1000));
+  if (argv.stats) { const s = await vm.stats(); delete s.decide_hist; delete s.timing; console.log(`STATS ${J(s)}`); }
 }
 await vm.stop();
 console.log("detached");

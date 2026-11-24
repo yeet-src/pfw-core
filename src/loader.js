@@ -45,14 +45,14 @@ const MAPS = {
   programs: { kind: "array" }, ops: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
   knobs: { kind: "array" }, knob_strs: { kind: "array" }, tables: { kind: "array" },
-  counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
+  counters: { kind: "percpu_array" }, rule_enforced: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
   flows: { kind: "lru_hash" }, lpm: { kind: "lpm_trie" }, lpm6: { kind: "lpm_trie" },
   hashset: { kind: "hash" }, kv: { kind: "hash" }, bloom: { kind: "bloom_filter" },
   "vm.bss": { kind: "data" }, decode_jmp: { kind: "prog_array" }, dispatch: { kind: "hash" }, dispatch_dst: { kind: "lpm_trie" }, stage_flows: { kind: "lru_hash" },
 };
 
 /* Counters in vm.bss worth reporting (all u64). */
-const COUNTERS = ["seen", "ran", "passed", "dropped", "rsts", "bans", "enforced", "src_enforced", "shadowed", "faults", "logged", "sampled",
+const COUNTERS = ["seen", "ran", "passed", "dropped", "rsts", "bans", "enforced", "src_enforced", "shadowed", "shadow_enforced", "faults", "logged", "sampled",
   "ring_full", "flows_created", "scanned_bytes", "decide_ns", "nat_reversed",
   "reasm_retrans", "reasm_midjoin", "reasm_over", "reasm_slid", "reasm_held", "reasm_trunc",
   "h2_blocks", "h2_raw", "h2_unresolved", "h2_trunc", "h2_failed"];
@@ -410,7 +410,7 @@ export class PfwVm {
     const nrules = (c.rules ?? []).reduce((n, r) => Math.max(n, r.id + 1), 1);
     const ncells = (c.lookupTables ?? []).reduce((n, t) => Math.max(n, t.base + t.size), 0);
 
-    const rec = { name, c, stamp: ++this._stamp, slot: null, ranges: {}, written: {}, ruleBase: new Map(), timeBase: new Map(), appliedAt: Date.now(), retiredAt: null };
+    const rec = { name, c, stamp: ++this._stamp, slot: null, ranges: {}, written: {}, ruleBase: new Map(), enforcedBase: new Map(), timeBase: new Map(), appliedAt: Date.now(), retiredAt: null };
     try {
       const P = this._pools, R = rec.ranges;
       /* Room for it beside what is running. If a pool is short, a replaced
@@ -495,6 +495,7 @@ export class PfwVm {
        * owner before: what each held now is what this program's rules start from. */
       for (const r of c.rules ?? []) {
         rec.ruleBase.set(r.id, await this._ruleCount(R.rule.base + r.id));
+        rec.enforcedBase.set(r.id, await this._ruleCount(R.rule.base + r.id, "rule_enforced"));
         rec.timeBase.set(r.id, await this._ruleTime(R.rule.base + r.id));
       }
     } catch (e) {
@@ -661,8 +662,11 @@ export class PfwVm {
    *  BigInt in the order the program gave them. Returns an unsubscriber. */
   onEmit(cb) { this._emitCbs.add(cb); return () => this._emitCbs.delete(cb); }
 
-  /** The global counters since start(); hits per rule name of the default
-   *  program since it was applied (`applied` counts applies, so a change in it says the
+  /** The global counters since start(); per rule name of the default program
+   *  since it was applied, the times it decided (`rules`) and, apart from that,
+   *  the packets its standing marks and bans went on to stop
+   *  (`enforced_rules`: a dropped connection's retransmissions, everything a
+   *  banned source sends) — so `rules` counts requests and not packets (`applied` counts applies, so a change in it says the
    *  rule counts started over; `applied_at` is when, in ms); `timing`, the
    *  decision time by rule — `timing[name] = { runs, ns }` for the packets whose
    *  last-touched rule (a count, or the verdict's) was that one, with "-" for
@@ -675,7 +679,7 @@ export class PfwVm {
     const bss = (await new DataSec(control, "vm.bss").read()) ?? {};
     const out = { active: this._default?.slot.base ?? 0, shadow: Number(bss.shadow ?? 0) !== 0, applied: this._stamp, applied_at: this._default?.appliedAt ?? null };
     for (const k of COUNTERS) if (bss[k] !== undefined) out[k] = BigInt(bss[k]);
-    Object.assign(out, this._default ? await this._ruleStats(this._default) : { rules: {}, timing: {} });
+    Object.assign(out, this._default ? await this._ruleStats(this._default) : { rules: {}, enforced_rules: {}, timing: {} });
     /* The stage programs, in the order a packet runs them. */
     out.first = [];
     for (const rec of this._first) out.first.push({ name: rec.name, applied_at: rec.appliedAt, ...(await this._ruleStats(rec)) });
@@ -694,18 +698,21 @@ export class PfwVm {
 
   /* ---- internals ---- */
 
-  /* One program's hits per rule name, and decision time by the rule each packet
-   * ended on, both since it was installed. */
+  /* One program's rules by name, since it was installed: the times each
+   * decided (`rules`), the packets a mark or ban it left standing went on to
+   * stop (`enforced_rules`), and decision time by the rule each packet ended on. */
   async _ruleStats(rec) {
-    const rules = {}, timing = {}, at = rec.ranges.rule.base;
+    const rules = {}, enforced_rules = {}, timing = {}, at = rec.ranges.rule.base;
     for (const r of rec.c.rules ?? []) {
       const now = await this._ruleCount(at + r.id), base = rec.ruleBase.get(r.id) ?? 0n;
       rules[r.name] = now >= base ? now - base : now;
+      const enf = await this._ruleCount(at + r.id, "rule_enforced"), ebase = rec.enforcedBase.get(r.id) ?? 0n;
+      enforced_rules[r.name] = enf >= ebase ? enf - ebase : enf;
       const t = await this._ruleTime(at + r.id), tb = rec.timeBase.get(r.id) ?? { ns: 0n, runs: 0n };
       const fresh = t.runs < tb.runs;
       timing[r.name] = { runs: fresh ? t.runs : t.runs - tb.runs, ns: fresh ? t.ns : t.ns - tb.ns };
     }
-    return { rules, timing };
+    return { rules, enforced_rules, timing };
   }
 
   /* The installed program an event came from, by the stamp it carries. */
@@ -719,8 +726,8 @@ export class PfwVm {
     return perCpu.reduce((a, v) => ({ ns: a.ns + BigInt(v?.ns ?? 0), runs: a.runs + BigInt(v?.runs ?? 0) }), { ns: 0n, runs: 0n });
   }
   /* One rule slot's count, summed over CPUs. */
-  async _ruleCount(id) {
-    const perCpu = (await new PercpuArrayMap(this._control, "counters").lookup(id)) ?? [];
+  async _ruleCount(id, map = "counters") {
+    const perCpu = (await new PercpuArrayMap(this._control, map).lookup(id)) ?? [];
     return perCpu.reduce((a, v) => a + BigInt(v ?? 0), 0n);
   }
 
