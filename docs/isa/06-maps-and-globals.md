@@ -2,7 +2,8 @@
 
 | map | type | key → value | purpose |
 |---|---|---|---|
-| `programs` | ARRAY (2) | u32 → `pfw_prog` | the program, per generation |
+| `programs` | ARRAY (2) | u32 → `pfw_prog` | the program's header and patterns, per generation |
+| `ops` | ARRAY (2 × 65536) | u32 → `pfw_op` | the instructions (`gen·PFW_MAX_OPS + pc`) |
 | `ac_goto` | ARRAY | u32 → u16 | AC goto table (`gen·AC_STATES·256 + state·256 + byte`) |
 | `ac_fail` | ARRAY | u32 → u16 | AC failure links |
 | `ac_accept` | ARRAY | u32 → u64 | AC per-state accept bitmask |

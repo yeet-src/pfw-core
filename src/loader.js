@@ -38,7 +38,7 @@ const MAPS = {
   console_ring: { kind: "ringbuf", btf_struct: "pfw_console" },
   emits: { kind: "ringbuf", btf_struct: "pfw_emit" },
   samples: { kind: "ringbuf", btf_struct: "pfw_sample" },
-  programs: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
+  programs: { kind: "array" }, ops: { kind: "array" }, ac_goto: { kind: "array" }, ac_fail: { kind: "array" }, ac_accept: { kind: "array" },
   re_goto: { kind: "array" }, re_accept: { kind: "array" }, tt_cells: { kind: "array" },
   knobs: { kind: "array" }, knob_strs: { kind: "array" }, tables: { kind: "array" },
   counters: { kind: "percpu_array" }, decide_hist: { kind: "percpu_array" }, rule_time: { kind: "percpu_array" }, stack: { kind: "percpu_array" },
@@ -84,9 +84,7 @@ function compiled(program) {
  * order and sizes follow bpf/include/pfw.h). */
 function progValue(c, stamp, argv) {
   const p = c.program;
-  const { MAX_OPS, MAX_PATS, PAT_CAP, ARGC, FMTS, FMT_CAP } = LIMITS;
-  const ops = p.ops.slice(0, MAX_OPS).map((o) => ({ code: o.code >>> 0, reg: o.reg >>> 0, imm: BigInt(o.imm) }));
-  while (ops.length < MAX_OPS) ops.push({ code: 0, reg: 0, imm: 0n });
+  const { MAX_PATS, PAT_CAP, ARGC, FMTS, FMT_CAP } = LIMITS;
   const pats = p.pats.slice(0, MAX_PATS).map((q) => { const b = q.bytes.slice(0, PAT_CAP); while (b.length < PAT_CAP) b.push(0); return { len: q.len >>> 0, bytes: b }; });
   while (pats.length < MAX_PATS) pats.push({ len: 0, bytes: new Array(PAT_CAP).fill(0) });
   const args = argv.slice(0, ARGC).map((v) => BigInt(v));
@@ -102,7 +100,7 @@ function progValue(c, stamp, argv) {
   return {
     nops: p.nops >>> 0, npats: p.npats >>> 0, nocase: p.nocase >>> 0, gen: stamp >>> 0,
     reasm: (p.reasm ?? 0) >>> 0, reasm_dport: (p.reasm_dport ?? 0) >>> 0, decode: (p.decode ?? 0) >>> 0,
-    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0, args, fmts, re_start, re_pat_start, ops, pats,
+    transform_table: (p.transform_table ?? 0) >>> 0, argc: argc >>> 0, re_ngroups: starts.length >>> 0, args, fmts, re_start, re_pat_start, pats,
   };
 }
 const EMPTY = { program: { ops: [], pats: [], nops: 0, npats: 0, nocase: 0 } };
@@ -243,6 +241,11 @@ export class PfwVm {
       for (const part of chunks(stale.concat([...cells]), BATCH)) await this._map("tables").updateBatch(part);
       this._tableWritten[g] = [...cells.keys()];
     }
+    /* The instructions, then the header that says how many of them there are.
+     * What an earlier program left past `nops` is never reached. */
+    const opBase = g * LIMITS.MAX_OPS;
+    const opPairs = c.program.ops.slice(0, LIMITS.MAX_OPS).map((o, pc) => [opBase + pc, { code: o.code >>> 0, reg: o.reg >>> 0, imm: BigInt(o.imm) }]);
+    for (const part of chunks(opPairs, BATCH)) await this._map("ops").updateBatch(part);
     await this._map("programs").update(g, progValue(c, ++this._stamp, opts.argv ?? []));
 
     /* Knobs are one map shared by both generations and slots are assigned per
