@@ -6,6 +6,7 @@
  * printk are kernel-only effects the host model treats as no-ops. Those are
  * checked through `frameOut` / `console`, or only for what they must NOT
  * disturb; their real effect belongs to the kernel tests. */
+import { LIMITS } from "#/isa.js";
 import { isa, li, OP, REG, V } from "./harness.mjs";
 
 const t = isa("rewrite/args/stack");
@@ -179,7 +180,7 @@ t("tload: a cell nobody set reads 0, with no fault", { asm: `${li(1)}\ntload $0,
 t("tload: cells are 64-bit", { asm: `${li(0)}\ntload $0, $1`, opts: { cells: [0xffffffffffffffffn] }, cur: MAX });
 t("tload: with no cells loaded, every cell is 0", { asm: `${li(1)}\ntload $0, $4`, cur: 0, ff: false });
 t("tload: touches ZF and CF not at all", { asm: `${li(1)}\ncmp $1, %cur\ntload $4, $4`, ...CELLS, zf: true, cf: false });
-t("tload: the assembler refuses a table outside the cell space", { asm: `tload $131072, $1`, rejects: /cells/ });
+t("tload: the assembler refuses a table outside the cell space", { asm: `tload $${LIMITS.TABLE_CELLS}, $1`, rejects: /cells/ });
 
 /* ---- 71 KVGET ------------------------------------------------------------- */
 const KV = { opts: { kv: new Map([[5n, 500n], [0xffffffffffffffffn, 7n], [9n, 0n]]) } };
@@ -201,7 +202,7 @@ t("sample: each one is its own copy", { asm: `sample $2\nsample $3, $1`, frame: 
 t("sample: none taken, none reported", { asm: `and $0, %cur`, sampled: [] });
 t("sample: not terminal; leaves %cur and the flags", { asm: `${FLAGS}\nsample $8`, cur: 4, zf: false, cf: true, ff: false });
 t("sample: the program still reaches its verdict", { asm: `sample $8\ndrop $1`, verdict: V.DROP });
-t("sample: the assembler bounds the length", { asm: `sample $4096`, rejects: /length/ });
+t("sample: the assembler bounds the length", { asm: `sample $${LIMITS.SAMPLE_CAP + 1}`, rejects: /length/ });
 
 t.covers(OP.TLOAD, OP.KVGET, OP.SAMPLE);
 t.covers(OP.REDACT, OP.REPLACE, OP.DNAT, OP.REDIRECT, OP.RATE, OP.ARG, OP.ARGC, OP.FARG, OP.FARGS, OP.CONSOLE, OP.PRINTK, OP.PUSH, OP.POP, OP.CALL, OP.RET, OP.KNOB, OP.KNOBHAS, OP.EMIT);
