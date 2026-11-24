@@ -41,6 +41,10 @@
   one window — a header value, a frame — use `within(ptr, N)`.
 - `reassemble` follows a connection for its whole life through a sliding
   4096-byte window. A pattern is seen whole if it is at most 256 bytes long.
+- Over a reassembled stream, `scan(payload, N)` reads the first `N` bytes of that
+  window and nothing behind them: with `N` below 4096 a signature can pass
+  unscanned. The compiler warns (`warnings` in the compile result); say
+  `scan(payload, 4096)`, or `within(ptr, N)` when a bounded look is the point.
 - `decode h2` shows one packet's completed header blocks, not the whole
   connection, and `len == 0` when a packet completed none. It needs cleartext
   HTTP/2 and segments no larger than the window (see isa §8).

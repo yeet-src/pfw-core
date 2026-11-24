@@ -12,7 +12,7 @@ import { readFileSync, readdirSync } from "node:fs";
 import { compile } from "#/clang";
 import { LIMITS } from "#/isa.js";
 
-let bad = 0, total = 0;
+let bad = 0, total = 0, warned = 0;
 for (const name of ["examples", "contrib"]) {
   const dir = new URL(`../../${name}/`, import.meta.url);
   const files = readdirSync(dir).filter((f) => f.endsWith(".pfc")).sort();
@@ -24,8 +24,9 @@ for (const name of ["examples", "contrib"]) {
     if (!c.ok) { bad++; console.log(`FAIL ${name}/${f}: ${JSON.stringify(c.errors)}`); }
     else if (c.regex && c.regex.nstates > LIMITS.RE_STATES) { bad++; console.log(`FAIL ${name}/${f}: regex DFA has ${c.regex.nstates} states (kernel table holds ${LIMITS.RE_STATES})`); }
     else console.log(`ok   ${name}/${f} (${c.program.nops} ops)`);
+    for (const w of c.warnings ?? []) { warned++; console.log(`     warning, line ${w.line}: ${w.text}`); }
   }
   if (!files.length) { bad++; console.log(`FAIL ${name}/: no .pfc programs found`); }
 }
-console.log(bad ? `${bad}/${total} failed` : `${total}/${total} programs compiled (examples/ + contrib/)`);
+console.log(bad ? `${bad}/${total} failed` : `${total}/${total} programs compiled (examples/ + contrib/)${warned ? `, ${warned} warning(s)` : ""}`);
 process.exit(bad ? 1 : 0);

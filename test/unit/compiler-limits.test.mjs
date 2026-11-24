@@ -97,3 +97,18 @@ yeet.test("two frame walks nest, with locals to spare", () => {
   eq(p.exec(Uint8Array.from([9, 1, 0x78, 1, inner.length, ...inner]), {}).verdict, "drop", "the inner walk summed its two type-7 records");
   eq(p.exec(Uint8Array.from([9, 1, 0x78, 2, inner.length, ...inner]), {}).verdict, "pass", "and only inside a type-1 outer record");
 });
+
+yeet.test("a scan shorter than the reassembly window is a warning, not an error", () => {
+  const prog = (decl, call) => compile(`${decl} pattern sig = "evil"; filter { if (${call} & sig) decide drop("s"); decide pass; }`);
+  const short = prog("reassemble 80;", "scan(payload, 2048)");
+  eq(short.ok, true, "it still compiles");
+  eq(short.warnings.length, 1, "and says so once");
+  eq(short.warnings[0].line, 1, "at the scan");
+  if (!short.warnings[0].text.includes("2048") || !short.warnings[0].text.includes(String(LIMITS.REASM_CAP))) throw new Error("unhelpful warning: " + short.warnings[0].text);
+  eq(prog("decode h2 80;", "scan(payload, 2048)").warnings.length, 1, "a decoded view is a window too");
+  eq(prog("reassemble 80;", `scan(payload, ${LIMITS.REASM_CAP})`).warnings.length, 0, "the whole window");
+  eq(prog("", "scan(payload, 256)").warnings.length, 0, "per packet, a short scan is just a short scan");
+  eq(prog("reassemble 80;", "within(payload, 256)").warnings.length, 0, "within is a bounded look by design");
+  const elsewhere = compile(`reassemble 80; pattern sig = "evil", sp = " "; filter { if (!(scan(payload, ${LIMITS.REASM_CAP}) & sp)) decide pass; ptr p = after(sp); if (scan(p, 64) & sig) decide drop("s"); decide pass; }`);
+  eq(elsewhere.warnings.length, 0, "so is a scan from another pointer");
+});
