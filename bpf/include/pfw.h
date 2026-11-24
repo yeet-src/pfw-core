@@ -38,7 +38,7 @@
 #define SCOPE_FLOW   0    /* state ops act on this connection (flow.state / flow.count / rate) */
 #define SCOPE_SRC    1    /* ...or on the source address (src.state / src.count / src.rate) */
 #define RL_SCALE     1000000ULL /* OP_RATE fixed-point: tokens are stored x1e6 for sub-token precision */
-#define RW_MAX       4    /* redact/replace requests a program may record per packet,
+#define RW_MAX       16    /* redact/replace requests a program may record per packet,
                             * applied by the pfw_rewrite tail-call stage. A power of
                             * two: the index is masked. */
 #define PFW_NRULES   1024   /* rule ids: counters[rule] */

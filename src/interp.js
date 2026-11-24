@@ -217,7 +217,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.REPLACE: {
           // Overwrite every match in [payload, end) in place, same length:
           // redact fills with imm's low byte, replace copies pattern imm.
-          const repl = code === OP.REPLACE ? pats[Number(imm & 63n)] : null;
+          const repl = code === OP.REPLACE ? pats[Number(imm) & (MAX_PATS - 1)] : null;
           const fillB = Number(imm & 0xffn);
           const end = Math.min(Number(r[REG.end]), frame.length);
           const start = Number(r[REG.payload]); /* whole payload, not cursor */
