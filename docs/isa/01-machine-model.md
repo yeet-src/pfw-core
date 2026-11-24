@@ -4,7 +4,7 @@
 
 A program is an array of `struct pfw_op` in the `programs` map. The interpreter
 (`pfw_step`) executes **one instruction per step**, driven by
-`bpf_loop(PFW_MAX_OPS, pfw_step, …)` — so a run is **at most 65536 steps**. A step
+`bpf_loop(PFW_MAX_OPS, pfw_step, …)` — so a run is **at most 8192 steps**. A step
 ends the run early (returns non-zero) when:
 
 - a verdict has been set (`st->verdict != V_NONE`),
@@ -63,7 +63,7 @@ The **one controlled exception is `call`/`ret`.** `call` pushes the return
 address (`pc + 1`) onto the data stack and sets `pc = imm` (which may be
 backward — the assembler exempts `call` from the forward check); `ret` pops an
 address off the data stack into `pc`. Backward control flow is therefore
-possible at run time, but it is still bounded by the overall 65536-step
+possible at run time, but it is still bounded by the overall 8192-step
 `bpf_loop` budget, so termination holds regardless. Repetition that isn't a
 subroutine is a **compile-time unroll** (`repeat`, `frame … up to N`) with a
 fixed ceiling.
