@@ -137,6 +137,18 @@ await phase("dst_iface");                  // the prefix on one interface: both 
 console.log(`ROUTES2 ${J(Object.keys(vm.routes).sort())}`);
 await vm.unroute({ dst: "127.0.0.0/8", iface: lo });
 
+/* Precedence. The address decides first: a host's own /32 route keeps its
+ * traffic from a /8 route that names a port. Between routes with the same
+ * prefix, the one that names a port wins. */
+const PASS = load(`filter { decide pass; }`);
+await vm.route({ dst: "127.0.0.0/8", proto: "udp", dport: port }, BOTH);     // the first port, anywhere in /8
+await vm.route({ dst: "127.0.0.1" }, PASS);                                  // the host itself
+await vm.route({ dst: "127.0.0.1", proto: "udp", dport: port2 }, BOTH);      // the host's second port
+await phase("precedence");                 // port: the /32 passes it; port2: the /32 that names the port drops it
+await vm.unroute({ dst: "127.0.0.0/8", proto: "udp", dport: port });
+await vm.unroute({ dst: "127.0.0.1" });
+await vm.unroute({ dst: "127.0.0.1", proto: "udp", dport: port2 });
+
 /* Per-connection state in a stage, apart from the dispatched program's. Both
  * count the packets of a connection: the stage lets two through, and the
  * program it hands them to drops the first it sees. Were the count shared, the

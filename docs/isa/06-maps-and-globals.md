@@ -4,7 +4,7 @@
 |---|---|---|---|
 | `programs` | ARRAY (64) | u32 → `pfw_prog` | a program's header and patterns, by slot |
 | `dispatch` | HASH | `route_key` (ifindex, proto, dport, shape) → u32 | routes with no destination prefix: the slot of the program for those packets. `shape` says which fields the route names |
-| `dispatch_dst` | LPM_TRIE | `dst_key` (shape, family, proto, port, ifindex, address) → u32 | routes with a destination prefix, longest match on the address; the 96 bits before it must match whole |
+| `dispatch_dst` | LPM_TRIE | `dst_key` (shape, family, proto, port, ifindex, address) → u32 | routes with a destination prefix, longest match on the address; the 96 bits before it must match whole. The value is the slot, with the prefix length above its low byte |
 | `stage_flows` | LRU_HASH | `stage_key` (flow, stage) → `flow_prog` | what each stage program keeps for a connection: scan state, `flow.state`, the count, registers, rate bucket and ring. The dispatched program's is `flow.own` |
 | `ops` | ARRAY (2 × 65536) | u32 → `pfw_op` | the instructions of every program (`ops_base + pc`) |
 | `ac_goto` | ARRAY | u32 → u16 | AC goto table (`(ac_base + state)·256 + byte`) |
@@ -39,7 +39,7 @@
 
 - `default_slot` — the slot of the program a packet runs when `dispatch` has no entry for it.
 - `first_on`, `first_slot` — whether there is a chain of stage programs every packet runs before the one it is dispatched to, and the slot of its first. A stage keeps its per-connection state in `stage_flows`, by its place in the chain (`pfw_prog.stage_ix`), and has no reassembly. Its pass tail-calls `pfw_stage` for the stage `pfw_prog.next_slot` names, or `pfw_dispatch` from the last.
-- `route_shapes` — a bit for each shape of route installed; the entry looks up only those. Routes with a destination prefix are tried first, then those without; within each, by what else the route names: interface + protocol + port, protocol + port, interface + protocol, protocol, interface, nothing. Then `default_slot`.
+- `route_shapes` — a bit for each shape of route installed; the entry looks up only those. Every shape of prefix route in use is looked up and the longest prefix kept; on a tie, and among routes with no prefix, the order is by what else the route names: interface + protocol + port, protocol + port, interface + protocol, protocol, interface, nothing. Then `default_slot`.
 - `shadow` — 1 = shadow mode (enforcement is logged/counted but passed).
 - Counters: `seen, ran, passed, dropped, rsts, bans, enforced, faults, logged,
   ring_full, shadowed`, the reassembly counters (`reasm_retrans, reasm_gaps,
