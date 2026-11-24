@@ -60,3 +60,15 @@ yeet.test("nocase leaves digits, punctuation and \\d \\s classes alone", () => {
   eq(hit(d, "123-45"), true, "digits");
   eq(hit(d, "123_45"), false, "punctuation is exact");
 });
+
+yeet.test("one rule of a nocase program can match a request line exactly", () => {
+  /* The literal is found in any case, as the program says. The request line is
+   * a regex that says its own: a chat prompt that merely mentions the request
+   * in lower case does not look like one. */
+  const p = prog(String.raw`nocase; pattern agent = "gptbot";
+    regex probe = "(?-i)POST /guardrails/test_custom_code[^ \r\n]* HTTP/1\.[01]";
+    filter { mask m = scan(payload, 512); if (m & probe) decide drop("probe"); if (m & agent) decide drop("agent"); decide pass; }`);
+  eq(p.exec(enc("POST /guardrails/test_custom_code HTTP/1.1\r\nHost: x\r\n\r\n")).verdict, "drop", "the request itself");
+  eq(p.exec(enc("POST /chat HTTP/1.1\r\n\r\n{\"prompt\":\"how do i post /guardrails/test_custom_code http/1.1 safely\"}")).verdict, "pass", "prose that mentions it");
+  eq(p.exec(enc("GET / HTTP/1.1\r\nUser-Agent: GPTBot\r\n\r\n")).verdict, "drop", "and the literal still ignores case");
+});

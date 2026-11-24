@@ -11,6 +11,13 @@ bounded repeat). Escapes `\n \r \t \0`.
 
 **Not supported:** backreferences, lookaround (they need backtracking).
 
+**Case.** A regex follows the program's `nocase`, unless it says its own: `(?i)`
+at its start ignores case, `(?-i)` does not. So one rule of a case-insensitive
+program can match a request line as a request line —
+`regex probe = "(?-i)POST /admin[^ \r\n]* HTTP/1\.[01]";` — where a bare
+scan for the path would also fire on a chat prompt that mentions it in lower
+case. Literal `pattern`s have only the program's case.
+
 **Several regexes.** Regexes that sit together cheaply share one DFA, and one
 table lookup a byte. Ones that do not would multiply each other's states — an
 AWS key id beside an email address is 7400 states, and neither alone is 2500 —
