@@ -40,15 +40,16 @@ regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
 regex card = "\\d{13,16}";
 filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
-// The same three and an AWS access key id, in one program. The key alone is a
-// DFA of some 2500 states, and regexes share one DFA, so their sizes multiply:
-// all four come to about 11000, where the table once held 1024.
+// The same three, an AWS access key id and a JWT, in one program. As one DFA
+// they pass 65536 states; the compiler splits them across three, some 2600
+// states in all, and the kernel walks the three side by side.
 const bigSource = `nocase;
 regex ssn = "\\d{3}-\\d{2}-\\d{4}";
 regex email = "[a-z0-9._]+@[a-z0-9.]+\\.[a-z]+";
 regex card = "\\d{13,16}";
 regex aws = "AKIA[A-Z0-9]{16}";
-filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card, aws)) { log(16); decide rst("pii", 0); } decide pass; }`;
+regex jwt = "eyJ[A-Za-z0-9_-]{10,}\\.[A-Za-z0-9_-]{10,}";
+filter { if (dport != ${PORT}) decide pass; if (any(scan(payload, 512), ssn, email, card, aws, jwt)) { log(16); decide rst("pii", 0); } decide pass; }`;
 
 const CASES = [
   ["SSN -> rst", "my ssn is 123-45-6789 ok", V.RST],
@@ -61,6 +62,8 @@ const BIG_CASES = [
   ["aws key -> rst", "key AKIAIOSFODNN7EXAMPLE end", V.RST],
   ["aws key one byte short -> pass", "key AKIAIOSFODNN7EXAMPL end", V.PASS],
   ["...and an SSN beside it -> rst", "my ssn is 123-45-6789 ok", V.RST],
+  ["...and a JWT -> rst", "auth eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0 x", V.RST],
+  ["...and half a JWT -> pass", "auth eyJhbGciOiJIUzI1NiJ9 x", V.PASS],
   ["...and clean text -> pass", "just a normal request body", V.PASS],
 ];
 

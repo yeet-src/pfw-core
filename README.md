@@ -113,7 +113,7 @@ Consequences to design around:
   | pattern length | 256 B | |
   | scan window | 4096 B | the matcher never reads past it |
   | automaton states | 16384 | across all literal patterns |
-  | regex DFA states | 32768 | across all regex patterns |
+  | regex DFA states | 32768 | across all regex patterns, in up to 4 DFAs |
   | scratch registers | 40 | locals reuse them by live range |
   | subroutine args | 7 | `%a0..%a6`, result in `%rv` |
   | data stack depth | 256 | `push`/`pop`, `call`/`ret` |
@@ -171,7 +171,7 @@ declared with `knob struct`.
 | `p.tables()` | the Aho-Corasick automaton `{ edges, fails, accepts }` for the `ac_*` maps |
 | `p.program` | the op/pattern record (`{ ops, pats, nops, npats, nocase, reasm, decode, args, argc, fmts, … }`) |
 | `p.patterns`, `p.rules` | the interned pattern list and rule-name table |
-| `p.regex` | the regex DFA (`{ nstates, trans, accept }`) or `null` |
+| `p.regex` | the regex DFAs (`{ nstates, trans, accept, starts, startOf }`) or `null` |
 | `p.consoleFormats`, `p.printkFormats` | format strings by id |
 | `p.knobs`, `p.knobDefaults`, `p.knobStrs` | live-control bindings: knob name / seeded default / string-knob name, by slot |
 | `p.asm` | the disassembly |

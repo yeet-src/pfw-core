@@ -1,8 +1,8 @@
 /* A restricted regex -> DFA compiler, for verifier-safe fuzzy matching (SSNs,
  * emails, cards). The DFA is matched one byte per step through a transition
  * table, exactly like the Aho-Corasick automaton — so it runs in the kernel with
- * no backtracking. Several regexes compile into ONE DFA (alternation) with a
- * per-regex accept bit, mirroring how `scan` sets a bit in %m per matched pattern.
+ * no backtracking. Several regexes compile into a few DFAs, each regex with its
+ * own accept bit, mirroring how `scan` sets a bit in %m per matched pattern.
  *
  * Supported: literals, `.`, char classes (\d \w \s and their negations, [a-z],
  * [^...]), groups, alternation `|`, and quantifiers `?` `*` `+` `{n}` `{n,m}`
@@ -168,12 +168,13 @@ function buildNFA(ast) {
   return { states, start: f.start, accept: f.accept };
 }
 
-/* ---- combine regexes + subset-construct to a DFA ------------------------- */
-/* regexes: [{ src, bit }]; `nocase` builds a case-insensitive DFA (see parse).
- * Returns { nstates, trans:[Uint16Array(256)], accept:[BigInt] }.
- * Unanchored: a start state loops on any byte (implicit .*) and also enters each
- * regex; a DFA state's accept mask ORs the bits of the regex-accepts it contains. */
-export function compileRegexes(regexes, nocase = false) {
+/* ---- regexes -> DFAs ------------------------------------------------------ */
+/* One DFA over several regexes, by subset construction, or null when it would
+ * pass `cap` states. Unanchored: the start state loops on any byte (implicit
+ * .*) and also enters each regex; a DFA state's accept mask ORs the bits of the
+ * regex accepts it contains. State 0 is the start, and a byte nothing consumes
+ * leads back to it. */
+function buildDFA(regexes, nocase, cap) {
   const states = []; // merged NFA
   const mk = () => (states.push({ eps: [], edges: [] }), states.length - 1);
   const start = mk();
@@ -196,26 +197,132 @@ export function compileRegexes(regexes, nocase = false) {
   const dstates = new Map(); // key -> dfa id
   const order = [];
   const intern = (nfaSet) => { const k = keyOf(nfaSet); if (dstates.has(k)) return dstates.get(k); const id = order.length; dstates.set(k, id); order.push(nfaSet); trans.push(new Uint16Array(256)); let m = 0n; for (const s of nfaSet) if (acceptBit.has(s)) m |= 1n << BigInt(acceptBit.get(s)); accept.push(m); return id; };
+  /* Bytes no edge tells apart move every state alike: the work is done once a
+   * class of them, not once a byte. A handful of classes is typical. */
+  const sets = [...new Set(states.flatMap((st) => st.edges.map((e) => e.set)).filter(Boolean))];
+  const classOf = new Map(), classes = []; // membership signature -> class; class -> its bytes
+  for (let b = 0; b < 256; b++) {
+    const k = sets.map((set) => (set.has(b) ? "1" : "0")).join("");
+    if (!classOf.has(k)) { classOf.set(k, classes.length); classes.push([]); }
+    classes[classOf.get(k)].push(b);
+  }
   intern(closure([start]));
   for (let id = 0; id < order.length; id++) {
     const nfaSet = order[id];
-    for (let b = 0; b < 256; b++) {
-      const move = [];
+    for (const bytes of classes) {
+      const b = bytes[0], move = [];
       for (const s of nfaSet) for (const e of states[s].edges) if (e.set === null || e.set.has(b)) move.push(e.to);
-      trans[id][b] = move.length ? intern(closure(move)) : 0; // 0 = start (which has the .* loop) — keeps matching anywhere
+      const to = move.length ? intern(closure(move)) : 0;
+      for (const x of bytes) trans[id][x] = to;
     }
-    if (order.length > LIMITS.RE_STATES) throw new Error(`regex DFA too large: more than ${LIMITS.RE_STATES} states (the kernel table's size) — narrow a class or shorten a counted repeat`);
+    if (order.length > cap) return null;
   }
   return { nstates: order.length, trans, accept };
+}
+
+/* The smallest DFA that reports the same accept masks, byte for byte: states
+ * are told apart by their mask, then by where each byte leads, until nothing
+ * splits (Moore). The start state stays 0. */
+function minimise(dfa) {
+  const n = dfa.nstates;
+  let cls = new Int32Array(n), ncls = 0;
+  const byMask = new Map();
+  for (let s = 0; s < n; s++) { const k = dfa.accept[s]; if (!byMask.has(k)) byMask.set(k, ncls++); cls[s] = byMask.get(k); }
+  const sig = new Uint16Array(257);
+  for (;;) {
+    const next = new Int32Array(n), ids = new Map();
+    for (let s = 0; s < n; s++) {
+      sig[0] = cls[s];
+      const row = dfa.trans[s];
+      for (let b = 0; b < 256; b++) sig[b + 1] = cls[row[b]];
+      const k = String.fromCharCode.apply(null, sig);
+      let id = ids.get(k);
+      if (id === undefined) { id = ids.size; ids.set(k, id); }
+      next[s] = id;
+    }
+    const grew = ids.size !== ncls;
+    cls = next; ncls = ids.size;
+    if (!grew) break;
+  }
+  // Classes are numbered by first appearance, and state 0 appears first.
+  const trans = Array.from({ length: ncls }, () => null), accept = new Array(ncls);
+  for (let s = 0; s < n; s++) {
+    const c = cls[s];
+    if (trans[c]) continue;
+    trans[c] = Uint16Array.from(dfa.trans[s], (t) => cls[t]);
+    accept[c] = dfa.accept[s];
+  }
+  return { nstates: ncls, trans, accept };
+}
+
+/* A regex joins a group when the DFA they share is no more than this many
+ * times the two apart: regexes that do not interact cost about their sum, and
+ * ones that do multiply. */
+const MERGE_SLACK = 2;
+
+/* regexes: [{ src, bit }]; `nocase` builds case-insensitive DFAs (see parse).
+ *
+ * One DFA over every regex is one table lookup a byte, but its states remember
+ * where each regex stands at once, so their sizes multiply: an AWS key id beside
+ * an email address is 7400 states, and neither alone is 2500. So the regexes are
+ * packed into at most RE_GROUPS DFAs, walked side by side — a lookup each a
+ * byte, and sizes that add. Regexes that share a DFA cheaply still do, and a
+ * program whose regexes all do pays for one lookup, as before.
+ *
+ * The groups share one state space, each in its own range, so the kernel's
+ * tables keep their shape. Returns
+ *   { nstates, trans:[Uint16Array(256)], accept:[BigInt],   every group's states
+ *     starts:[state],        where each group begins, and restarts
+ *     startOf:{bit: state} } the start of the group that matches regex `bit` */
+export function compileRegexes(regexes, nocase = false) {
+  const { RE_STATES, RE_GROUPS } = LIMITS;
+  const tooLarge = () => new Error(`regex DFA too large: more than ${RE_STATES} states (the kernel table's size) — narrow a class or shorten a counted repeat`);
+  const groups = [], homeless = [];
+  for (const re of regexes) {
+    const solo = buildDFA([re], nocase, RE_STATES);
+    if (!solo) throw tooLarge();
+    const home = groups.find((g) => {
+      const both = buildDFA([...g.members, re], nocase, Math.min(RE_STATES, MERGE_SLACK * (g.dfa.nstates + solo.nstates)));
+      if (both) { g.members.push(re); g.dfa = both; }
+      return both;
+    });
+    if (home) continue;
+    if (groups.length < RE_GROUPS) groups.push({ members: [re], dfa: solo });
+    else homeless.push(re);
+  }
+  /* Every group is taken and this regex is cheap beside none of them: it goes
+   * where it grows the total least, if the table can hold that. */
+  for (const re of homeless) {
+    const total = groups.reduce((n, g) => n + g.dfa.nstates, 0);
+    let best = null;
+    for (const g of groups) {
+      const both = buildDFA([...g.members, re], nocase, RE_STATES - (total - g.dfa.nstates));
+      if (both && (!best || both.nstates - g.dfa.nstates < best.both.nstates - best.g.dfa.nstates)) best = { g, both };
+    }
+    if (!best) throw tooLarge();
+    best.g.members.push(re); best.g.dfa = best.both;
+  }
+
+  const trans = [], accept = [], starts = [], startOf = {};
+  for (const g of groups) {
+    const dfa = minimise(g.dfa), base = trans.length;
+    if (base + dfa.nstates > RE_STATES) throw tooLarge();
+    starts.push(base);
+    for (const { bit } of g.members) startOf[bit] = base;
+    for (let s = 0; s < dfa.nstates; s++) { trans.push(dfa.trans[s].map((t) => t + base)); accept.push(dfa.accept[s]); }
+  }
+  return { nstates: trans.length, trans, accept, starts, startOf };
 }
 
 /* Reference matcher (host): does any regex match within `bytes`? Returns the
  * accept bitmask seen over the walk (bits set for every regex that matched). */
 export function runDFA(dfa, bytes) {
-  let s = 0; let mask = 0n;
-  for (let k = 0; k < bytes.length; k++) {
-    s = dfa.trans[s][bytes[k]];
-    mask |= dfa.accept[s];
+  let mask = 0n;
+  for (let s of dfa.starts) {
+    for (let k = 0; k < bytes.length; k++) {
+      s = dfa.trans[s][bytes[k]];
+      mask |= dfa.accept[s];
+    }
   }
   return mask;
 }

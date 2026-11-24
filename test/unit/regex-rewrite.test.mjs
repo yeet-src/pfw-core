@@ -55,3 +55,15 @@ yeet.test("a regex match longer than 127 bytes is redacted whole", () => {
   const buf = enc("k=#" + "a1".repeat(99) + "f;"); p.exec(buf, {});
   eq(dec(buf), "k=" + "*".repeat(200) + ";", "all 200 bytes");
 });
+
+yeet.test("a regex in the second DFA is rewritten from that DFA's start", () => {
+  /* The key id and the account number do not share a DFA cheaply, so the number lands in
+   * a second one, whose states do not begin at 0. */
+  const src = String.raw`regex key = "AKIA[A-Z0-9]{16}"; regex iban = "[A-Z]{2}[0-9]{2}[A-Z0-9]{12}"; filter { redact(iban); decide pass; }`;
+  const c = compile(src);
+  if (!c.ok) throw new Error(JSON.stringify(c.errors));
+  const bit = c.patterns.find((p) => p.name === "iban").id;
+  if (c.regex.startOf[bit] === 0) throw new Error("the account number shares the first DFA: this test no longer tests a second one");
+  const buf = enc("a GB29NWBK60161331 b AKIAIOSFODNN7EXAMPLE c"); toProgram(c).exec(buf, {});
+  eq(dec(buf), "a **************** b AKIAIOSFODNN7EXAMPLE c", "the account number, and not the key");
+});

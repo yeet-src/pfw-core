@@ -6,7 +6,7 @@
 | `ac_goto` | ARRAY | u32 → u16 | AC goto table (`gen·AC_STATES·256 + state·256 + byte`) |
 | `ac_fail` | ARRAY | u32 → u16 | AC failure links |
 | `ac_accept` | ARRAY | u32 → u64 | AC per-state accept bitmask |
-| `re_goto` | ARRAY | u32 → u16 | regex DFA transitions |
+| `re_goto` | ARRAY | u32 → u16 | regex DFA transitions (`gen·RE_STATES·256 + state·256 + byte`); up to `RE_GROUPS = 4` DFAs share the state space, each in its own range |
 | `re_accept` | ARRAY | u32 → u64 | regex DFA accept masks |
 | `tt_cells` | ARRAY | u32 → u32 | loadable byte-transform tables |
 | `lpm` / `lpm6` | LPM_TRIE | `lpm_key`/`lpm6_key` → u32 | `src in set` / `src6 in set6` |

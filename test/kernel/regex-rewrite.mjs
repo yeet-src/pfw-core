@@ -47,6 +47,11 @@ const CASES = [
   { name: "regex redact leaves non-matches",
     source: String.raw`regex ssn = "\d{3}-\d{2}-\d{4}";` + `\nfilter { ${guard} redact(ssn); decide pass; }`,
     send: "no pii here 12-34-5", want: "no pii here 12-34-5" },
+  // Two regexes that do not share a DFA: the account number is matched by the second one,
+  // which the rewrite stage has to start from its own first state.
+  { name: "redact through the second regex DFA",
+    source: `regex key = "AKIA[A-Z0-9]{16}"; regex iban = "[A-Z]{2}[0-9]{2}[A-Z0-9]{12}";` + `\nfilter { ${guard} redact(iban); decide pass; }`,
+    send: "a GB29NWBK60161331 b AKIAIOSFODNN7EXAMPLE c", want: "a **************** b AKIAIOSFODNN7EXAMPLE c" },
 ];
 
 let fail = 0, n = 0;

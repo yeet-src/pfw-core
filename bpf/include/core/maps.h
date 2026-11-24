@@ -308,7 +308,7 @@ struct pfw_state {
     __u32 x_pat;      /* cmpstr: the pattern index */
     __u32 x_eq;       /* cmpstr: still equal */
     __u32 x_count;    /* skipb: bytes skipped */
-    __u32 x_re_state; /* scan: current regex DFA state, carried across bytes */
+    __u32 x_re[RE_GROUPS]; /* scan: each regex DFA's current state, carried across bytes */
 };
 
 PFW_LINK struct {

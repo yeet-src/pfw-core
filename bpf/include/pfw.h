@@ -15,6 +15,7 @@
 #define BLOOM_MAX    1048576 /* capacity of the `x in bloom` probabilistic set (bloom) */
 #define BLOOM_HASHES 5     /* hash functions for the bloom filter (map_extra) */
 #define RE_STATES    32768 /* max states in the regex DFA (re_goto/re_accept); a power of two */
+#define RE_GROUPS    4    /* regex DFAs walked side by side, each in its own range of RE_STATES; a power of two */
 #define PFW_ARGC     64   /* runtime scalar args a program can read (OP_ARG / OP_ARGC) */
 #define FARGS_MAX    8    /* numeric args a console() or emit() can carry (printk takes 3); a power of two */
 #define FSTR_MAX     2    /* %s string args a call can carry */
@@ -241,8 +242,11 @@ struct pfw_prog {
                         * DECODE_NONE, DECODE_H2, DECODE_HUFFMAN or DECODE_TRANSFORM. */
     __u32 transform_table; /* DECODE_TRANSFORM: which loaded tt_cells table (0..TT_NTABLES-1) */
     __u32 argc;            /* number of runtime args the host set in args[] (OP_ARG / OP_ARGC) */
+    __u32 re_ngroups;      /* regex DFAs in use (0 = the program has no regex); <= RE_GROUPS */
     __u64 args[PFW_ARGC];  /* runtime scalar parameters, set from the host without recompiling */
     __u8 fmts[PFW_FMTS][PFW_FMT_CAP]; /* printk format strings (NUL-terminated), for bpf_trace_printk */
+    __u32 re_start[RE_GROUPS];         /* the start state of each regex DFA: where a scan begins it */
+    __u32 re_pat_start[PFW_MAX_PATS];  /* by regex accept bit: the start of the DFA that matches it (regex rewrite) */
     struct pfw_op ops[PFW_MAX_OPS];
     struct pfw_pat pats[PFW_MAX_PATS];
 };
