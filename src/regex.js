@@ -7,6 +7,7 @@
  * Supported: literals, `.`, char classes (\d \w \s and their negations, [a-z],
  * [^...]), groups, alternation `|`, and quantifiers `?` `*` `+` `{n}` `{n,m}`
  * `{n,}` (bounded: * and {n,}'s open end are capped at STAR_CAP repeats).
+ * `(?i)` or `(?-i)` first sets that regex's case, over the program's `nocase`.
  * NOT supported: backreferences, lookaround — they need backtracking.
  *
  * Matching is unanchored (finds the pattern anywhere in the window) via an
@@ -36,7 +37,14 @@ const caseClose = (set) => {
   return set;
 };
 
+/* A regex may say its own case, ahead of everything else: `(?i)` ignores it,
+ * `(?-i)` does not, whatever the program's `nocase` says. So one rule of a
+ * case-insensitive program can still ask for `POST`, and not `post` in prose. */
+const CASE_FLAG = /^\(\?(-?)i\)/;
+
 function parse(src, nocase = false) {
+  const flag = CASE_FLAG.exec(src);
+  if (flag) { nocase = flag[1] !== "-"; src = src.slice(flag[0].length); }
   const bytes = [...new TextEncoder().encode(src)];
   const cc = (set) => (nocase ? caseClose(set) : set);
   let i = 0;
@@ -260,7 +268,10 @@ function minimise(dfa) {
  * ones that do multiply. */
 const MERGE_SLACK = 2;
 
-/* regexes: [{ src, bit }]; `nocase` builds case-insensitive DFAs (see parse).
+/* regexes: [{ src, bit }]; `nocase` is the case of a regex that does not say its
+ * own (see parse). The DFAs read the bytes as they are — a case-insensitive
+ * regex accepts both cases of each letter itself — so regexes of either kind
+ * share a DFA.
  *
  * One DFA over every regex is one table lookup a byte, but its states remember
  * where each regex stands at once, so their sizes multiply: an AWS key id beside

@@ -110,3 +110,24 @@ yeet.test("a DFA is minimised: equivalent spellings cost the same", () => {
   const a = compileRegexes([{ src: "ab|ac|ad", bit: 0 }]), b = compileRegexes([{ src: "a[bcd]", bit: 0 }]);
   eq(a.nstates, b.nstates, "states");
 });
+
+yeet.test("a regex sets its own case with (?i) or (?-i), over the program's", () => {
+  /* The compiler's default here is nocase: the second regex opts out of it. */
+  const d = compileRegexes([{ src: "gptbot", bit: 0 }, { src: "(?-i)POST /admin", bit: 1 }], true);
+  eq(has(d, "UA: GPTBot", 0), true, "the program's case: any case matches");
+  eq(has(d, "POST /admin HTTP/1.1", 1), true, "its own case: the exact spelling matches");
+  eq(has(d, "please post /admin somewhere", 1), false, "...and lower-case prose does not");
+  eq(has(d, "Post /admin", 1), false, "...nor a mixed spelling");
+  /* And the other way: a case-sensitive default, one regex opting in. */
+  const e = compileRegexes([{ src: "GPTBot", bit: 0 }, { src: "(?i)sqlmap", bit: 1 }], false);
+  eq(has(e, "gptbot", 0), false, "the program's case: exact");
+  eq(has(e, "GPTBot", 0), true, "exact spelling");
+  eq(has(e, "SqlMap/1.0", 1), true, "its own case: any case");
+});
+
+yeet.test("a case flag is not part of the pattern", () => {
+  const d = compileRegexes([{ src: "(?-i)ab", bit: 0 }]);
+  eq(has(d, "xaby", 0), true, "matches what follows the flag");
+  eq(has(d, "(?-i)ab", 0), true, "the text of the flag is not looked for (the ab still is)");
+  eq(has(d, "(?-i)", 0), false, "and alone it matches nothing");
+});

@@ -58,6 +58,18 @@ const CASES = [
   ["clean -> pass", "just a normal request body", V.PASS],
   ["near-miss SSN -> pass", "code 12-345-6789 here", V.PASS],
 ];
+// One rule of a case-insensitive program that says its own case: a request
+// line, matched as a request line. A prompt that mentions the same words in
+// lower case is not one.
+const exactSource = `nocase;
+pattern agent = "gptbot";
+regex probe = "(?-i)POST /guardrails/test_custom_code[^ \\r\\n]* HTTP/1\\.[01]";
+filter { if (dport != ${PORT}) decide pass; mask m = scan(payload, 512); if (m & probe) { log(16); decide rst("probe", 0); } if (m & agent) { log(16); decide rst("agent", 0); } decide pass; }`;
+const EXACT_CASES = [
+  ["the request line itself -> rst", "POST /guardrails/test_custom_code HTTP/1.1\r\nHost: x\r\n\r\n", V.RST],
+  ["lower-case prose that mentions it -> pass", "POST /chat HTTP/1.1\r\n\r\nhow do i post /guardrails/test_custom_code http/1.1 safely", V.PASS],
+  ["the program's own case still ignores case -> rst", "GET / HTTP/1.1\r\nUser-Agent: GPTBot\r\n\r\n", V.RST],
+];
 const BIG_CASES = [
   ["aws key -> rst", "key AKIAIOSFODNN7EXAMPLE end", V.RST],
   ["aws key one byte short -> pass", "key AKIAIOSFODNN7EXAMPL end", V.PASS],
@@ -73,7 +85,7 @@ const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on
 await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
 console.log(`kernel regex — fuzzy matching (DFA) on :${PORT}\n`);
 try {
-  for (const [src, cases] of [[source, CASES], [bigSource, BIG_CASES]]) await withProgram(src, async (events) => {
+  for (const [src, cases] of [[source, CASES], [bigSource, BIG_CASES], [exactSource, EXACT_CASES]]) await withProgram(src, async (events) => {
     for (const [name, payload, want] of cases) {
       await sleep(700);
       const before = events.length;

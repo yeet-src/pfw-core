@@ -89,7 +89,7 @@ static long rw_re_step(__u32 i, void *ctx_)
     struct pfw_state *st = c->st;
     if (!st || i >= c->n)
         return 1;
-    __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
+    __u8 b = st->buf[PFW_MASK(i, SCAN_CAP)]; /* as it is: a regex has its own case, built in */
     if (!c->p)
         return 1;
     __u32 rbase = c->p->re_base;

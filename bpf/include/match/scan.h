@@ -26,7 +26,10 @@ static long ac_step(__u32 i, void *pctx)
         return 1;
     if (i >= st->x_scan_len)
         return 1;
-    __u8 b = fold(st->buf[PFW_MASK(i, SCAN_CAP)], st->nocase);
+    /* The literal automaton is built folded, and reads the byte folded. The
+     * regex DFAs read it as it is: each regex has its own case, built in. */
+    __u8 raw = st->buf[PFW_MASK(i, SCAN_CAP)];
+    __u8 b = fold(raw, st->nocase);
     struct pfw_prog *p = c->prog;
     if (!p)
         return 1;
@@ -75,7 +78,7 @@ resolved:
 #define RE_WALK(g) \
     if (ng > (g)) { \
         __u32 rs = st->x_re[g] & (RE_STATES - 1); \
-        __u32 rk = (PFW_MASK(rbase + rs, RE_POOL) << 8) + b; \
+        __u32 rk = (PFW_MASK(rbase + rs, RE_POOL) << 8) + raw; \
         __u16 *rn = bpf_map_lookup_elem(&re_goto, &rk); \
         rs = rn ? (*rn & (RE_STATES - 1)) : 0; \
         st->x_re[g] = rs; \

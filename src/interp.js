@@ -158,7 +158,7 @@ export function machine({ asm, tables, regex = null }) {
             r[REG.m] |= acc;
             for (let b = 0; b < MAX_PATS; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
             for (let g = 0; g < rs.length; g++) {     // the regex DFAs, over the same window
-              rs[g] = regex.trans[rs[g]][fold(w[k])];
+              rs[g] = regex.trans[rs[g]][w[k]];     // unfolded: each regex has its own case, built in
               r[REG.m] |= regex.accept[rs[g]];
             }
           }
@@ -226,7 +226,7 @@ export function machine({ asm, tables, regex = null }) {
             if (regex && len > 0) {
               let s = regex.startOf[bit] ?? 0;      // the DFA this regex is in
               for (let i = start; i < end && i < start + SCAN_CAP; i++) {
-                s = regex.trans[s][fold(frame[i])];
+                s = regex.trans[s][frame[i]];
                 if ((regex.accept[s] >> bit) & 1n) { const base = i + 1 - len; if (base >= start) for (let j = 0; j < len; j++) frame[base + j] = repl ? repl.bytes[j] : fillB; }
               }
             }
