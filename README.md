@@ -108,7 +108,7 @@ Consequences to design around:
 
   | Limit | Value | |
   |---|---|---|
-  | instructions | 8192 | per program |
+  | instructions | 65536 | per program |
   | patterns | 64 | `scan` matches all at once |
   | pattern length | 64 B | |
   | scan window | 2048 B | the matcher never reads past it |

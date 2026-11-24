@@ -46,7 +46,7 @@ yeet.test("a regex DFA over the kernel's table size is a compile error", () => {
 });
 
 yeet.test("a program over the instruction budget is a compile error, not a throw", () => {
-  const body = Array.from({ length: 3000 }, (_, i) => `if (len == ${i}) decide drop("r");`).join("\n");
+  const body = Array.from({ length: LIMITS.MAX_OPS / 2 }, (_, i) => `if (len == ${i}) decide drop("r");`).join("\n");
   let c;
   try { c = compile(`filter { ${body} decide pass; }`); } catch (e) { throw new Error("compile() threw: " + e.message); }
   eq(c.ok, false, "must not compile");
