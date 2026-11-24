@@ -37,7 +37,13 @@ export const LIMITS = {
   FLOW_REGS: 4, SAMPLE_CAP: 2048, SAMPLE_TAGS: 64,
   TABLE_CELLS: 131072, TABLES: 16, KV_MAX: 16384,
   FMTS: 8, FMT_CAP: 64, STACK: 64, KNOBS: 32, KNOBSTRS: 16, KNOBSTR_CAP: 64, KNOB_SCAN: 256,
+  AC_MAX_FAIL: 16, RING_CAP: 16,
 };
+
+/* The limits the kernel never sees: the compiler alone enforces them. Every
+ * other key of LIMITS has a #define in pfw.h, and test/node/check-isa.mjs
+ * fails when the two disagree. */
+export const HOST_LIMITS = ["SAMPLE_TAGS", "TABLES"];
 
 /* Upper bounds, in nanoseconds, of the decision-time histogram's buckets
  * (DECIDE_BOUNDS in pfw.h): bucket i counts decisions that took less than

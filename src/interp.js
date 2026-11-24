@@ -13,7 +13,8 @@
  * unmodelled op throws rather than silently passing. */
 import { LIMITS, NREGS, OP, REG } from "#/isa.js";
 
-const SCAN_CAP = 2048, MAX_OPS = 8192, AC_MAX_FAIL = 16, RING_CAP = 16, U64 = (1n << 64n) - 1n;
+const { SCAN_CAP, MAX_OPS, MAX_PATS, PAT_CAP, AC_MAX_FAIL, RING_CAP, STACK, FLOW_REGS, KNOB_SCAN, STRARG } = LIMITS;
+const U64 = (1n << 64n) - 1n, SCAN_N = BigInt(SCAN_CAP), PAT_N = BigInt(PAT_CAP);
 const RL_SCALE = 1_000_000; /* OP_RATE fixed-point, mirrors RL_SCALE in pfw.h */
 export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
 
@@ -62,7 +63,7 @@ export function machine({ asm, tables, regex = null }) {
     const sampled = []; /* OP_SAMPLE copies of the frame: { tag, data, wireLen } */
     let dnat = null;    /* OP_DNAT: where the packet was steered, { ip, port } */
     const fargs = [], fstrs = [], consoleMsgs = []; /* OP_FARG numeric + OP_FARGS string buffers + collected console() messages */
-    const hstack = new Array(64).fill(0n); /* the data stack (push/pop), %sp indexes it */
+    const hstack = new Array(STACK).fill(0n); /* the data stack (push/pop), %sp indexes it */
     const ring = flow.ring ? [...flow.ring] : new Array(RING_CAP).fill(0);
     let ringHead = flow.ringHead ?? 0, ringCount = flow.ringCount ?? 0;
     /* Per-flow scalars the program reads (mark, user_state, hits). Writes are
@@ -82,7 +83,7 @@ export function machine({ asm, tables, regex = null }) {
     let srcHits = source?.hits ?? 0, srcNewState = srcState;
     const srcBucket = source ? (source.bucket ?? (source.bucket = {})) : null;
     let ac = flow.ac, pc = 0, zf = false, cf = false, ff = false, verdict = V.NONE, rule = 0;
-    const mpos = new Array(64).fill(0);
+    const mpos = new Array(MAX_PATS).fill(0);
     /* Reads clamp to R_END (the program may narrow it, e.g. `frame`), and never
      * past the actual buffer — as the kernel's window() bounds by st->r[R_END]. */
     const wend = () => Math.min(Number(r[REG.end]), end);
@@ -149,13 +150,13 @@ export function machine({ asm, tables, regex = null }) {
         case OP.JF: if (ff) { ff = false; jump(true); } break;
         case OP.SCAN: {
           if (rawReg & 1) { ac = 0; r[REG.m] = 0n; }      // fresh scan (within): only this window counts
-          const w = window(cur, Number(imm > 2048n ? 2048n : imm));
+          const w = window(cur, Number(imm > SCAN_N ? SCAN_N : imm));
           let rs = 0;
           if (w) for (let k = 0; k < w.length; k++) {
             const acc = acStep(w[k]);                 // Aho-Corasick over literal patterns
             const fresh = acc & ~r[REG.m];
             r[REG.m] |= acc;
-            for (let b = 0; b < 64; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
+            for (let b = 0; b < MAX_PATS; b++) if ((fresh >> BigInt(b)) & 1n) mpos[b] = Number(cur) + k + 1;
             if (regex) {                              // regex DFA over regex patterns, same window
               rs = regex.trans[rs][fold(w[k])];
               r[REG.m] |= regex.accept[rs];
@@ -167,13 +168,13 @@ export function machine({ asm, tables, regex = null }) {
         case OP.CMPSTR: {
           const p = pats[rawReg & 63];
           cf = false;
-          if (!p || p.len === 0 || p.len > 64) { zf = false; break; } /* an empty slot just clears the flags */
+          if (!p || p.len === 0 || p.len > PAT_CAP) { zf = false; break; } /* an empty slot just clears the flags */
           const w = window(cur, p.len);
           zf = !!w && w.length === p.len && p.bytes.every((b, k) => fold(w[k]) === fold(b)); // nocase folds both, as the kernel does
           break;
         }
         case OP.FINDB: {
-          const w = window(cur, Number(imm > 2048n ? 2048n : imm));
+          const w = window(cur, Number(imm > SCAN_N ? SCAN_N : imm));
           ff = true;
           const k = w ? w.indexOf(rawReg & 0xff) : -1;
           if (k >= 0) { cur = cur + BigInt(k); ff = false; }
@@ -192,7 +193,7 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.SKIPB: {
-          const cap = (imm === 0n || imm > 64n) ? 64 : Number(imm);
+          const cap = (imm === 0n || imm > PAT_N) ? PAT_CAP : Number(imm);
           const w = window(cur, cap);
           let count = 0;
           if (w) for (let k = 0; k < w.length; k++) { if (w[k] !== (rawReg & 0xff)) break; count = k + 1; }
@@ -233,7 +234,7 @@ export function machine({ asm, tables, regex = null }) {
           }
           const p = pats[rawReg & 63];
           if (p && p.len > 0 && (!repl || repl.len === p.len)) {
-            for (let o = start; o >= 0 && o + p.len <= end && o < start + 2048; o++) {
+            for (let o = start; o >= 0 && o + p.len <= end && o < start + SCAN_CAP; o++) {
               let hit = true;
               for (let j = 0; j < p.len; j++) if (fold(frame[o + j]) !== fold(p.bytes[j])) { hit = false; break; }
               if (hit) { for (let j = 0; j < p.len; j++) frame[o + j] = repl ? repl.bytes[j] : fillB; o += p.len - 1; }
@@ -249,8 +250,8 @@ export function machine({ asm, tables, regex = null }) {
           if (rawReg === 1) { srcHits = (srcHits + 1) >>> 0; cur = BigInt(srcHits); }
           else { hits = (hits + 1) >>> 0; cur = BigInt(hits); }
           break;
-        case OP.FLOAD: { const which = rawReg & 7; cur = which === 4 ? fbytes : which === 5 ? fpackets : ureg[which & 3]; break; }
-        case OP.FSTORE: ureg[rawReg & 3] = cur; break;
+        case OP.FLOAD: { const which = rawReg & 7; cur = which === 4 ? fbytes : which === 5 ? fpackets : ureg[which & (FLOW_REGS - 1)]; break; }
+        case OP.FSTORE: ureg[rawReg & (FLOW_REGS - 1)] = cur; break;
         case OP.FLOW: cur = BigInt(mark); break;
         case OP.MARK: setMark = rawReg; break;
         case OP.COUNT: rule = rawReg; break; // counter side effect; execution continues
@@ -288,7 +289,7 @@ export function machine({ asm, tables, regex = null }) {
           const needle = knobStrs[Number(imm) & 15];
           zf = false; cf = false;
           if (needle && needle.length) {
-            const off = Number(r[REG.payload]), end = Math.min(Number(r[REG.end]), frame.length, off + 256);
+            const off = Number(r[REG.payload]), end = Math.min(Number(r[REG.end]), frame.length, off + KNOB_SCAN);
             const nb = typeof needle === "string" ? Array.from(needle, (ch) => ch.charCodeAt(0) & 0xff) : needle;
             for (let i = off; i + nb.length <= end && !zf; i++) { let eq = true; for (let j = 0; j < nb.length; j++) if (frame[i + j] !== nb[j]) { eq = false; break; } if (eq) zf = true; }
           }
@@ -298,7 +299,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.FARGS: { /* capture a %s string: cur is a frame offset, up to imm/32 bytes */
           if (fstrs.length < 2) {
             const off = Number(cur), e2 = Math.min(Number(r[REG.end]), frame.length);
-            const len = Math.max(0, Math.min(Number(imm), 256, e2 - off));
+            const len = Math.max(0, Math.min(Number(imm), STRARG, e2 - off));
             let str = ""; for (let j = 0; j < len; j++) str += String.fromCharCode(frame[off + j]);
             fstrs.push(str);
           }
@@ -312,9 +313,9 @@ export function machine({ asm, tables, regex = null }) {
         }
         case OP.EMIT: emitted.push({ id: Number(imm & 0xffffffffn), nums: fargs.splice(0) }); break; /* a typed event: the id and the numbers */
         case OP.PRINTK: fargs.splice(0); break; /* kernel-only: bpf_trace_printk to the trace pipe; host no-op (clears args) */
-        case OP.PUSH: { const sp = Number(r[REG.sp]); if (sp < 64) { hstack[sp] = cur; r[REG.sp] = BigInt(sp + 1); } break; } /* push cur, sp++ */
+        case OP.PUSH: { const sp = Number(r[REG.sp]); if (sp < STACK) { hstack[sp] = cur; r[REG.sp] = BigInt(sp + 1); } break; } /* push cur, sp++ */
         case OP.POP: { let sp = Number(r[REG.sp]); if (sp > 0) { sp--; cur = hstack[sp]; r[REG.sp] = BigInt(sp); } break; } /* sp--, cur = top */
-        case OP.CALL: { const sp = Number(r[REG.sp]); if (sp < 64) { hstack[sp] = BigInt(next); r[REG.sp] = BigInt(sp + 1); next = Number(imm); } break; } /* push return pc, jump */
+        case OP.CALL: { const sp = Number(r[REG.sp]); if (sp < STACK) { hstack[sp] = BigInt(next); r[REG.sp] = BigInt(sp + 1); next = Number(imm); } break; } /* push return pc, jump */
         case OP.RET: { let sp = Number(r[REG.sp]); if (sp > 0) { sp--; next = Number(hstack[sp]); r[REG.sp] = BigInt(sp); } break; } /* pop pc */
         case OP.REDIRECT: break; /* kernel-only: forwards the packet out an ifindex (XDP_REDIRECT); no effect on the host frame model */
         case OP.RATE: { /* token bucket; ZF = over the limit. The caller passes a persistent `bucket` ({tokens,ts}) and `now` to model state across packets; absent one, treat as allowed. */
