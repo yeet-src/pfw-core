@@ -296,7 +296,7 @@ static long pfw_step(__u32 i, void *pctx)
         return 0;
     }
     case OP_SKIPB: {
-        __u32 n = window(c, cur, (__u32) (imm == 0 || imm > PFW_PAT_CAP ? PFW_PAT_CAP : imm));
+        __u32 n = window(c, cur, (__u32) (imm == 0 || imm > SKIP_CAP ? SKIP_CAP : imm));
         st->x_count = 0;
         if (n) {
             st->x_scan_len = n;

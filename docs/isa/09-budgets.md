@@ -6,7 +6,8 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 |---|---|---|
 | instructions (`MAX_OPS`) | 65536 | per program; also the step ceiling |
 | patterns (`MAX_PATS`) | 64 | one bit each in `%m` |
-| pattern length (`PAT_CAP`) | 64 B | |
+| pattern length (`PAT_CAP`) | 256 B | |
+| skip run (`SKIP_CAP`) | 64 B | what one `skipb` passes over |
 | scan window (`SCAN_CAP`) | 4096 B | and the `findb` window |
 | AC states (`AC_STATES`) | 16384 | per generation |
 | regex DFA states (`RE_STATES`) | 8192 | |
@@ -24,7 +25,7 @@ From `LIMITS` (`src/isa.js`) / `pfw.h`:
 | per-flow ring (`RING_CAP`) | 16 | newest-wins |
 | rewrites per packet (`RW_MAX`) | 4 | recorded, applied by the rewrite stage |
 | log snapshot (`LOG_CAP`) | 256 B | into the event |
-| reassembly window (`REASM_CAP`) | 4096 B | per flow; slides, keeping `REASM_KEEP = 64` B |
+| reassembly window (`REASM_CAP`) | 4096 B | per flow; slides, keeping `REASM_KEEP = 256` B |
 | sources (`SRC_MAX`) | 262144 | LRU; per-source state and bans |
 | NAT connections (`NAT_MAX`) | 65536 | LRU; `dnat` reply path |
 | h2 dynamic table (`H2_DYN_SLOTS` × `H2_ENT_CAP`) | 64 × 256 B | per h2 connection, newest entries |

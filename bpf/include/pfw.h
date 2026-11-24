@@ -7,7 +7,8 @@
 
 #define PFW_MAX_OPS  65536 /* instructions per program */
 #define PFW_MAX_PATS 64   /* patterns per program: one bit each in %m */
-#define PFW_PAT_CAP  64   /* bytes per pattern */
+#define PFW_PAT_CAP  256   /* bytes per pattern */
+#define SKIP_CAP     64   /* bytes a skipb passes over when given no cap, or one above this */
 #define LPM_MAX      65536 /* max prefixes in the `src in set` CIDR trie (lpm) */
 #define LPM6_MAX     65536 /* max prefixes in the `src6 in set6` IPv6 CIDR trie (lpm6) */
 #define HASH_MAX     262144 /* max keys in the `x in hash` exact set (hashset) */

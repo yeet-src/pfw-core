@@ -192,7 +192,7 @@ through to `pc + 1`. Forward-only (see above).
 ### 24 — `OP_SKIPB` (`skipb $byte[, $max]`)
 - **Assembler:** `skipb $BYTE` or `skipb $BYTE, $MAX`.
 - **Encoding:** `code = 24`, `reg = byte (& 0xff)`, `imm = max run`
-  (`0` or `> PFW_PAT_CAP` ⇒ `PFW_PAT_CAP = 64`).
+  (`0` or `> SKIP_CAP` ⇒ `SKIP_CAP = 64`).
 - **Operation:** count the leading run of `byte` in the window (up to `max`) and
   advance the cursor past it: `cur ← cur + run`. Never faults — a zero-length run
   just leaves the cursor where it was.

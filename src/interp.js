@@ -13,8 +13,8 @@
  * unmodelled op throws rather than silently passing. */
 import { LIMITS, NREGS, OP, REG } from "#/isa.js";
 
-const { SCAN_CAP, MAX_OPS, MAX_PATS, PAT_CAP, AC_MAX_FAIL, RING_CAP, STACK, FLOW_REGS, KNOB_SCAN, STRARG } = LIMITS;
-const U64 = (1n << 64n) - 1n, SCAN_N = BigInt(SCAN_CAP), PAT_N = BigInt(PAT_CAP);
+const { SCAN_CAP, MAX_OPS, MAX_PATS, PAT_CAP, SKIP_CAP, AC_MAX_FAIL, RING_CAP, STACK, FLOW_REGS, KNOB_SCAN, STRARG } = LIMITS;
+const U64 = (1n << 64n) - 1n, SCAN_N = BigInt(SCAN_CAP), SKIP_N = BigInt(SKIP_CAP);
 const RL_SCALE = 1_000_000; /* OP_RATE fixed-point, mirrors RL_SCALE in pfw.h */
 export const V = { NONE: 0, PASS: 1, DROP: 2, BAN: 3, RST: 4 };
 
@@ -193,7 +193,7 @@ export function machine({ asm, tables, regex = null }) {
           break;
         }
         case OP.SKIPB: {
-          const cap = (imm === 0n || imm > PAT_N) ? PAT_CAP : Number(imm);
+          const cap = (imm === 0n || imm > SKIP_N) ? SKIP_CAP : Number(imm);
           const w = window(cur, cap);
           let count = 0;
           if (w) for (let k = 0; k < w.length; k++) { if (w[k] !== (rawReg & 0xff)) break; count = k + 1; }

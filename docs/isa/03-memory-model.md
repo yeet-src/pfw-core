@@ -6,7 +6,7 @@ Reads are unrestricted up to `%end`. `load` reads 1/2/4/8 bytes at `%cur + imm`,
 little- or big-endian; out of bounds sets `FF` and leaves `%cur` unchanged.
 `scan`/`findb`/`cmpstr`/`skipb` read a bounded window starting at `%cur`; the
 window never crosses `%end` and is clamped (`scan`/`findb` to `SCAN_CAP = 4096`,
-`skipb`/`cmpstr` to `PFW_PAT_CAP = 64`). The kernel copies the window into
+`cmpstr` to `PFW_PAT_CAP = 256`, `skipb` to `SKIP_CAP = 64`). The kernel copies the window into
 `st->buf` via `window()` and matches over that; in reassembly mode the bytes come
 from the flow's `reasm` buffer instead of the wire.
 
@@ -72,7 +72,7 @@ state is only as trustworthy as the source address.
 In reassembly mode each segment is placed at its sequence offset in the flow's
 window, first-wins on overlap (the Linux policy), and the program inspects the
 contiguous prefix. The window **slides**: when the next in-order segment does not
-fit, the window shifts forward to make room, keeping the last `REASM_KEEP = 64`
+fit, the window shifts forward to make room, keeping the last `REASM_KEEP = 256`
 bytes (the maximum pattern length) so a pattern straddling the edge is still seen
 whole. A connection is therefore followed for its whole life.
 

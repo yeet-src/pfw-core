@@ -3,7 +3,7 @@
  * `reassemble` used to anchor a 2048-byte buffer at the start of the connection
  * and RESET the connection as soon as the stream outgrew it — so a keep-alive
  * connection or an upload was cut off at 2 kB. The window now slides, keeping
- * the last 64 bytes across each move. This proves, against the real kernel:
+ * the last 256 bytes across each move. This proves, against the real kernel:
  *   - a long clean stream is carried whole (no reset),
  *   - a signature far past the 4 kB window is still caught,
  *   - a signature split across two segments is caught,

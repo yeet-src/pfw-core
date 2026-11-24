@@ -110,7 +110,7 @@ Consequences to design around:
   |---|---|---|
   | instructions | 65536 | per program |
   | patterns | 64 | `scan` matches all at once |
-  | pattern length | 64 B | |
+  | pattern length | 256 B | |
   | scan window | 4096 B | the matcher never reads past it |
   | automaton states | 16384 | across all literal patterns |
   | regex DFA states | 8192 | across all regex patterns |
