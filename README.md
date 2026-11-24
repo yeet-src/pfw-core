@@ -116,11 +116,11 @@ Consequences to design around:
   | regex DFA states | 1024 | across all regex patterns |
   | scratch registers | 16 | locals reuse them by live range |
   | subroutine args | 7 | `%a0..%a6`, result in `%rv` |
-  | data stack depth | 64 | `push`/`pop`, `call`/`ret` |
+  | data stack depth | 256 | `push`/`pop`, `call`/`ret` |
   | rules | 64 | named verdicts, per program |
-  | runtime args | 16 | `argv[i]` |
-  | knobs | 32 | `knob("name")` live control slots |
-  | string knobs | 16 | `kstr("name")`, 64 B each |
+  | runtime args | 64 | `argv[i]` |
+  | knobs | 256 | `knob("name")` live control slots |
+  | string knobs | 64 | `kstr("name")`, 64 B each |
   | per-flow ring | 16 | newest-wins |
 
 - Packet **reads** are unrestricted; **writes** are the deliberate rewrite ops

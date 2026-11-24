@@ -13,10 +13,10 @@
 | `hashset` | HASH | u32 → u32 | `x in hash` |
 | `bloom` | BLOOM_FILTER | u32 value | `x in bloom` (`map_extra = 5`) |
 | `flows` | LRU_HASH | `flow_key` → `flow` | connection state (`MAX_FLOWS = 16384`) |
-| `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 32`) |
+| `knobs` | ARRAY | u32 → u64 | live numeric control values (`knob("name")`, `PFW_KNOBS = 256`) |
 | `tables` | ARRAY (2 × 131072) | u32 → u64 | host-loaded lookup tables (`NAME[i]`), one half per generation; key = `gen * TABLE_CELLS + base + index` |
 | `kv` | HASH (262144) | u64 → u64 | the host-loaded key → value map (`lookup(key)`) |
-| `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 16`) |
+| `knob_strs` | ARRAY | u32 → `knob_str` | live string knobs (`kstr("name")`, `PFW_KNOBSTRS = 64`) |
 | `sources` | LRU_HASH | `src_key` → `source` | per-source state and the source ban (`SRC_MAX = 262144`) |
 | `nat` | LRU_HASH | `nat_key` → `nat_val` | reply path of `dnat`: reply tuple → original destination (`NAT_MAX = 65536`) |
 | `h2conns` | LRU_HASH | `flow_key` → `h2conn` | `decode h2` dynamic tables (`H2_CONNS = 1024`) |
@@ -68,10 +68,10 @@ maps each name to a slot (`compile()` returns `knobs[slot] = name`,
 `knobStrs[slot] = name`, and `knobDefaults[slot]` for a declared default); the
 loader seeds defaults and writes host-supplied values into those slots.
 
-- `knobs` — `PFW_KNOBS = 32` `__u64` slots. `OP_KNOB` reads one into `%cur`.
+- `knobs` — `PFW_KNOBS = 256` `__u64` slots. `OP_KNOB` reads one into `%cur`.
   Zero-initialized (unset = `0`); a `knob("x") ?? d` default is written by the
   loader, not applied at run time, so the host can still override it to `0`.
-- `knob_strs` — `PFW_KNOBSTRS = 16` `struct knob_str` slots, each a length +
+- `knob_strs` — `PFW_KNOBSTRS = 64` `struct knob_str` slots, each a length +
   `KNOBSTR_CAP = 64`-byte needle. `OP_KNOBHAS` searches it over the first
   `KNOB_SCAN = 256` payload bytes (copied into `pfw_state.kbuf`) and sets `ZF`.
 

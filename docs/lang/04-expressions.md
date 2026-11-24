@@ -210,7 +210,7 @@ if (dport in hash) decide rst("blocked_port", 0);
 
 ### Runtime parameters
 
-`argv[i]` reads the *i*-th host-set runtime argument (`i` a literal `0..15`);
+`argv[i]` reads the *i*-th host-set runtime argument (`i` a literal `0..63`);
 `argv[i] ?? default` supplies a literal fallback when the host set fewer than
 `i+1` args; `argc` is how many were set. One compiled program, many deployments —
 no recompile.
@@ -249,8 +249,8 @@ if (kstr("bad_host")) decide rst("blocked", 0);      // live blocklist entry
 ```
 
 Related names are grouped with a `knob struct` declaration and read as fields
-(`cfg.rate`) — see [§2 Program structure](02-program-structure.md). Up to 32
-numeric knobs and 16 string knobs per program.
+(`cfg.rate`) — see [§2 Program structure](02-program-structure.md). Up to 256
+numeric knobs and 64 string knobs per program.
 
 ### `rate`
 

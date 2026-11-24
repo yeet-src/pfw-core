@@ -234,7 +234,7 @@ by `console`/`printk`.
 - **Operation (kernel):** `bpf_trace_printk(prog->fmts[id & (PFW_FMTS-1)],
   PFW_FMT_CAP, …)` with up to **3** numeric args from `st->fargs`, then resets
   `fargn = 0`. The format lives **in the program** (`prog->fmts`, NUL-terminated,
-  `PFW_FMT_CAP = 64` bytes, `PFW_FMTS = 8` slots) so the helper can read it at
+  `PFW_FMT_CAP = 64` bytes, `PFW_FMTS = 16` slots) so the helper can read it at
   run time. Output goes to the kernel trace pipe.
 - **Operation (host):** no-op (clears the numeric args); nothing to render
   host-side.
@@ -300,7 +300,7 @@ by `console`/`printk`.
 A single per-CPU data stack (the `stack` map, one `struct vmstack { u64 s[64] }`)
 backs both explicit `push`/`pop` and the `call`/`ret` return-address stack.
 `%sp` (`R_SP`) is the stack pointer, `%bp` (`R_BP`) a caller-managed frame mark;
-depth is `STACK_CAP = 64`.
+depth is `STACK_CAP = 256`.
 
 ### 58 — `OP_PUSH` (`push`)
 

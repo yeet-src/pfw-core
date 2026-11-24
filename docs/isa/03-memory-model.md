@@ -21,7 +21,7 @@ once is a compile error, and the error says what holds each).
 
 ### The data stack
 
-A per-CPU `struct vmstack { u64 s[STACK_CAP]; }` (`STACK_CAP = 64`) in the
+A per-CPU `struct vmstack { u64 s[STACK_CAP]; }` (`STACK_CAP = 256`) in the
 `stack` map, indexed by `%sp`. `push` stores `%cur` and increments `%sp`; `pop`
 decrements `%sp` and loads `%cur`. `%bp` is a free register for marking a frame
 (`%bp = %sp`) and unwinding (`%sp = %bp`). `call`/`ret` use the **same** stack for
@@ -101,6 +101,6 @@ Written by the loader, read by instructions:
 | `re_goto`/`re_accept` | `scan` (regex) | `ARRAY` | regex DFA table + accept masks (per gen) |
 | `tt_cells` | `decode transform` | `ARRAY` | byte-transform tables (`TT_NTABLES = 8`) |
 | `programs[gen].args[]` | `arg`/`argc` | in `pfw_prog` | runtime scalar params (`PFW_ARGC = 16`) |
-| `programs[gen].fmts[]` | `printk` | in `pfw_prog` | in-kernel format strings (`PFW_FMTS = 8` × `PFW_FMT_CAP = 64`) |
+| `programs[gen].fmts[]` | `printk` | in `pfw_prog` | in-kernel format strings (`PFW_FMTS = 16` × `PFW_FMT_CAP = 64`) |
 
 ---
