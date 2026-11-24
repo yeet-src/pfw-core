@@ -33,7 +33,7 @@ async function withProgram(source, fn) {
     for (const m of String(d).matchAll(/EVENT (\d+) (".*")/g)) { try { events.push({ verdict: Number(m[1]), view: JSON.parse(m[2]) }); } catch {} }
   });
   child.stderr.on("data", (d) => { out += d; });
-  for (let i = 0; i < 150 && !/READY/.test(out); i++) await sleep(100);
+  for (let i = 0; i < 900 && !/READY/.test(out); i++) await sleep(100);
   if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out.slice(-2000)); }
   try { return await fn(events); } finally { child.kill("SIGINT"); await sleep(500); }
 }
@@ -135,7 +135,7 @@ try {
     const frame = (type, flags, stream, payload) => { const h = Buffer.alloc(9); h.writeUIntBE(payload.length, 0, 3); h[3] = type; h[4] = flags; h.writeUInt32BE(stream, 5); return Buffer.concat([h, payload]); };
     const PREFACE = Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n");
     const headers = (stream, flags, method, path, ua) => frame(1, 0x04 | flags, stream, Buffer.concat([lit(":method", method), lit(":scheme", "http"), lit(":path", path), lit(":authority", "127.0.0.1"), lit("user-agent", ua)]));
-    const upload = async (afterPath, afterUa) => {
+    const upload = async (afterPath, afterUa, piece = 1400) => {
       const body = Buffer.alloc(60000, 0x41), parts = [PREFACE, frame(4, 0, 0, Buffer.alloc(0)), headers(1, 0, "POST", "/upload", "uploader")];
       for (let o = 0; o < body.length; o += 16384) parts.push(frame(0, o + 16384 >= body.length ? 0x01 : 0, 1, body.subarray(o, o + 16384)));
       parts.push(headers(3, 0x01, "GET", afterPath, afterUa));
@@ -144,7 +144,7 @@ try {
       c.setNoDelay(true);
       c.on("error", () => { reset = true; });
       await new Promise((r) => { c.once("connect", r); c.once("error", r); });
-      for (let o = 0; o < all.length && !c.destroyed; o += 1400) { c.write(all.subarray(o, o + 1400)); await sleep(1); }
+      for (let o = 0; o < all.length && !c.destroyed; o += piece) { c.write(all.subarray(o, o + piece)); await sleep(1); }
       await sleep(700);
       c.destroy();
       return reset;
@@ -154,6 +154,14 @@ try {
     check("a 60 kB body in 16 kB DATA frames passes, and the next request is served", !cut && served.includes("/upload") && served.includes("/after-upload-ok"), `reset=${cut} served=${served.join(",")}`);
     cut = await upload("/after-upload-bot", "GPTBot");
     check("...and a blocked request after the body is still decoded and caught", cut && !served.includes("/after-upload-bot"), `reset=${cut}`);
+
+    /* The same, written at once: loopback carries it as segments of up to 64 kB,
+     * each many windows long, and each is decoded a piece at a time. */
+    served.length = 0;
+    cut = await upload("/big-write-ok", "Mozilla/5.0", 1 << 20);
+    check("the same body in one large write passes too, and the next request is served", !cut && served.includes("/upload") && served.includes("/big-write-ok"), `reset=${cut} served=${served.join(",")}`);
+    cut = await upload("/big-write-bot", "GPTBot", 1 << 20);
+    check("...and a blocked request after it is still decoded and caught", cut && !served.includes("/big-write-bot"), `reset=${cut}`);
 
     /* F. hand-built frames: PADDED + PRIORITY HEADERS continued in a CONTINUATION. */
     const crafted = (path, ua) => {

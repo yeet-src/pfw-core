@@ -68,7 +68,7 @@ empty (`len == 0`) when the packet completed none.
 | a malformed frame or header block | reset (`h2_failed`) |
 | a header sequence that cannot fit the window (> ~4 kB compressed) | reset (`reasm_over`) |
 | the dynamic table was evicted under a live connection (`H2_CONNS = 1024`, LRU) | reset (`h2_failed`) |
-| one TCP segment larger than the window | reset — fine at a 1500-byte MTU; jumbo frames and loopback writes over 4 kB hit it |
+| one TCP segment larger than the window (jumbo frames, loopback) | decoded a piece at a time, like any reassembled stream (isa §3). Each piece costs a decode several tail calls of the 33 the kernel allows, so a segment too long to finish within them is reset (`reasm_over`) rather than passed part-read; a 60 kB upload over loopback, which arrives as segments of about 32 kB, decodes |
 
 Only the client-to-server direction is decoded, and only cleartext HTTP/2 (h2c
 with prior knowledge). An `Upgrade: h2c` handshake starts as HTTP/1.1 and stays
