@@ -44,7 +44,7 @@
 #define PFW_GENS     2    /* program generations: apply writes the idle one, then flips */
 #define AC_STATES    16384 /* automaton states per generation */
 #define AC_MAX_FAIL  16   /* failure-link hops resolved per byte */
-#define SCAN_CAP     2048 /* bytes one scan / findb may cover; a power of two */
+#define SCAN_CAP     4096 /* bytes one scan / findb may cover; a power of two */
 #define LOG_CAP      256  /* bytes a log carries into the event */
 #define RING_CAP     16   /* per-flow ring entries (P3); a power of two */
 #define REASM_CAP    2048 /* per-flow reassembly buffer; <= SCAN_CAP so the whole

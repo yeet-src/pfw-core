@@ -56,7 +56,7 @@
 | instructions / program | 65536 |
 | patterns (`scan` matches all at once) | 64 |
 | pattern length | 64 B |
-| scan window | 2048 B |
+| scan window | 4096 B |
 | AC automaton states | 16384 |
 | regex DFA states | 8192 |
 | scratch registers (locals, by live range) | 16 |

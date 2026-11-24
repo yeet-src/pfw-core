@@ -36,7 +36,7 @@ with the stack ops; it is bounded by that same step budget, not by a label.)
 
 The matcher opcodes (`SCAN`, `CMPSTR`, `FINDB`, `SKIPB`) read a **window**: up to
 `n` bytes starting at the cursor, copied into `st->buf` by `window()`, bounded by
-`%end` and by `SCAN_CAP = 2048`. In reassembly mode the window is served from the
+`%end` and by `SCAN_CAP = 4096`. In reassembly mode the window is served from the
 flow's reassembled stream instead of the packet. The matcher never reads past the
 window.
 
@@ -123,7 +123,7 @@ through to `pc + 1`. Forward-only (see above).
 
 ### 20 — `OP_SCAN` (`scan $len[, (%cur)]`)
 - **Assembler:** `scan $LEN` or `scan $LEN, (%cur)` — the window always begins at
-  the cursor; `LEN` is `1 … SCAN_CAP (2048)`. `fscan` is the fresh form —
+  the cursor; `LEN` is `1 … SCAN_CAP (4096)`. `fscan` is the fresh form —
   **pfw-C:** `scan(ptr, N)` / `within(ptr, N)`.
 - **Encoding:** `code = 20`, `reg` bit 0 = fresh, `imm = window length` (clamped to
   `SCAN_CAP`). The length is a **compile-time constant** (the assembler and pfw-C
