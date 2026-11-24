@@ -1,7 +1,7 @@
 /* pfw: a pattern-matching interpreter at XDP.
  *
- * The program is data: up to PFW_MAX_OPS instructions in the `programs` map, one
- * generation active at a time, each run as a `bpf_loop` step over a per-CPU state
+ * The program is data: up to PFW_MAX_OPS instructions in the `ops` map, a
+ * header in `programs`, the packet dispatched to one of several, each run as a `bpf_loop` step over a per-CPU state
  * element. This unit is the entry (pfw_xdp) and the matcher (pfw_match); the
  * tail-call decode stages are their own units under decode/.
  *
@@ -63,25 +63,46 @@ int pfw_match(struct xdp_md *ctx)
     }
     /* Only ever reached by tail call from a decode stage, which left the decoded
      * view in st->view and pointed the registers at it: that is what is read. */
-    return match_half(ctx, &p, prog, f, st, now, &key, keyed, 1, st->view);
+    return match_half(ctx, &p, prog, f, st, now, &key, keyed, 1, st->view, 0);
 }
 
-SEC("xdp")
-int pfw_xdp(struct xdp_md *ctx)
+/* The entry, twice over. pfw_xdp is on the interface: it runs the first
+ * program if there is one, and otherwise dispatches. pfw_dispatch is where the
+ * first program sends a packet it passed: it only ever dispatches. They are
+ * two programs because the first one's pass is a tail call, and one program
+ * cannot be both on the interface and in the program array. */
+static __always_inline int entry(struct xdp_md *ctx, const __u32 second)
 {
-    seen++;
     struct pkt p = {};
     if (!parse(ctx, &p)) {
         passed++;
         return XDP_PASS;
     }
+    __u32 zero = 0;
+    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
+    if (!st) {
+        passed++;
+        return XDP_PASS;
+    }
+    if (!second)
+        seen++;
 
-    /* The program for this packet: the one its protocol and destination port
-     * are routed to, else the default. */
-    struct route_key rk = { .dport = p.dport, .proto = p.proto };
-    __u32 *routed = bpf_map_lookup_elem(&dispatch, &rk);
-    __u32 slot = (routed ? *routed : default_slot) & (PFW_PROGS - 1);
-    struct pfw_prog *prog = bpf_map_lookup_elem(&programs, &slot);
+    /* The program for this packet: the first program if there is one and the
+     * packet has not been through it, else the one its protocol and destination
+     * port are routed to, else the default. */
+    __u32 slot = 0, first = 0;
+    struct pfw_prog *prog = NULL;
+    if (first_on && !second) {
+        slot = first_slot & (PFW_PROGS - 1);
+        prog = bpf_map_lookup_elem(&programs, &slot);
+        first = prog && prog->nops != 0;
+    }
+    if (!first) {
+        struct route_key rk = { .dport = p.dport, .proto = p.proto };
+        __u32 *routed = bpf_map_lookup_elem(&dispatch, &rk);
+        slot = (routed ? *routed : default_slot) & (PFW_PROGS - 1);
+        prog = bpf_map_lookup_elem(&programs, &slot);
+    }
     if (!prog || prog->nops == 0)
         return XDP_PASS;
 
@@ -148,11 +169,12 @@ int pfw_xdp(struct xdp_md *ctx)
         }
     }
 
-    __u32 zero = 0;
-    struct pfw_state *st = bpf_map_lookup_elem(&state, &zero);
-    if (!st) {
-        passed++;
-        return XDP_PASS;
+    /* The first program sees the packet and its source, not the connection:
+     * the flow's scan state, registers and reassembly are the dispatched
+     * program's, which this packet reaches next. */
+    if (first) {
+        f = NULL;
+        keyed = 0;
     }
     st->slot = slot;
     st->prog_stamp = prog->gen;
@@ -221,7 +243,7 @@ int pfw_xdp(struct xdp_md *ctx)
     /* Reassembly mode: rebuild the TCP stream in the flow and run the program
      * over it rather than over this one packet. A pattern split or reordered
      * across segments is then seen the way the server's TCP stack sees it. */
-    __u32 use_reasm = prog->reasm && p.proto == IPPROTO_TCP
+    __u32 use_reasm = !first && prog->reasm && p.proto == IPPROTO_TCP
                    && (prog->reasm_dport == 0 || p.dport == prog->reasm_dport);
     if (use_reasm) {
         if (!f) {
@@ -275,5 +297,17 @@ int pfw_xdp(struct xdp_md *ctx)
         bpf_tail_call(ctx, &decode_jmp, SLOT_TRANSFORM);
     }
     (void) use_reasm;
-    return match_half(ctx, &p, prog, f, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL);
+    return match_half(ctx, &p, prog, f, st, now, &key, keyed, use_reasm, f ? f->reasm : NULL, first);
+}
+
+SEC("xdp")
+int pfw_xdp(struct xdp_md *ctx)
+{
+    return entry(ctx, 0);
+}
+
+SEC("xdp")
+int pfw_dispatch(struct xdp_md *ctx)
+{
+    return entry(ctx, 1);
 }

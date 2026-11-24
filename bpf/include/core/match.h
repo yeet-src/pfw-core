@@ -31,7 +31,7 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
                                        struct pfw_prog *prog, struct flow *f,
                                        struct pfw_state *st, __u64 now,
                                        struct flow_key *keyp, int keyed,
-                                       __u32 use_reasm, __u8 *rsrc)
+                                       __u32 use_reasm, __u8 *rsrc, __u32 chain)
 {
     /* pp is used through the pointer: a by-value copy here cost ~60 bytes of the
      * entry's stack frame, which is at the 512-byte limit. */
@@ -129,6 +129,11 @@ static __always_inline int match_half(struct xdp_md *ctx, struct pkt *pp,
         }
         dropped++; return XDP_DROP;
     default:
+        /* The first program let it through: on to the program it is dispatched
+         * to. If the call cannot be made the packet passes, as it would with no
+         * second program. */
+        if (chain)
+            bpf_tail_call(ctx, &decode_jmp, SLOT_DISPATCH);
         passed++;
         /* Forwarding the packet: if the program recorded redact/replace requests,
          * hand off to the rewrite stage (its own verifier budget) to apply them

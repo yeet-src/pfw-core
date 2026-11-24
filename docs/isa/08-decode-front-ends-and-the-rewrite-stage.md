@@ -16,6 +16,7 @@ budget; they are wired through the `decode_jmp` PROG_ARRAY:
 | `SLOT_TRANSFORM (4)` | `pfw_transform` — loadable-table decode |
 | `SLOT_REWRITE (5)` | `pfw_rewrite` — apply recorded `redact`/`replace` + fix the L4 checksum |
 | `SLOT_HPACK (6)` | `pfw_hpack` — h2: HPACK field parsing and Huffman string decode |
+| `SLOT_DISPATCH (7)` | `pfw_dispatch` — the entry again, without the first program: where a packet the first program passed is sent on to its own |
 
 A loader must attach all seven before the entry; `PfwVm` (`pfw-core/loader`)
 does.
