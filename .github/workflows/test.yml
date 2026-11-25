@@ -81,8 +81,8 @@ jobs:
         run: yeet test test/unit
 
   # By category, each on a runner of its own. A test waits about half a minute
-  # for every program it loads, on these machines, and one after another the
-  # whole set is an hour; the tests of one category still run serially, since
+  # each time it loads the VM, on these machines, and one after another the
+  # whole set is most of an hour; the tests of one category still run serially, since
   # they share that runner's loopback. The categories are GROUPS in
   # scripts/kernel-tests.mjs, which fails if a test is in none of them; a new
   # category needs adding here.
@@ -91,7 +91,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: [language, matching, rewrite, streams, state, host, machine]
+        group: [matching, rewrite, streams, state, host, machine]
     name: kernel tests (${{ matrix.group }})
     steps:
       - uses: actions/checkout@v4

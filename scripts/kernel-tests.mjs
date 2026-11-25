@@ -8,7 +8,9 @@
  *
  * --group is for CI, where each category gets a machine (and so a loopback) of
  * its own: every loader start costs about half a minute on a GitHub runner, and
- * the whole set in a row is an hour. Every test belongs to exactly one group,
+ * the whole set in a row is most of an hour. A test with many small programs
+ * loads once and routes each to a port of its own (lang, diff) for the same
+ * reason. Every test belongs to exactly one group,
  * and any run fails until it does, so a new test cannot go unrun there. A new
  * group also needs adding to the matrix in .github/workflows/test.yml.
  *
@@ -21,16 +23,15 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 
 const dir = new URL("../test/kernel/", import.meta.url);
-/* By what is under test. Sized so that no group is much longer than `language`,
- * which is one test and the longest. */
+/* By what is under test, and sized so that no group runs much past ten minutes
+ * on a GitHub runner. */
 const GROUPS = {
-  language: ["lang"],
   matching: ["bloom", "diff", "hash", "lpm", "lpm6", "regex"],
   rewrite: ["dnat", "nat", "redirect", "regex-rewrite", "rewrite"],
   streams: ["examples", "h2", "midjoin", "reasm"],
   state: ["counters", "counts", "rate", "source"],
   host: ["argv", "knob", "kstr", "loader", "route", "shadow"],
-  machine: ["args", "call", "console", "mpos", "printk", "stack"],
+  machine: ["args", "call", "console", "lang", "mpos", "printk", "stack"],
 };
 
 const argv = process.argv.slice(2);

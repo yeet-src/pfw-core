@@ -6,7 +6,12 @@
  *   yeet run scripts/apply-and-hold.mjs --src <hex pfw-C> [--iface N] [--hold S]
  *     [--argv 1,2] [--shadow 1] [--set CIDRs] [--set6 CIDRs] [--hashset 80,443]
  *     [--bloom 1,2] [--knobs name=val,...] [--kstr name=needle,...] [--dump 1]
- *     [--stats 1]
+ *     [--stats 1] [--routes udp/5301=<hex pfw-C>,tcp/5302=<hex>] [--rargv udp/5301=1+2]
+ *
+ * --routes holds several programs at once, each on the packets to its own port
+ * (the loader's route()), beside the default --src (which passes, if not given).
+ * Loading the VM is what a test waits for, so one that has many small programs
+ * to try loads once and gives each a port. --rargv is a routed program's argv.
  *
  * Prints READY once enforcing, `EVENT <verdict>[ <json bytes>]` per verdict/log
  * event (2=drop 3=ban 4=rst — the pfw_verdict enum), `CONSOLE <line>` per
@@ -21,11 +26,21 @@ const argv = yeet.args ?? {};
 const list = (v) => (v === undefined ? [] : String(v).split(",").filter((s) => s !== ""));
 const pairs = (v) => Object.fromEntries(list(v).map((kv) => { const [name, ...rest] = kv.split("="); return [name, rest.join("=")]; }));
 // The program arrives hex-encoded (no atob/TextDecoder in this runtime); it is ASCII.
-const src = argv.src ? String.fromCharCode(...argv.src.match(/../g).map((h) => parseInt(h, 16))) : "filter { decide pass; }";
+const unhex = (h) => String.fromCharCode(...h.match(/../g).map((x) => parseInt(x, 16)));
+const src = argv.src ? unhex(argv.src) : "filter { decide pass; }";
 
-const c = compile(src);
-if (!c.ok) { console.log("COMPILE FAIL " + JSON.stringify(c.errors)); yeet.exit(1); }
-for (const w of c.warnings) console.log(`WARN line ${w.line}: ${w.text}`);
+const built = (source) => {
+  const r = compile(source);
+  if (!r.ok) { console.log("COMPILE FAIL " + JSON.stringify(r.errors)); yeet.exit(1); }
+  for (const w of r.warnings) console.log(`WARN line ${w.line}: ${w.text}`);
+  return r;
+};
+const c = built(src);
+const routeArgv = pairs(argv.rargv);
+const routes = Object.entries(pairs(argv.routes)).map(([name, h]) => {
+  const [proto, dport] = name.split("/");
+  return { match: { proto, dport: Number(dport) }, c: built(unhex(h)), argv: (routeArgv[name] ?? "").split("+").filter((v) => v !== "").map((v) => BigInt(v)) };
+});
 
 const VCODE = { pass: 1, drop: 2, ban: 3, rst: 4 };
 const vm = new PfwVm({ iface: Number(argv.iface ?? 1) });
@@ -47,6 +62,7 @@ await vm.apply(c, {
   knobStrs: pairs(argv.kstr),
   shadow: Number(argv.shadow ?? 0) !== 0,
 });
+for (const r of routes) await vm.route(r.match, r.c, { argv: r.argv });
 
 console.log(`READY nops=${c.program.nops} decode=${c.program.decode ?? 0} reasm=${c.program.reasm ?? 0}`);
 /* --stats 1 prints the counters once a second, so a test can read what the
