@@ -535,7 +535,8 @@ Per-feature kernel tests (`test:rewrite`, `test:dnat`, `test:lpm`, `test:regex`,
 curl and Node HTTP/2 clients) each load a program through `yeetd` and assert
 on real loopback traffic; they need `yeetd` + loopback.
 `npm run test:kernel:all` runs every one of them in turn (`scripts/kernel-tests.mjs`;
-name some to run only those), and is what CI runs. Among them: `test:route`
+name some to run only those), and is what CI runs, in six parts on six runners
+(`--shard i/6`). Among them: `test:route`
 (programs routed by port, interface and prefix; stage programs), `test:counts`
 (a rule is counted when it decides, not once a packet), `test:midjoin` (a
 connection older than the program is followed, not reset), and in `test:reasm`,

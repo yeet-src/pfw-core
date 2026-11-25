@@ -80,9 +80,17 @@ jobs:
       - name: Unit suites
         run: yeet test test/unit
 
+  # In six parts, each on a runner of its own. A test waits about half a minute
+  # for every program it loads, on these machines, and one after another the
+  # whole set is an hour; the tests of one part still run serially, since they
+  # share that runner's loopback. scripts/kernel-tests.mjs balances the parts.
   kernel:
     runs-on: ubuntu-latest
-    name: kernel tests
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    name: kernel tests ${{ matrix.shard }}/6
     steps:
       - uses: actions/checkout@v4
 
@@ -104,7 +112,9 @@ jobs:
       - name: Build the BPF object
         run: make bpf
 
+      # Once is enough: every part runs the same kernel.
       - name: The verifier accepts it on this kernel
+        if: matrix.shard == 1
         run: yeet run scripts/verify-load.mjs
 
       # Serially: the tests share loopback's XDP hook. Each prints one line; a
@@ -112,4 +122,4 @@ jobs:
       - name: Kernel tests
         run: |
           uname -r
-          npm run test:kernel:all
+          npm run test:kernel:all -- --shard ${{ matrix.shard }}/6
