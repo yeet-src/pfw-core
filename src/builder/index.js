@@ -139,6 +139,7 @@ export class Builder {
   rateCur(scope = 0) { return this.op(OP.RATE, (scope & 1) | 2); } // the same, with rate (low 32) and burst (high 32) taken from %cur
   arg(idx, def = 0) { return this.op(OP.ARG, 0, (BigInt(idx & 0xffff) << 32n) | (BigInt(def >>> 0) & 0xffffffffn)); } // cur = args[idx] ?? def
   argc() { return this.op(OP.ARGC); } // cur = number of runtime args set
+  now() { return this.op(OP.NOW); } // cur = the packet's arrival time, ktime ns
   knob(slot) { return this.op(OP.KNOB, 0, BigInt(slot)); } // cur = knobs[slot] (live host-set control)
   tload(base, size) { return this.op(OP.TLOAD, 0, (BigInt(base >>> 0) & 0xffffffffn) | (BigInt(size >>> 0) << 32n)); } // cur = table cell at index cur (0 + fault past `size`)
   knobhas(slot) { return this.op(OP.KNOBHAS, 0, BigInt(slot)); } // ZF = string knob[slot] occurs in the payload

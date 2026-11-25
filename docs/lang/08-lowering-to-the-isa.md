@@ -21,6 +21,7 @@ Each construct lowers to ISA ops through the `Builder`; op names below are the
 | `decide pass/drop/count/ban/rst`, `log` | `PASS` / `DROP` / `COUNT` / `BAN` / `RST`, `LOG` |
 | `redact` / `replace` / `dnat` / `redirect` | `REDACT` / `REPLACE` / `DNAT` / `REDIRECT` |
 | `argv[i]` / `argc` | `ARG` / `ARGC` |
+| `now` | `NOW` |
 | `knob("n")` / `knob("n") ?? d` / `cfg.field` | `KNOB $slot` (default seeded into the slot at load) |
 | `kstr("n")` | `KNOBHAS $slot` (`ZF` = needle found) |
 | `console` / `printk` | `FARG`/`FARGS` + `CONSOLE` / `PRINTK` |

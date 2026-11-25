@@ -38,6 +38,7 @@ export function opText(op, patterns = [], rules = []) {
     case OP.RATE: return op.reg & 2 ? `${op.reg & 1 ? "srcrate" : "rate"} %cur` : `${op.reg & 1 ? "srcrate" : "rate"} ${Number(op.imm & 0xffffffffn)} ${Number((op.imm >> 32n) & 0xffffffffn)}`;
     case OP.ARG: { const idx = Number((op.imm >> 32n) & 0xffffn), def = Number(op.imm & 0xffffffffn); return def ? `arg ${idx} ?? ${def}` : `arg ${idx}`; }
     case OP.ARGC: return `argc`;
+    case OP.NOW: return `now`;
     case OP.KNOB: return `knob ${op.imm}`;
     case OP.KNOBHAS: return `knobhas ${op.imm}`;
     case OP.FLOAD: return op.reg === 4 ? "fload bytes" : op.reg === 5 ? "fload packets" : `fload r${op.reg & 3}`;

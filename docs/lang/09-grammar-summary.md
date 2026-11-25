@@ -47,7 +47,7 @@ primary     = number | char | string | ident | "(" expr ")" | "(" arith ")" | "!
             | readtype "(" arith ")"           (* direct read *)
             | ident "[" arith "]"              (* table cell *)
             | "lookup" "(" arith ")" [ "??" (number|char) ]
-            | "argv" "[" number "]" [ "??" (number|char) ] | "argc"
+            | "argv" "[" number "]" [ "??" (number|char) ] | "argc" | "now"
             | "knob" "(" string ")" [ "??" (number|char) ] | "kstr" "(" string ")"
             | ident "." ident                  (* knob struct field *)
             | ident "(" [ args ] ")" ;         (* call *)

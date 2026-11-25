@@ -160,6 +160,7 @@ export function parse(toks) {
         return { kind: "arg", index: idx, def, line: t.line };
       }
       if (name === "argc") return { kind: "argc", line: t.line };
+      if (name === "now") return { kind: "now", line: t.line };
       /* lookup(key) [?? default]: the value the host stored under a key. */
       if (name === "lookup" && isP("(")) {
         next();

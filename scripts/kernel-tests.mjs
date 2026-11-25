@@ -31,7 +31,7 @@ const GROUPS = {
   streams: ["examples", "h2", "midjoin", "reasm"],
   state: ["counters", "counts", "rate", "source"],
   host: ["argv", "knob", "kstr", "loader", "route", "shadow"],
-  machine: ["args", "call", "console", "lang", "mpos", "printk", "stack"],
+  machine: ["args", "call", "clock", "console", "lang", "mpos", "printk", "stack"],
 };
 
 const argv = process.argv.slice(2);

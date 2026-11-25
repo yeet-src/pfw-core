@@ -222,6 +222,7 @@ enum pfw_opcode {
     OP_FLOAD,   /* cur = a per-flow value: reg 0..3 = flow register, FF_BYTES, FF_PACKETS */
     OP_FSTORE,  /* flow register reg (0..3) = cur */
     OP_SAMPLE,  /* copy the first imm bytes of the frame to the host (the `samples` ring); reg = tag id */
+    OP_NOW,     /* cur = the packet's arrival time, ktime nanoseconds (bpf_ktime_get_ns at entry) */
     OP_COUNT_OPCODES,
 };
 

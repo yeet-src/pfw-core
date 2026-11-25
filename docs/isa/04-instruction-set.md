@@ -1,6 +1,6 @@
 # 4. Instruction set
 
-All **75 opcodes** (`OP_END = 0` … `OP_SAMPLE = 74`). Every instruction is one
+All **76 opcodes** (`OP_END = 0` … `OP_NOW = 75`). Every instruction is one
 `struct pfw_op { u32 code; u32 reg; u64 imm; }` — see
 [§5 Bytecode encoding](05-bytecode-encoding.md) for how operands pack into
 `reg`/`imm`. Execution is forward-only: a program is a `bpf_loop` of at most
@@ -101,3 +101,4 @@ link for the complete entry.)
 | 72 | `OP_FLOAD` | cur = a per-flow value: reg 0..3 = flow register, 4 = bytes, 5 = packets | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 73 | `OP_FSTORE` | flow register reg (0..3) = cur | [verdict / flow / membership](instructions/03-verdict-flow-and-membership.md) |
 | 74 | `OP_SAMPLE` | copy the first imm bytes of the frame to the host (the `samples` ring); reg = tag id | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
+| 75 | `OP_NOW` | cur = the packet's arrival time, ktime nanoseconds (one reading, taken at entry) | [rewrite / steer / args / stack](instructions/04-rewrite-steer-args-and-stack.md) |
