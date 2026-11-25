@@ -3,14 +3,14 @@
  * hook and a few ports, and so cannot run side by side.
  *
  *   node scripts/kernel-tests.mjs [name ...]     # e.g. reasm route
- *   node scripts/kernel-tests.mjs --shard 2/6    # the second of six equal parts
- *   node scripts/kernel-tests.mjs --shard 2/6 --list   # name them, run nothing
+ *   node scripts/kernel-tests.mjs --group streams        # one category (GROUPS below)
+ *   node scripts/kernel-tests.mjs --group streams --list # name its tests, run nothing
  *
- * --shard i/n is for CI, where each part gets a machine (and so a loopback) of
+ * --group is for CI, where each category gets a machine (and so a loopback) of
  * its own: every loader start costs about half a minute on a GitHub runner, and
- * the whole set in a row is an hour. The parts are balanced by how long each
- * test took there (SECS below), longest first into whichever part is lightest,
- * so every shard computes the same split.
+ * the whole set in a row is an hour. Every test belongs to exactly one group,
+ * and any run fails until it does, so a new test cannot go unrun there. A new
+ * group also needs adding to the matrix in .github/workflows/test.yml.
  *
  * Needs a built bin/vm.bpf.o (`make bpf`), yeetd, and the right to attach to
  * loopback. A test that fails is run once more before it counts: they wait on
@@ -21,35 +21,35 @@ import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
 
 const dir = new URL("../test/kernel/", import.meta.url);
-/* Seconds each test took on a GitHub runner, for balancing shards only: a test
- * that is not listed is taken to be an average one. */
-const SECS = {
-  lang: 800, diff: 345, examples: 200, rewrite: 165, counters: 155, lpm: 137, source: 137, "regex-rewrite": 132,
-  regex: 118, counts: 104, lpm6: 104, kstr: 101, rate: 100, route: 98, loader: 90, reasm: 79, h2: 70,
+/* By what is under test. Sized so that no group is much longer than `language`,
+ * which is one test and the longest. */
+const GROUPS = {
+  language: ["lang"],
+  matching: ["bloom", "diff", "hash", "lpm", "lpm6", "regex"],
+  rewrite: ["dnat", "nat", "redirect", "regex-rewrite", "rewrite"],
+  streams: ["examples", "h2", "midjoin", "reasm"],
+  state: ["counters", "counts", "rate", "source"],
+  host: ["argv", "knob", "kstr", "loader", "route", "shadow"],
+  machine: ["args", "call", "console", "mpos", "printk", "stack"],
 };
-const AVERAGE = 60;
 
 const argv = process.argv.slice(2);
-const flag = (name) => { const i = argv.indexOf(name); return i < 0 ? null : argv.splice(i, name === "--list" ? 1 : 2).at(-1); };
-const list = flag("--list") !== null;
-const shard = flag("--shard");
+const flag = (name, takesValue) => { const i = argv.indexOf(name); return i < 0 ? null : argv.splice(i, takesValue ? 2 : 1).at(-1); };
+const list = flag("--list", false) !== null;
+const group = flag("--group", true);
 const want = argv;
 
-function shardOf(names, spec) {
-  const m = /^(\d+)\/(\d+)$/.exec(spec ?? "");
-  const [index, count] = m ? [Number(m[1]), Number(m[2])] : [0, 0];
-  if (!m || index < 1 || index > count) { console.log(`--shard wants i/n with 1 <= i <= n, not "${spec}"`); process.exit(2); }
-  const secs = (t) => SECS[t] ?? AVERAGE;
-  const parts = Array.from({ length: count }, () => ({ load: 0, names: [] }));
-  for (const t of [...names].sort((a, b) => secs(b) - secs(a) || a.localeCompare(b))) {
-    const part = parts.reduce((least, p) => (p.load < least.load ? p : least));
-    part.load += secs(t); part.names.push(t);
-  }
-  return parts[index - 1].names.sort();
-}
+const every = readdirSync(dir).filter((f) => f.endsWith(".mjs")).map((f) => f.slice(0, -4)).sort();
+const grouped = Object.values(GROUPS).flat();
+const problems = [
+  ...every.filter((t) => !grouped.includes(t)).map((t) => `${t} is in no group`),
+  ...grouped.filter((t) => !every.includes(t)).map((t) => `${t} is grouped but test/kernel/${t}.mjs does not exist`),
+  ...grouped.filter((t, i) => grouped.indexOf(t) !== i).map((t) => `${t} is in two groups`),
+];
+if (problems.length) { console.log(`GROUPS in scripts/kernel-tests.mjs: ${problems.join("; ")}`); process.exit(2); }
+if (group !== null && !GROUPS[group]) { console.log(`--group wants one of ${Object.keys(GROUPS).join(", ")}, not "${group}"`); process.exit(2); }
 
-const all = readdirSync(dir).filter((f) => f.endsWith(".mjs")).map((f) => f.slice(0, -4)).filter((t) => !want.length || want.includes(t)).sort();
-const tests = shard === null ? all : shardOf(all, shard);
+const tests = (group === null ? every : [...GROUPS[group]].sort()).filter((t) => !want.length || want.includes(t));
 if (list) { console.log(tests.join("\n")); process.exit(0); }
 if (!tests.length) { console.log("no kernel tests match"); process.exit(1); }
 
