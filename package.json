@@ -68,6 +68,7 @@
         "test:knob": "node test/kernel/knob.mjs",
     "test:kstr": "node test/kernel/kstr.mjs",
     "test:mpos": "node test/kernel/mpos.mjs",
-    "test:lang": "node test/kernel/lang.mjs"
+    "test:lang": "node test/kernel/lang.mjs",
+    "test:clock": "node test/kernel/clock.mjs"
   }
 }

@@ -527,6 +527,9 @@ static long pfw_step(__u32 i, void *pctx)
         cur = idx < p->argc ? p->args[idx & (PFW_ARGC - 1)] : (__u64) (__u32) imm;
         break;
     }
+    case OP_NOW:
+        cur = c->now;
+        break;
     case OP_ARGC:
         cur = p->argc;
         break;

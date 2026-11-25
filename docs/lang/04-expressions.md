@@ -25,7 +25,7 @@ inside value arithmetic it is **bitwise-or**.
 - `(expr)`, `!primary`;
 - `flow.state`, `flow.count`, `flow.hash`, `flow.r0`–`flow.r3`, `flow.bytes`, `flow.packets`, `src.state`, `src.count` (§6), `ring.len`, `ring.get(i)` (§6),
   `frame.len`, `frame.type`, `frame.data` (valid only inside a `frame` body, §6);
-- `argv[i] ?? default`, `argc` (§5);
+- `argv[i] ?? default`, `argc`, `now` (§5);
 - direct reads: `u8(p)`, `be16(p + 2)`, … (below);
 - table cells: `NAME[index]`, and `lookup(key) ?? default` (below);
 - calls: `scan(...)`, `after(...)`, `find(...)`, `starts(...)`, `any/all/seq(...)`,
@@ -223,6 +223,29 @@ if (len > argv[1] ?? 8192) decide drop("oversize");
 `argv` reads anywhere a value is expected: comparisons, arithmetic, thresholds,
 and the arguments of `rate` and `dnat`. `redirect` and `scan`'s length still
 want constants.
+
+### Packet time
+
+`now` reads the packet's arrival time in kernel-monotonic nanoseconds — one
+reading taken as the packet enters, so every read of `now` in a program sees the
+same value. It is a plain value, read anywhere a value is expected. The
+reference interpreter has no clock, so it reads whatever time the host supplies
+(0 by default); a program's use of `now` is checked against the kernel, not the
+model.
+
+An inter-packet gap on a flow comes from the per-flow ring. The ring holds
+**32-bit** entries, so push `now`'s low 32 bits and take the difference mod
+2³² — exact for any gap under ~4.3 seconds:
+
+```c
+let t = now & 0xffffffff;
+ring.push(t);
+if (ring.len >= 2) {
+  let prev = ring.get(1);                     // the previous packet's time
+  let gap = (t - prev) & 0xffffffff;          // nanoseconds since it
+  if (gap < 1000000) decide drop("too_fast"); // < 1 ms apart
+}
+```
 
 ### Live control knobs
 

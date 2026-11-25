@@ -294,6 +294,9 @@ export function assemble(source) {
       } else if (m === "argc") {
         want(0);
         emit(OP.ARGC);
+      } else if (m === "now") {
+        want(0);
+        emit(OP.NOW);
       } else if (m === "knob") {
         want(1);
         if (a.kind !== "imm") fail("knob is `knob $SLOT`");

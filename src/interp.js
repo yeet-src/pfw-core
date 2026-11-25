@@ -272,6 +272,7 @@ export function machine({ asm, tables, regex = null }) {
         case OP.LPM6: zf = set6.some((c) => (src6 & c.mask) === (c.net & c.mask)); cf = false; break; /* IPv6 src in the CIDR set */
         case OP.ARG: { const idx = Number((imm >> 32n) & 0xffffn); cur = idx < argv.length ? BigInt(argv[idx]) & U64 : (imm & 0xffffffffn); break; } /* runtime arg or inline default */
         case OP.ARGC: cur = BigInt(argv.length); break; /* number of args the host set */
+        case OP.NOW: cur = BigInt(now) & U64; break; /* the packet's arrival time, ktime ns (the host supplies it; 0 if unset) */
         case OP.KNOB: { const slot = Number(imm) & (LIMITS.KNOBS - 1); cur = BigInt(knobs[slot] ?? 0) & U64; break; } /* live host-set control value */
         case OP.KVGET: { /* the value under key cur, or the default and a fault */
           if (kvMap.has(cur)) cur = kvMap.get(cur);

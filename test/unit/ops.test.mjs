@@ -166,6 +166,12 @@ yeet.test("arg reads a runtime value, or its default when unset", () => {
   expectRst("argc", eq("        argc", 2), { opts: { argv: [10, 20] } });                // two args set
 });
 
+/* ---- now (packet arrival time; the host supplies it to the reference model) ---- */
+yeet.test("now reads the packet arrival time", () => {
+  expectRst("now set", eq("        now", 123456789), { opts: { now: 123456789 } });      // host-supplied ktime ns
+  expectRst("now unset", eq("        now", 0));                                          // 0 when the host gives none
+});
+
 yeet.test("knob reads a live host-set control value (0 when unset)", () => {
   expectRst("knob unset", eq("        knob    $0", 0));
   expectRst("knob set", eq("        knob    $0", 5), { opts: { knobs: [5] } });

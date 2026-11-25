@@ -263,6 +263,21 @@ by `console`/`printk`.
   A record is 4 kB whatever was asked for, so the 8 MiB ring holds about 2000:
   sample what matters, not everything.
 
+### 75 — `OP_NOW` (`now`)
+
+- **Assembler:** `now`. **Encoding:** `code = 75`, no operands.
+- **Operation (kernel):** `cur = ctx->now` — the one `bpf_ktime_get_ns()` reading
+  taken as the packet enters, the same clock the rate limiter, TTLs and bans use.
+  Every `now` in a program sees that single value, so two reads never disagree.
+- **Operation (host):** `cur = the `now` the caller supplied (0 if none)`. The
+  reference interpreter has no real clock, so a program's use of `now` is checked
+  against the kernel, not the model.
+- **Flags:** none (writes `%cur`). **Maps:** none.
+- **Example:** `let t = now & 0xffffffff;` then an inter-packet gap off the
+  per-flow ring: `ring.push(t); let gap = (t - ring.get(1)) & 0xffffffff;` — the
+  ring is `u32`, so the low 32 bits and a masked difference give the gap mod 2³²
+  (exact under ~4.3 s).
+
 ### 70 — `OP_TLOAD` (`tload $BASE, $SIZE`)
 
 - **Assembler:** `tload $0, $65537`. **Encoding:** `code = 70`, `reg = 0`, `imm` =

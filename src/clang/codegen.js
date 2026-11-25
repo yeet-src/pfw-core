@@ -328,6 +328,7 @@ export function codegen(ast) {
     if (e.kind === "num" || e.kind === "char") return loadConst(immVal(e));
     if (e.kind === "arg") return bld.arg(e.index, e.def ? Number(immVal(e.def)) & 0xffffffff : 0);
     if (e.kind === "argc") return bld.argc();
+    if (e.kind === "now") return bld.now();
     if (e.kind === "knob") {
       const slot = internKnob(e.knob); if (slot < 0) die(`too many knobs (max ${LIMITS.KNOBS})`, e.line);
       if (e.def != null) { const d = immVal(e.def); if (knobDefaults[slot] != null && knobDefaults[slot] !== d) die(`conflicting default for knob "${e.knob}"`, e.line); knobDefaults[slot] = d; }
@@ -368,7 +369,7 @@ export function codegen(ast) {
       const right = allocScratch(`__ar${nTmp++}`, e.line);
       bld.movFromCur(right); bld.movToCur(tmp); return bld[ARITH_R[op]](right);
     }
-    if (["flowstate", "flowcount", "flowhash", "flowreg", "ringlen", "ringget", "num", "char", "arg", "argc", "knob", "read", "tableget", "kvget"].includes(e.kind)) return value(e);
+    if (["flowstate", "flowcount", "flowhash", "flowreg", "ringlen", "ringget", "num", "char", "arg", "argc", "now", "knob", "read", "tableget", "kvget"].includes(e.kind)) return value(e);
     if (e.kind === "call" && (e.name === "pop" || funcs.has(e.name))) return value(e);
     if (e.kind === "ref" && REGISTERS.has(e.name)) return bld.movToCur(REG[e.name]);
     if (e.kind === "ref" && scratch.has(e.name)) return bld.movToCur(scratch.get(e.name));
