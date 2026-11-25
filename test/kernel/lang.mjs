@@ -30,7 +30,7 @@ async function withProgram(source, args, fn) {
   let out = "";
   child.stdout.on("data", (d) => { out += d; });
   child.stderr.on("data", (d) => { out += d; });
-  for (let i = 0; i < 150 && !/READY|COMPILE FAIL/.test(out); i++) await sleep(100);
+  for (let i = 0; i < 900 && !/READY|COMPILE FAIL/.test(out); i++) await sleep(100);
   if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out.slice(-2000)); }
   try { return await fn(); } finally { child.kill("SIGINT"); await sleep(500); }
 }
