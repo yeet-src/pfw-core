@@ -21,20 +21,20 @@ const ip = (s) => s.split(".").reduce((a, o) => ((a << 8) | Number(o)) >>> 0, 0)
 const hex = (s) => Buffer.from(s, "utf8").toString("hex");
 
 /* Reference verdict: run the program over the payload with loopback's 5-tuple. */
-function reference(source, payload) {
+function reference(source, payload, port) {
   const c = compile(source);
   if (!c.ok) throw new Error("compile: " + JSON.stringify(c.errors));
   const run = machine({ asm: c, tables: build(c.patterns, c.nocase) });
-  const r = run(Uint8Array.from(payload), 0, { ac: 0, mask: 0n }, { proto: 6, dport: PORT, saddr: ip("127.0.0.1") });
+  const r = run(Uint8Array.from(payload), 0, { ac: 0, mask: 0n }, { proto: 6, dport: port, saddr: ip("127.0.0.1") });
   return r.verdict;
 }
 
 /* Just send the payload (and close); the verdict is read from the loader's
  * event stream, not from this socket (RST on a SYN never surfaces as
  * ECONNRESET). */
-function send(payload) {
+function send(payload, port) {
   return new Promise((resolve) => {
-    const sock = net.connect(PORT, "127.0.0.1");
+    const sock = net.connect(port, "127.0.0.1");
     const done = () => { try { sock.destroy(); } catch {} resolve(); };
     sock.setTimeout(1200, done);
     sock.on("connect", () => { sock.write(Buffer.from(payload)); setTimeout(done, 300); });
@@ -43,10 +43,12 @@ function send(payload) {
   });
 }
 
-/* Run `fn(events)` with a loader holding `source`. `events` is the growing list
- * of kernel verdict numbers printed by the loader. */
-async function withProgram(source, fn) {
-  const child = spawn("yeet", ["run", "scripts/apply-and-hold.mjs", "--src", hex(source), "--iface", "1", "--hold", "25"], { cwd: ROOT });
+/* Run `fn(events)` with one loader holding every case's program at once, each
+ * on the packets to a port of its own: loading the VM is most of what this test
+ * waits for. `events` is the growing list of kernel verdict numbers printed by
+ * the loader. */
+async function withPrograms(routes, fn) {
+  const child = spawn("yeet", ["run", "scripts/apply-and-hold.mjs", "--routes", routes.map(([port, source]) => `tcp/${port}=${hex(source)}`).join(","), "--iface", "1", "--hold", "600"], { cwd: ROOT });
   const events = [];
   let out = "";
   const onData = (d) => {
@@ -55,8 +57,8 @@ async function withProgram(source, fn) {
   };
   child.stdout.on("data", onData);
   child.stderr.on("data", (d) => { out += d; });
-  for (let i = 0; i < 900 && !/READY/.test(out); i++) await sleep(100);
-  if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out); }
+  for (let i = 0; i < 900 && !/READY|COMPILE FAIL|failed/.test(out); i++) await sleep(100);
+  if (!/READY/.test(out)) { child.kill("SIGKILL"); throw new Error("loader never READY:\n" + out.slice(-2000)); }
   try { return await fn(events); } finally { child.kill("SIGINT"); await sleep(400); }
 }
 
@@ -79,48 +81,53 @@ const enc = (s) => Buffer.from(s, "latin1");
 // enforcement arms carry a log(); it is a no-op in the reference interpreter, so
 // verdicts are unchanged. PASS arms don't log -> no event -> observed as PASS.
 const CASES = [
-  { name: "scan match → rst", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
+  { name: "scan match → rst", source: (port) => `pattern bot = "GPTBot";\nfilter { if (dport != ${port}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["matching", enc("hi GPTBot here")], ["clean", enc("just a normal request")]] },
-  { name: "cidr loopback → rst", source: `filter { if (proto != 6) decide pass; if (dport != ${PORT}) decide pass; if (src in "127.0.0.0/8") { log(16); decide rst("lo", 0); } decide pass; }`,
+  { name: "cidr loopback → rst", source: (port) => `filter { if (proto != 6) decide pass; if (dport != ${port}) decide pass; if (src in "127.0.0.0/8") { log(16); decide rst("lo", 0); } decide pass; }`,
     sends: [["from 127/8", enc("anything")]] },
-  { name: "cidr 10/8 (no match) → pass", source: `filter { if (dport != ${PORT}) decide pass; if (src in "10.0.0.0/8") { log(16); decide rst("rfc1918", 0); } decide pass; }`,
+  { name: "cidr 10/8 (no match) → pass", source: (port) => `filter { if (dport != ${port}) decide pass; if (src in "10.0.0.0/8") { log(16); decide rst("rfc1918", 0); } decide pass; }`,
     sends: [["from 127, not 10/8", enc("anything")]] },
-  { name: "scan match → drop", source: `pattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide drop("bot"); } decide pass; }`,
-    sends: [["matching", enc("x GPTBot x")], ["clean", enc("nothing here")]] },
-  { name: "nocase scan → rst", source: `nocase;\npattern bot = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
+  { name: "nocase scan → rst", source: (port) => `nocase;\npattern bot = "GPTBot";\nfilter { if (dport != ${port}) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["lowercase gptbot", enc("x gptbot x")], ["MiXeD GpTbOt", enc("y GpTbOt y")], ["no bot", enc("plain text")]] },
-  { name: "dport guard → pass", source: `pattern bot = "GPTBot";\nfilter { if (dport != 1) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
+  { name: "dport guard → pass", source: (port) => `pattern bot = "GPTBot";\nfilter { if (dport != 1) decide pass; if (scan(payload, 256) & bot) { log(16); decide rst("bot", 0); } decide pass; }`,
     sends: [["wrong-port rule", enc("GPTBot but rule targets :1")]] },
   // A program that nearly fills the instruction budget, whose verdict depends
   // on every instruction having run.
-  { name: "a long program → rst", source: `filter { if (dport != ${PORT}) decide pass; let x = 0; repeat (${LONG / 16}) { repeat (16) { x = x + 1; } } if (x == ${LONG}) { log(16); decide rst("long", 0); } decide pass; }`,
+  { name: "a long program → rst", source: (port) => `filter { if (dport != ${port}) decide pass; let x = 0; repeat (${LONG / 16}) { repeat (16) { x = x + 1; } } if (x == ${LONG}) { log(16); decide rst("long", 0); } decide pass; }`,
     sends: [["every instruction runs", enc("anything")]] },
   // One segment, the signature 3000 bytes in: past the 2048 a scan once covered.
-  { name: "a signature deep in the packet → rst", source: `pattern sig = "GPTBot";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 4096) & sig) { log(16); decide rst("deep", 0); } decide pass; }`,
+  { name: "a signature deep in the packet → rst", source: (port) => `pattern sig = "GPTBot";\nfilter { if (dport != ${port}) decide pass; if (scan(payload, 4096) & sig) { log(16); decide rst("deep", 0); } decide pass; }`,
     sends: [["3000 bytes in", enc("x".repeat(3000) + "GPTBot")], ["not there", enc("x".repeat(3000) + "GPTBo")]] },
   // Thirty locals, all live until the sum: more than the sixteen scratch
   // registers there once were, so some sit on %s16 and up.
-  { name: "thirty live locals → rst", source: `filter { if (dport != ${PORT}) decide pass; ${Array.from({ length: 30 }, (_, i) => `let v${i} = ${i + 1};`).join(" ")} let sum = ${Array.from({ length: 30 }, (_, i) => `v${i}`).join(" + ")}; if (sum == 465) { log(16); decide rst("locals", 0); } decide pass; }`,
+  { name: "thirty live locals → rst", source: (port) => `filter { if (dport != ${port}) decide pass; ${Array.from({ length: 30 }, (_, i) => `let v${i} = ${i + 1};`).join(" ")} let sum = ${Array.from({ length: 30 }, (_, i) => `v${i}`).join(" + ")}; if (sum == 465) { log(16); decide rst("locals", 0); } decide pass; }`,
     sends: [["every local keeps its value", enc("anything")]] },
   // A 200-byte signature: over the 64 bytes a pattern once held.
-  { name: "a 200-byte pattern → rst", source: `pattern long = "${"ab".repeat(99)}yz";\nfilter { if (dport != ${PORT}) decide pass; if (scan(payload, 1024) & long) { log(16); decide rst("long_pat", 0); } decide pass; }`,
+  { name: "a 200-byte pattern → rst", source: (port) => `pattern long = "${"ab".repeat(99)}yz";\nfilter { if (dport != ${port}) decide pass; if (scan(payload, 1024) & long) { log(16); decide rst("long_pat", 0); } decide pass; }`,
     sends: [["the whole signature", enc("--" + "ab".repeat(99) + "yz--")], ["its last byte wrong", enc("--" + "ab".repeat(99) + "yy--")]] },
+  // Last, and its dropped segment sent last: the sender goes on retransmitting
+  // it, each one dropped and logged again, and the events do not say whose they are.
+  { name: "scan match → drop", source: (port) => `pattern bot = "GPTBot";\nfilter { if (dport != ${port}) decide pass; if (scan(payload, 256) & bot) { log(16); decide drop("bot"); } decide pass; }`,
+    sends: [["clean", enc("nothing here")], ["matching", enc("x GPTBot x")]] },
 ];
 
 let fail = 0, n = 0;
-const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });
-await new Promise((r) => server.listen(PORT, "127.0.0.1", r));
-console.log(`kernel differential — reference vs real kernel on :${PORT}\n`);
+for (const [i, c] of CASES.entries()) { c.port = PORT + i; c.source = c.source(c.port); }
+const servers = await Promise.all(CASES.map((c) => new Promise((r) => {
+  const server = net.createServer((s) => { s.on("data", () => s.write("ok")); s.on("error", () => {}); });
+  server.listen(c.port, "127.0.0.1", () => r(server));
+})));
+console.log(`kernel differential — reference vs real kernel, from :${PORT}\n`);
 try {
-  for (const c of CASES) {
-    await withProgram(c.source, async (events) => {
+  await withPrograms(CASES.map((c) => [c.port, c.source]), async (events) => {
+    for (const c of CASES) {
       for (const [label, payload] of c.sends) {
-        const ref = reference(c.source, payload);
+        const ref = reference(c.source, payload, c.port);
         // Drain stragglers (a dropped packet keeps being retransmitted) so the
         // window only holds events caused by THIS send.
         await sleep(700);
         const before = events.length;
-        await send(payload);
+        await send(payload, c.port);
         await sleep(700);
         const obs = verdictFrom(events.slice(before));
         n++;
@@ -128,8 +135,8 @@ try {
         if (!ok) fail++;
         console.log(`  ${ok ? "ok  " : "FAIL"} ${c.name} / ${label}: reference=${vname(ref)} kernel=${vname(obs)}`);
       }
-    });
-  }
-} finally { server.close(); }
+    }
+  });
+} finally { for (const s of servers) s.close(); }
 console.log(`\n${n - fail}/${n} agree`);
 process.exit(fail ? 1 : 0);
