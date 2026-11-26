@@ -42,6 +42,11 @@ on:
 permissions:
   contents: read
 
+# yeet's command line reports how it is used unless this is set, to anything.
+# CI is not a user: nothing here should be counted as one.
+env:
+  YEET_NO_ANALYTICS: 1
+
 # A newer push to the same pull request supersedes the run in progress. Runs on
 # master are never cancelled: one may be halfway through moving the tag.
 concurrency:
